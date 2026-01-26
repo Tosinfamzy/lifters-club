@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: lifters-club-db
+    ports:
+      - "5432:5432"
+    command: postgres -c wal_level=logical
+    environment:
+      POSTGRES_USER: ${DB_USER:-gymapp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-gymapp}
+      POSTGRES_DB: ${DB_NAME:-gymapp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gymapp} -d ${DB_NAME:-gymapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: dev
+    container_name: lifters-club-server
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-gymapp}:${DB_PASSWORD:-gymapp}@db:5432/${DB_NAME:-gymapp}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      NODE_ENV: development
+      PORT: 4000
+    volumes:
+      - ./apps/server/src:/app/apps/server/src:ro
+      - ./packages:/app/packages:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: dev
+    container_name: lifters-club-web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      API_URL_INTERNAL: http://server:4000
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      NODE_ENV: development
+    volumes:
+      - ./apps/web/src:/app/apps/web/src:ro
+      - ./packages:/app/packages:ro
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  pgdata:
