@@ -6,14 +6,14 @@ services:
       - "5432:5432"
     command: postgres -c wal_level=logical
     environment:
-      POSTGRES_USER: ${DB_USER:-gymapp}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-gymapp}
-      POSTGRES_DB: ${DB_NAME:-gymapp}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gymapp} -d ${DB_NAME:-gymapp}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -28,7 +28,7 @@ services:
     ports:
       - "4000:4000"
     environment:
-      DATABASE_URL: postgres://${DB_USER:-gymapp}:${DB_PASSWORD:-gymapp}@db:5432/${DB_NAME:-gymapp}
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       NODE_ENV: development
       PORT: 4000
