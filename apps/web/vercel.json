@@ -1,6 +1,0 @@
-{
-  "buildCommand": "cd ../.. && pnpm turbo build --filter=@gymapp/web",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "installCommand": "cd ../.. && pnpm install --frozen-lockfile"
-}
