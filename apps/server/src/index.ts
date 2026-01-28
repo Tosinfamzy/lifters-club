@@ -42,7 +42,7 @@ app.onError((err, c) => {
 
 const port = Number(process.env.PORT ?? 4000);
 
-const hostname = process.env.NODE_ENV === "production" ? "localhost" : "0.0.0.0";
+const hostname = process.env.NODE_ENV === "production" ? "0.0.0.0" : "0.0.0.0";
 
 console.log(`Server starting on http://${hostname}:${port}`);
 
