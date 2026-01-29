@@ -12,7 +12,7 @@ app.use(
   "*",
   cors({
     origin: process.env.NODE_ENV === "production"
-      ? ["http://localhost:3000"]
+      ? ["https://theliftersclub.com", "https://www.theliftersclub.com", "https://lifters-club.vercel.app"]
       : "*", // Allow all origins in development for mobile testing
     credentials: true,
   })
