@@ -20,10 +20,13 @@ COPY . .
 WORKDIR /app/apps/server
 CMD ["pnpm", "dev"]
 
-# Production stage (build everything, then run from same image)
+# Production stage - use tsx to run TypeScript directly
+# This avoids ESM module resolution issues with compiled JS
 FROM deps AS prod
 COPY . .
-RUN pnpm turbo build --filter=@gymapp/server...
+# Build the dependency packages (types, validation, db, engine)
+RUN pnpm turbo build --filter=@gymapp/server^...
 WORKDIR /app/apps/server
 ENV NODE_ENV=production
-CMD ["node", "dist/index.js"]
+# Run TypeScript directly with tsx instead of compiled JS
+CMD ["npx", "tsx", "src/index.ts"]
