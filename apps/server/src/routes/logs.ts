@@ -29,14 +29,29 @@ const logQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-// GET /logs - List workout logs
+// GET /logs - List workout logs with workout details
 logRoutes.get(
   "/",
   zValidator("query", logQuerySchema),
   async (c) => {
     const query = c.req.valid("query");
 
-    let dbQuery = db.select().from(workoutLogs);
+    let dbQuery = db
+      .select({
+        id: workoutLogs.id,
+        workoutId: workoutLogs.workoutId,
+        userId: workoutLogs.userId,
+        startedAt: workoutLogs.startedAt,
+        completedAt: workoutLogs.completedAt,
+        overallRpe: workoutLogs.overallRpe,
+        notes: workoutLogs.notes,
+        createdAt: workoutLogs.createdAt,
+        weekNumber: workouts.weekNumber,
+        dayNumber: workouts.dayNumber,
+        plannedExercises: workouts.plannedExercises,
+      })
+      .from(workoutLogs)
+      .leftJoin(workouts, eq(workoutLogs.workoutId, workouts.id));
 
     if (query.userId) {
       dbQuery = dbQuery.where(eq(workoutLogs.userId, query.userId)) as typeof dbQuery;
@@ -51,7 +66,22 @@ logRoutes.get(
       .limit(query.limit)
       .offset(query.offset);
 
-    return c.json({ data: results });
+    // Map results to include exerciseCount for convenience
+    const enriched = results.map((row) => ({
+      id: row.id,
+      workoutId: row.workoutId,
+      userId: row.userId,
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      overallRpe: row.overallRpe,
+      notes: row.notes,
+      createdAt: row.createdAt,
+      weekNumber: row.weekNumber,
+      dayNumber: row.dayNumber,
+      exerciseCount: Array.isArray(row.plannedExercises) ? row.plannedExercises.length : 0,
+    }));
+
+    return c.json({ data: enriched });
   }
 );
 

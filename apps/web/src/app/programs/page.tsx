@@ -1,8 +1,7 @@
 import { DashboardLayout } from "@/components/layout";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
 import { ProgramCard } from "@/components/programs/program-card";
+import { CreateProgramDialog } from "@/components/programs/create-program-dialog";
 import { api } from "@/lib/api";
 
 async function getPrograms() {
@@ -28,10 +27,7 @@ export default async function ProgramsPage() {
               Browse available training programs
             </p>
           </div>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            New Program
-          </Button>
+          <CreateProgramDialog />
         </div>
 
         {/* Programs Grid */}

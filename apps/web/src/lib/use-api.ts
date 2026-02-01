@@ -66,6 +66,13 @@ export function useApi() {
 
       createUser: (data: Parameters<typeof baseApi.createUser>[0]) =>
         baseApi.createUser(data), // Create user might need special handling
+
+      // Program management (protected)
+      createProgram: (data: Parameters<typeof baseApi.createProgram>[0]) =>
+        authenticatedRequest(() => baseApi.createProgram(data)),
+
+      deleteProgram: (id: string) =>
+        authenticatedRequest(() => baseApi.deleteProgram(id)),
     }),
     [authenticatedRequest]
   );

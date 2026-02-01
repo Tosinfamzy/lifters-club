@@ -1,6 +1,6 @@
-.PHONY: help up down restart logs db-shell migrate seed seed-programs seed-all build clean dev \
+.PHONY: help up up-db down restart logs logs-db logs-server logs-web db-shell migrate seed seed-programs seed-all build clean dev \
 	dev-server dev-web dev-mobile test test-watch test-server test-engine \
-	lint format typecheck api-docs status install mobile mobile-ios mobile-android
+	lint typecheck api-docs status install mobile mobile-ios mobile-android studio reset
 
 # Default target - show help
 .DEFAULT_GOAL := help
@@ -25,7 +25,7 @@ help:
 	@echo "  make db-push      - Push schema (dev only)"
 	@echo "  make migrate      - Run migrations"
 	@echo "  make seed         - Seed exercises"
-	@echo "  make seed-programs- Seed training programs"
+	@echo "  make seed-programs - Seed training programs"
 	@echo "  make seed-all     - Seed everything"
 	@echo "  make studio       - Open Drizzle Studio"
 	@echo ""
@@ -48,7 +48,6 @@ help:
 	@echo "  make test-engine  - Run engine tests only"
 	@echo "  make typecheck    - Run TypeScript checks"
 	@echo "  make lint         - Run linter"
-	@echo "  make format       - Format code"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build        - Build all packages"
@@ -99,11 +98,14 @@ status:
 
 # Open PostgreSQL shell
 db-shell:
-	docker compose exec db psql -U gymapp -d gymapp
+	docker compose exec db psql -U $${DB_USER:-gymapp} -d $${DB_NAME:-gymapp}
 
-# Run database migrations
+# Generate and run database migrations (use db-push for dev)
 migrate:
-	pnpm db:generate && pnpm db:migrate
+	@echo "Generating migrations from schema changes..."
+	pnpm db:generate
+	@echo "Running migrations..."
+	pnpm db:migrate
 
 # Push schema directly (dev only)
 db-push:
@@ -167,9 +169,9 @@ mobile-android:
 test:
 	pnpm test
 
-# Run tests in watch mode
+# Run tests in watch mode (engine only - has watch support)
 test-watch:
-	pnpm test -- --watch
+	pnpm --filter @gymapp/engine test:watch
 
 # Run server tests only
 test-server:
@@ -186,10 +188,6 @@ typecheck:
 # Run linter
 lint:
 	pnpm lint
-
-# Format code with prettier
-format:
-	pnpm prettier --write "**/*.{ts,tsx,js,jsx,json,md}" || echo "Prettier not configured"
 
 # ============ Build ============
 

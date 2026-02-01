@@ -63,3 +63,5 @@ coverage
 
 # Jest
 *.lcov
+.vercel
+.env*.local

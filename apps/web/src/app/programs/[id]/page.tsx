@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ExerciseEditor } from "@/components/programs/exercise-editor";
+import { DeleteProgramDialog } from "@/components/programs/delete-program-dialog";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -223,26 +224,32 @@ export default function ProgramDetailPage() {
             </div>
           </div>
 
-          {hasChanges && (
-            <Button onClick={handleSaveProgram} disabled={isSaving}>
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : saveSuccess ? (
-                <>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Saved!
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {hasChanges && (
+              <Button onClick={handleSaveProgram} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : saveSuccess ? (
+                  <>
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Saved!
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            )}
+            <DeleteProgramDialog
+              programId={program.id}
+              programName={program.name}
+            />
+          </div>
         </div>
 
         {/* Program Overview */}

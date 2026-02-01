@@ -123,6 +123,19 @@ class ApiClient {
     return this.request<ApiResponse<Program>>(`/api/programs/${id}`);
   }
 
+  async createProgram(data: CreateProgramInput) {
+    return this.request<ApiResponse<Program>>("/api/programs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProgram(id: string) {
+    return this.request<{ message: string }>(`/api/programs/${id}`, {
+      method: "DELETE",
+    });
+  }
+
   // Training Blocks
   async getTrainingBlocks(userId: string, status?: string) {
     const searchParams = new URLSearchParams({ userId });
@@ -232,6 +245,22 @@ export interface Exercise {
   updatedAt: string;
 }
 
+export interface ProgramTemplate {
+  weeks: number;
+  sessions: {
+    dayNumber: number;
+    name: string;
+    focus: string[];
+    exercises: {
+      exerciseId: string;
+      sets: number;
+      repRange: [number, number];
+      restSeconds: number;
+      notes?: string;
+    }[];
+  }[];
+}
+
 export interface Program {
   id: string;
   name: string;
@@ -239,23 +268,19 @@ export interface Program {
   daysPerWeek: number;
   goal: "strength" | "hypertrophy" | "conditioning";
   level: "beginner" | "intermediate" | "advanced";
-  template: {
-    weeks: number;
-    sessions: {
-      dayNumber: number;
-      name: string;
-      focus: string[];
-      exercises: {
-        exerciseId: string;
-        sets: number;
-        repRange: [number, number];
-        restSeconds: number;
-        notes?: string;
-      }[];
-    }[];
-  };
+  template: ProgramTemplate;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreateProgramInput {
+  id: string;
+  name: string;
+  description?: string;
+  daysPerWeek: number;
+  goal: "strength" | "hypertrophy" | "conditioning";
+  level: "beginner" | "intermediate" | "advanced";
+  template: ProgramTemplate;
 }
 
 export interface TrainingBlock {
