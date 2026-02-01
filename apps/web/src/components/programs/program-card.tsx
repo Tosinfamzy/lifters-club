@@ -22,6 +22,7 @@ import {
 import { Calendar, Dumbbell, Loader2, CheckCircle, Settings } from "lucide-react";
 import Link from "next/link";
 import { useAppUser } from "@/providers/user-provider";
+import { useApi } from "@/lib/use-api";
 import type { Program } from "@/lib/api";
 
 interface ProgramCardProps {
@@ -30,10 +31,11 @@ interface ProgramCardProps {
 
 export function ProgramCard({ program }: ProgramCardProps) {
   const { appUser } = useAppUser();
+  const api = useApi();
   const [isOpen, setIsOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [startDate, setStartDate] = useState(
-    new Date().toISOString().split("T")[0]
+    new Date().toISOString().split("T")[0] ?? ""
   );
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,26 +53,12 @@ export function ProgramCard({ program }: ProgramCardProps) {
       // Generate a unique ID for the training block
       const blockId = `block-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-      const userId = appUser.id;
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/api/workouts/training-blocks`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: blockId,
-            userId,
-            programId: program.id,
-            startDate,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to start program");
-      }
+      await api.createTrainingBlock({
+        id: blockId,
+        userId: appUser.id,
+        programId: program.id,
+        startDate,
+      });
 
       setSuccess(true);
       setTimeout(() => {

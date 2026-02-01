@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
 import { DashboardLayout } from "@/components/layout";
+import { useApi } from "@/lib/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -71,7 +71,7 @@ interface Exercise {
 
 export default function ProgramDetailPage() {
   const params = useParams();
-  const { getToken } = useAuth();
+  const api = useApi();
 
   const [program, setProgram] = useState<Program | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -142,23 +142,10 @@ export default function ProgramDetailPage() {
 
     setIsSaving(true);
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/programs/${program.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          template: program.template,
-        }),
-      });
-
-      if (response.ok) {
-        setHasChanges(false);
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-      }
+      await api.updateProgram(program.id, { template: program.template });
+      setHasChanges(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error("Failed to save program:", error);
     } finally {

@@ -73,6 +73,13 @@ export function useApi() {
 
       deleteProgram: (id: string) =>
         authenticatedRequest(() => baseApi.deleteProgram(id)),
+
+      updateProgram: (id: string, data: Parameters<typeof baseApi.updateProgram>[1]) =>
+        authenticatedRequest(() => baseApi.updateProgram(id, data)),
+
+      // Training blocks (protected)
+      createTrainingBlock: (data: Parameters<typeof baseApi.createTrainingBlock>[0]) =>
+        authenticatedRequest(() => baseApi.createTrainingBlock(data)),
     }),
     [authenticatedRequest]
   );

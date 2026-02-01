@@ -88,9 +88,7 @@ git commit -m "chore: initial monorepo setup with Exercise Substitution Flow
 - Frontend: React Native (Expo), Next.js 15
 - Auth: Clerk
 - Validation: Zod
-- Testing: Jest (mobile), Vitest (server/packages)
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+- Testing: Jest (mobile), Vitest (server/packages)"
 ```
 
 ### 3. Connect to Remote
@@ -160,9 +158,7 @@ git commit -m "feat(mobile): add exercise info modal
 - Implement ExerciseInfoModal component
 - Add ExerciseInfo type to shared types package
 - Include 15 unit tests
-- Display instructions, safety tips, and tempo
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+- Display instructions, safety tips, and tempo"
 
 # 6. Push and create PR
 git push -u origin feature/mobile/exercise-info-modal
@@ -204,9 +200,7 @@ git commit -m "feat(types,mobile,server): add exercise preference storage
 Changes:
 - types: Add ExercisePreference interface
 - mobile: Implement preference storage UI
-- server: Add preference API endpoints
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+- server: Add preference API endpoints"
 ```
 
 ## 🏗️ Managing Shared Packages

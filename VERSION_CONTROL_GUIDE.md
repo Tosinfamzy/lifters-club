@@ -107,9 +107,7 @@ git commit -m "chore: initial commit with Exercise Substitution Flow MVP
 - Workout completion UNDO functionality
 - Skip Exercise and Mark Exercise Done features
 - Offline-first storage with 24h cache TTL
-- 52 unit tests with 90%+ coverage on new components
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+- 52 unit tests with 90%+ coverage on new components"
 ```
 
 ## Step 5: Set Up Remote Repository
@@ -253,9 +251,7 @@ git commit -m "feat(mobile): add exercise substitution flow
 - Implement alternative exercises screen
 - Add ExerciseActionsSheet component
 - Add offline storage for preferences
-- Include 52 unit tests
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+- Include 52 unit tests"
 
 # Bug fix
 git commit -m "fix(mobile): prevent race condition in offline sync
@@ -470,9 +466,7 @@ git commit -m "feat(mobile): implement exercise substitution flow MVP
 - apps/mobile/app/workout/[id].tsx (integrated new features)
 - apps/mobile/lib/offline/storage.ts (added 4 methods)
 - packages/types/src/exercise.ts (added types)
-- 3 test files with 52 tests total
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+- 3 test files with 52 tests total"
 
 # Create remote and push
 git remote add origin <your-repo-url>

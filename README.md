@@ -255,8 +255,6 @@ docs/<name>               # docs/update-readme
 
 - Bullet point 1
 - Bullet point 2
-
-Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 ```
 
 **See [MONOREPO_VERSION_CONTROL.md](MONOREPO_VERSION_CONTROL.md) for complete guide.**

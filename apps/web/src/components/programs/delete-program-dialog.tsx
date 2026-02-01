@@ -20,7 +20,7 @@ import { useApi } from "@/lib/use-api";
 interface DeleteProgramDialogProps {
   programId: string;
   programName: string;
-  trigger?: React.ReactNode;
+  trigger?: React.ReactElement;
 }
 
 export function DeleteProgramDialog({

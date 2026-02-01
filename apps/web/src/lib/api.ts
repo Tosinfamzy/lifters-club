@@ -136,6 +136,13 @@ class ApiClient {
     });
   }
 
+  async updateProgram(id: string, data: Partial<Omit<Program, 'id' | 'createdAt' | 'updatedAt'>>) {
+    return this.request<ApiResponse<Program>>(`/api/programs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
   // Training Blocks
   async getTrainingBlocks(userId: string, status?: string) {
     const searchParams = new URLSearchParams({ userId });
@@ -143,6 +150,13 @@ class ApiClient {
     return this.request<ApiResponse<TrainingBlock[]>>(
       `/api/workouts/training-blocks?${searchParams}`
     );
+  }
+
+  async createTrainingBlock(data: CreateTrainingBlockInput) {
+    return this.request<ApiResponse<TrainingBlock>>("/api/workouts/training-blocks", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   async getTrainingBlock(id: string) {
@@ -281,6 +295,13 @@ export interface CreateProgramInput {
   goal: "strength" | "hypertrophy" | "conditioning";
   level: "beginner" | "intermediate" | "advanced";
   template: ProgramTemplate;
+}
+
+export interface CreateTrainingBlockInput {
+  id: string;
+  userId: string;
+  programId: string;
+  startDate: string;
 }
 
 export interface TrainingBlock {
