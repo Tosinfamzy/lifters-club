@@ -33,6 +33,7 @@ export function useApi() {
       getExercises: baseApi.getExercises.bind(baseApi),
       getExercise: baseApi.getExercise.bind(baseApi),
       searchExercises: baseApi.searchExercises.bind(baseApi),
+      getExerciseSubstitutes: baseApi.getExerciseSubstitutes.bind(baseApi),
       getPrograms: baseApi.getPrograms.bind(baseApi),
       getProgram: baseApi.getProgram.bind(baseApi),
 

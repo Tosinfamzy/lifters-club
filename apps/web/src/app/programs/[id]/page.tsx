@@ -27,10 +27,12 @@ import {
   Save,
   Loader2,
   CheckCircle,
+  Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { ExerciseEditor } from "@/components/programs/exercise-editor";
 import { DeleteProgramDialog } from "@/components/programs/delete-program-dialog";
+import { AddExerciseDialog } from "@/components/programs/add-exercise-dialog";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -83,6 +85,7 @@ export default function ProgramDetailPage() {
   } | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [addExerciseSession, setAddExerciseSession] = useState<number | null>(null);
 
   const programId = params.id as string;
 
@@ -134,6 +137,26 @@ export default function ProgramDetailPage() {
 
     setProgram({ ...program, template: newTemplate });
     setEditingExercise(null);
+    setHasChanges(true);
+  };
+
+  const handleExerciseAdd = (
+    sessionIndex: number,
+    newExercise: PlannedExercise
+  ) => {
+    if (!program) return;
+
+    const newTemplate = { ...program.template };
+    const newSessions = [...newTemplate.sessions];
+    const newExercises = [...newSessions[sessionIndex]!.exercises, newExercise];
+    newSessions[sessionIndex] = {
+      ...newSessions[sessionIndex]!,
+      exercises: newExercises,
+    };
+    newTemplate.sessions = newSessions;
+
+    setProgram({ ...program, template: newTemplate });
+    setAddExerciseSession(null);
     setHasChanges(true);
   };
 
@@ -373,6 +396,16 @@ export default function ProgramDetailPage() {
                           </div>
                         );
                       })}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-2"
+                        onClick={() => setAddExerciseSession(sessionIndex)}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Exercise
+                      </Button>
                     </div>
                   </AccordionContent>
                 </AccordionItem>
@@ -381,6 +414,13 @@ export default function ProgramDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AddExerciseDialog
+        sessionIndex={addExerciseSession ?? 0}
+        open={addExerciseSession !== null}
+        onOpenChange={(open) => !open && setAddExerciseSession(null)}
+        onAdd={handleExerciseAdd}
+      />
     </DashboardLayout>
   );
 }

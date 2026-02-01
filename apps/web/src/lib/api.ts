@@ -100,6 +100,27 @@ class ApiClient {
     return this.request<ApiResponse<Exercise[]>>(`/api/exercises/search/${encodeURIComponent(term)}`);
   }
 
+  async getExerciseSubstitutes(
+    exerciseId: string,
+    params?: {
+      limit?: number;
+      equipment?: string[];
+      maxDifficulty?: string;
+      exclude?: string[];
+    }
+  ) {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.equipment?.length) searchParams.set("equipment", params.equipment.join(","));
+    if (params?.maxDifficulty) searchParams.set("maxDifficulty", params.maxDifficulty);
+    if (params?.exclude?.length) searchParams.set("exclude", params.exclude.join(","));
+
+    const query = searchParams.toString();
+    return this.request<ExerciseSubstitutesResponse>(
+      `/api/exercises/${exerciseId}/substitutes${query ? `?${query}` : ""}`
+    );
+  }
+
   // Programs
   async getPrograms(params?: {
     limit?: number;
@@ -257,6 +278,19 @@ export interface Exercise {
   constraints: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScoredSubstitute {
+  exercise: Exercise;
+  score: number;
+  reasons: string[];
+}
+
+export interface ExerciseSubstitutesResponse {
+  data: {
+    source: Exercise;
+    substitutes: ScoredSubstitute[];
+  };
 }
 
 export interface ProgramTemplate {
