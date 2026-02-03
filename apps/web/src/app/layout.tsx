@@ -15,6 +15,8 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/dashboard"
       appearance={{
         variables: {
           colorPrimary: "#3B82F6",
