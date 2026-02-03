@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { useAppUser } from "@/providers/user-provider";
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Programs", href: "/programs", icon: Dumbbell },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
   { name: "Decisions", href: "/decisions", icon: Brain },
@@ -75,7 +75,7 @@ export function Sidebar() {
           </Link>
           <div className="flex items-center gap-3 px-3 py-2">
             <UserButton
-              afterSignOutUrl="/sign-in"
+              afterSignOutUrl="/"
               appearance={{
                 elements: {
                   avatarBox: "h-8 w-8",

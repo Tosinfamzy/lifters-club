@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { DashboardLayout } from "@/components/layout";
 import {
   Card,
   CardContent,
@@ -217,17 +216,14 @@ export default function HistoryPage() {
 
   if (isUserLoading || isLoading) {
     return (
-      <DashboardLayout>
-        <div className="flex h-[50vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </DashboardLayout>
+      <div className="flex h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
     );
   }
 
   return (
-    <DashboardLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -364,6 +360,5 @@ export default function HistoryPage() {
           onUpdate={handleUpdate}
         />
       </div>
-    </DashboardLayout>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { DashboardLayout } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   VolumeChart,
@@ -185,17 +184,14 @@ export default function AnalyticsPage() {
 
   if (isUserLoading || isLoading) {
     return (
-      <DashboardLayout>
-        <div className="flex h-[50vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </DashboardLayout>
+      <div className="flex h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
     );
   }
 
   return (
-    <DashboardLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold">Analytics</h1>
@@ -331,7 +327,6 @@ export default function AnalyticsPage() {
           </Card>
         )}
       </div>
-    </DashboardLayout>
   );
 }
 

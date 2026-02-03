@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { DashboardLayout } from "@/components/layout";
 import { useApi } from "@/lib/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -188,32 +187,28 @@ export default function ProgramDetailPage() {
 
   if (isLoading) {
     return (
-      <DashboardLayout>
-        <div className="flex h-[50vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </DashboardLayout>
+      <div className="flex h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
     );
   }
 
   if (!program) {
     return (
-      <DashboardLayout>
-        <div className="text-center py-12">
-          <p className="text-lg text-muted-foreground">Program not found</p>
-          <Button asChild className="mt-4">
-            <Link href="/programs">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Programs
-            </Link>
-          </Button>
-        </div>
-      </DashboardLayout>
+      <div className="text-center py-12">
+        <p className="text-lg text-muted-foreground">Program not found</p>
+        <Button asChild className="mt-4">
+          <Link href="/programs">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Programs
+          </Link>
+        </Button>
+      </div>
     );
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -421,6 +416,6 @@ export default function ProgramDetailPage() {
         onOpenChange={(open) => !open && setAddExerciseSession(null)}
         onAdd={handleExerciseAdd}
       />
-    </DashboardLayout>
+    </>
   );
 }

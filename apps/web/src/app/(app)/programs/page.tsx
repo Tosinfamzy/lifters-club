@@ -1,4 +1,3 @@
-import { DashboardLayout } from "@/components/layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProgramCard } from "@/components/programs/program-card";
 import { CreateProgramDialog } from "@/components/programs/create-program-dialog";
@@ -17,8 +16,7 @@ export default async function ProgramsPage() {
   const programs = await getPrograms();
 
   return (
-    <DashboardLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -45,7 +43,6 @@ export default async function ProgramsPage() {
             ))}
           </div>
         )}
-      </div>
-    </DashboardLayout>
+    </div>
   );
 }

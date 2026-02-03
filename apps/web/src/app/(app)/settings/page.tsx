@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { DashboardLayout } from "@/components/layout";
 import {
   Card,
   CardContent,
@@ -81,8 +80,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <DashboardLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Settings</h1>
@@ -193,6 +191,5 @@ export default function SettingsPage() {
           </Card>
         </div>
       </div>
-    </DashboardLayout>
   );
 }
