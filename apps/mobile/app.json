@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Lifters Club",
+    "slug": "lifters-club",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "liftersclub",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.liftersclub.app"
+    },
+    "android": {
+      "package": "com.liftersclub.app",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "platforms": ["ios", "android"]
+  }
+}
