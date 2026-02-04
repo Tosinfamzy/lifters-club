@@ -44,7 +44,7 @@ jobs:
           PGPASSWORD=test psql -h localhost -U test -d gymapp_test -c "CREATE SCHEMA IF NOT EXISTS training;"
 
       - name: Push database schema
-        run: pnpm --filter @gymapp/db db:push
+        run: pnpm --filter @gymapp/db drizzle-kit push --force
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/gymapp_test
 

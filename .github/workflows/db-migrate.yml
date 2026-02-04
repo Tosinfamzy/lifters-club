@@ -25,6 +25,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Push database schema
-        run: pnpm --filter @gymapp/db db:push
+        run: pnpm --filter @gymapp/db drizzle-kit push --force
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
