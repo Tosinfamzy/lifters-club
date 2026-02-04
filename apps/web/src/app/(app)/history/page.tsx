@@ -232,7 +232,7 @@ export default function HistoryPage() {
               Review and edit your past training sessions
             </p>
           </div>
-          <ExportDialog workouts={filteredAndSortedLogs} />
+          <ExportDialog workouts={filteredAndSortedLogs} getToken={getToken} />
         </div>
 
         {/* Stats Overview */}

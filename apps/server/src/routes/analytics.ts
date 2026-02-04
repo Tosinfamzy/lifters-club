@@ -365,4 +365,173 @@ analyticsRoutes.get(
   }
 );
 
+// GET /analytics/weekly-summary - Get detailed weekly training summary
+analyticsRoutes.get(
+  "/weekly-summary",
+  zValidator("query", userQuerySchema.extend({
+    weekOffset: z.coerce.number().int().min(0).max(52).default(0), // 0 = current week, 1 = last week, etc.
+  })),
+  async (c) => {
+    const { userId, weekOffset } = c.req.valid("query");
+
+    // Calculate week boundaries
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay() - (weekOffset * 7)); // Sunday
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    // Get workout logs for this week
+    const logs = await db
+      .select({
+        id: workoutLogs.id,
+        startedAt: workoutLogs.startedAt,
+        completedAt: workoutLogs.completedAt,
+        overallRpe: workoutLogs.overallRpe,
+      })
+      .from(workoutLogs)
+      .where(and(
+        eq(workoutLogs.userId, userId),
+        gte(workoutLogs.startedAt, startOfWeek),
+        sql`${workoutLogs.startedAt} <= ${endOfWeek}`
+      ))
+      .orderBy(workoutLogs.startedAt);
+
+    const completedLogs = logs.filter(l => l.completedAt);
+
+    if (completedLogs.length === 0) {
+      return c.json({
+        data: {
+          weekStart: startOfWeek.toISOString().split("T")[0],
+          weekEnd: endOfWeek.toISOString().split("T")[0],
+          workoutCount: 0,
+          totalVolume: 0,
+          totalSets: 0,
+          averageRpe: null,
+          averageDuration: null,
+          exerciseBreakdown: [],
+          dayBreakdown: [],
+          highlights: [],
+        },
+      });
+    }
+
+    // Get all sets for these logs
+    const logIds = completedLogs.map(l => l.id);
+    const sets = await db
+      .select({
+        workoutLogId: loggedSets.workoutLogId,
+        exerciseId: loggedSets.exerciseId,
+        weight: loggedSets.weight,
+        reps: loggedSets.reps,
+        rpe: loggedSets.rpe,
+      })
+      .from(loggedSets)
+      .where(sql`${loggedSets.workoutLogId} IN ${logIds}`);
+
+    // Calculate total volume and sets
+    let totalVolume = 0;
+    const exerciseVolume = new Map<string, { volume: number; sets: number; maxWeight: number }>();
+
+    for (const set of sets) {
+      const volume = set.weight * set.reps;
+      totalVolume += volume;
+
+      const existing = exerciseVolume.get(set.exerciseId);
+      if (!existing) {
+        exerciseVolume.set(set.exerciseId, {
+          volume,
+          sets: 1,
+          maxWeight: set.weight,
+        });
+      } else {
+        existing.volume += volume;
+        existing.sets += 1;
+        existing.maxWeight = Math.max(existing.maxWeight, set.weight);
+      }
+    }
+
+    // Calculate average RPE
+    const logsWithRpe = completedLogs.filter(l => l.overallRpe !== null);
+    const averageRpe = logsWithRpe.length > 0
+      ? logsWithRpe.reduce((sum, l) => sum + (l.overallRpe || 0), 0) / logsWithRpe.length
+      : null;
+
+    // Calculate average duration
+    const durations = completedLogs
+      .filter(l => l.completedAt)
+      .map(l => {
+        const start = new Date(l.startedAt);
+        const end = new Date(l.completedAt!);
+        return (end.getTime() - start.getTime()) / (1000 * 60);
+      });
+
+    const averageDuration = durations.length > 0
+      ? durations.reduce((sum, d) => sum + d, 0) / durations.length
+      : null;
+
+    // Day breakdown
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dayBreakdown = dayNames.map((name, index) => {
+      const dayLogs = completedLogs.filter(l => {
+        const logDate = new Date(l.completedAt!);
+        return logDate.getDay() === index;
+      });
+      return {
+        day: name,
+        workouts: dayLogs.length,
+        trained: dayLogs.length > 0,
+      };
+    });
+
+    // Exercise breakdown (top 5 by volume)
+    const exerciseBreakdown = Array.from(exerciseVolume.entries())
+      .map(([exerciseId, data]) => ({
+        exerciseId,
+        totalVolume: Math.round(data.volume),
+        totalSets: data.sets,
+        maxWeight: data.maxWeight,
+      }))
+      .sort((a, b) => b.totalVolume - a.totalVolume)
+      .slice(0, 5);
+
+    // Generate highlights
+    const highlights: string[] = [];
+
+    if (completedLogs.length >= 3) {
+      highlights.push(`Completed ${completedLogs.length} workouts this week!`);
+    }
+
+    if (totalVolume > 50000) {
+      highlights.push(`Moved over ${Math.round(totalVolume / 1000)}k lbs total volume`);
+    }
+
+    if (sets.length > 50) {
+      highlights.push(`Logged ${sets.length} sets this week`);
+    }
+
+    if (averageRpe && averageRpe >= 7 && averageRpe <= 8.5) {
+      highlights.push("Training intensity in optimal range");
+    }
+
+    return c.json({
+      data: {
+        weekStart: startOfWeek.toISOString().split("T")[0],
+        weekEnd: endOfWeek.toISOString().split("T")[0],
+        workoutCount: completedLogs.length,
+        totalVolume: Math.round(totalVolume),
+        totalSets: sets.length,
+        averageRpe: averageRpe ? Number(averageRpe.toFixed(1)) : null,
+        averageDuration: averageDuration ? Math.round(averageDuration) : null,
+        exerciseBreakdown,
+        dayBreakdown,
+        highlights,
+      },
+    });
+  }
+);
+
 export { analyticsRoutes };

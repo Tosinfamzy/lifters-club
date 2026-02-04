@@ -100,3 +100,37 @@ export const decisions = training.table("decisions", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Push notification tokens for web and mobile
+export const pushTokens = training.table("push_tokens", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  token: text("token").notNull(),
+  platform: varchar("platform", { length: 20 }).notNull(), // 'web', 'ios', 'android'
+  deviceId: varchar("device_id", { length: 255 }),
+
+  isActive: integer("is_active").notNull().default(1),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Pre-workout readiness check-ins for historical analysis
+export const readinessChecks = training.table("readiness_checks", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+  workoutLogId: varchar("workout_log_id", { length: 64 }).references(() => workoutLogs.id),
+
+  // Input factors (1-5 scale)
+  sleepQuality: integer("sleep_quality").notNull(),
+  muscleSoreness: integer("muscle_soreness").notNull(),
+  stressLevel: integer("stress_level").notNull(),
+  energyLevel: integer("energy_level").notNull(),
+
+  // Calculated results
+  score: integer("score").notNull(),
+  recommendation: varchar("recommendation", { length: 20 }).notNull(), // 'proceed', 'modify', 'rest'
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

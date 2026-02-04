@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAppUser } from "@/providers/user-provider";
+import { WeeklySummary } from "@/components/dashboard";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -278,6 +279,9 @@ export default function DashboardPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Weekly Summary */}
+      <WeeklySummary />
 
       {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-2">

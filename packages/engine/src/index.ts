@@ -1,3 +1,6 @@
+// Engine version - bump when algorithm logic changes
+export const ENGINE_VERSION = "1.0.0";
+
 // Core decision functions
 export { calculateLoadProgression } from "./progression";
 export { calculateVolumeAdjustment } from "./volume";
@@ -6,6 +9,9 @@ export { calculateDeloadNeed } from "./deload";
 export { calculateSessionRecovery } from "./recovery";
 export { calculateMissedSessionHandling } from "./missed-session";
 export { generateWeeklyPlan, calculatePerformanceTrend } from "./planning";
+
+// Readiness assessment
+export { calculateSessionReadiness } from "./readiness";
 
 // Substitution functions
 export { findSubstitutes, getTopSubstitutes, isValidSubstitute } from "./substitution";
@@ -48,6 +54,14 @@ export type {
   SubstitutionConfig,
   ScoredSubstitute,
 } from "./substitution";
+
+// Readiness types
+export type {
+  ReadinessInput,
+  ReadinessResult,
+  ReadinessRecommendation,
+  ReadinessConfig,
+} from "./readiness";
 
 // Config types for customization
 export type { ProgressionConfig } from "./progression";

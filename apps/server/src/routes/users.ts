@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { users, trainingBlocks } from "@gymapp/db/schema";
+import { users, trainingBlocks, readinessChecks } from "@gymapp/db/schema";
+import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
-import { calculateSessionRecovery } from "@gymapp/engine";
+import { calculateSessionRecovery, calculateSessionReadiness } from "@gymapp/engine";
 import type { Env } from "../types";
 
 const userRoutes = new Hono<Env>();
@@ -144,7 +145,61 @@ userRoutes.patch(
 
 // ============ Readiness Check-in ============
 
+// Simple readiness check (1-5 scale) - for quick pre-workout check-ins
 const readinessSchema = z.object({
+  userId: z.string().min(1),
+  workoutId: z.string().min(1).optional(),
+  sleepQuality: z.number().min(1).max(5),      // 1=poor, 5=excellent
+  muscleSoreness: z.number().min(1).max(5),    // 1=none, 5=severe
+  stressLevel: z.number().min(1).max(5),       // 1=low, 5=high
+  energyLevel: z.number().min(1).max(5),       // 1=exhausted, 5=energized
+});
+
+// POST /readiness - Submit pre-workout readiness and get adjustments
+userRoutes.post(
+  "/readiness",
+  zValidator("json", readinessSchema),
+  async (c) => {
+    const data = c.req.valid("json");
+
+    // Calculate readiness using the simple engine function
+    const result = calculateSessionReadiness({
+      sleepQuality: data.sleepQuality,
+      muscleSoreness: data.muscleSoreness,
+      stressLevel: data.stressLevel,
+      energyLevel: data.energyLevel,
+    });
+
+    // Persist the readiness check for historical analysis
+    const checkId = `rc_${nanoid(12)}`;
+    await db.insert(readinessChecks).values({
+      id: checkId,
+      userId: data.userId,
+      workoutLogId: data.workoutId ?? null,
+      sleepQuality: data.sleepQuality,
+      muscleSoreness: data.muscleSoreness,
+      stressLevel: data.stressLevel,
+      energyLevel: data.energyLevel,
+      score: result.score,
+      recommendation: result.recommendation,
+    });
+
+    return c.json({
+      data: {
+        id: checkId,
+        score: result.score,
+        recommendation: result.recommendation,
+        volumeModifier: result.volumeModifier,
+        intensityModifier: result.intensityModifier,
+        adjustments: result.adjustments,
+        reason: result.reason,
+      },
+    });
+  }
+);
+
+// Extended readiness check (1-10 scale) - for detailed recovery analysis
+const extendedReadinessSchema = z.object({
   userId: z.string().min(1),
   workoutId: z.string().min(1).optional(),
   sleepQuality: z.number().min(1).max(10),
@@ -155,14 +210,14 @@ const readinessSchema = z.object({
   lastWorkoutRpe: z.number().min(1).max(10).optional(),
 });
 
-// POST /readiness - Submit pre-workout readiness and get adjustments
+// POST /readiness/extended - Detailed recovery-based readiness (legacy/advanced)
 userRoutes.post(
-  "/readiness",
-  zValidator("json", readinessSchema),
+  "/readiness/extended",
+  zValidator("json", extendedReadinessSchema),
   async (c) => {
     const data = c.req.valid("json");
 
-    // Calculate recovery adjustments using the engine
+    // Calculate recovery adjustments using the comprehensive engine function
     const recoveryDecision = calculateSessionRecovery({
       sleepQuality: data.sleepQuality,
       muscleSoreness: data.muscleSoreness,
@@ -194,7 +249,7 @@ userRoutes.post(
 
     return c.json({
       data: {
-        readinessScore: recoveryDecision.readinessScore,
+        score: recoveryDecision.readinessScore,
         recommendation: recoveryDecision.recommendation,
         volumeModifier: recoveryDecision.volumeModifier,
         intensityModifier: recoveryDecision.intensityModifier,

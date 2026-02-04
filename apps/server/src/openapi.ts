@@ -7,6 +7,7 @@ import { logRoutes } from "./routes/logs";
 import { decisionRoutes } from "./routes/decisions";
 import { userRoutes } from "./routes/users";
 import { analyticsRoutes } from "./routes/analytics";
+import { notificationRoutes } from "./routes/notifications";
 import { authMiddleware } from "./middleware/auth";
 
 // Create main API router
@@ -23,6 +24,7 @@ openapi.use("/workouts/*", authMiddleware);
 openapi.use("/logs/*", authMiddleware);
 openapi.use("/decisions/*", authMiddleware);
 openapi.use("/analytics/*", authMiddleware);
+openapi.use("/notifications/*", authMiddleware);
 
 // Mount protected routes
 openapi.route("/workouts", workoutRoutes);
@@ -30,6 +32,7 @@ openapi.route("/logs", logRoutes);
 openapi.route("/decisions", decisionRoutes);
 openapi.route("/users", userRoutes);
 openapi.route("/analytics", analyticsRoutes);
+openapi.route("/notifications", notificationRoutes);
 
 // OpenAPI spec (manually maintained for documentation)
 const openAPISpec = {
