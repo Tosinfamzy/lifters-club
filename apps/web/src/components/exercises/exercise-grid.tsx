@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -96,43 +97,42 @@ export function ExerciseGrid({ initialExercises }: ExerciseGridProps) {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {exercises.map((exercise) => (
-            <Card
-              key={exercise.id}
-              className="hover:border-primary/50 transition-colors cursor-pointer"
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{exercise.name}</CardTitle>
-                <CardDescription>
-                  {exercise.movementPatterns[0] || "General"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex flex-wrap gap-1">
-                  {exercise.primaryMuscles.slice(0, 3).map((muscle) => (
+            <Link key={exercise.id} href={`/exercises/${exercise.id}`}>
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{exercise.name}</CardTitle>
+                  <CardDescription>
+                    {exercise.movementPatterns[0] || "General"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap gap-1">
+                    {exercise.primaryMuscles.slice(0, 3).map((muscle) => (
+                      <span
+                        key={muscle}
+                        className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground"
+                      >
+                        {muscle}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{exercise.equipment[0] || "Bodyweight"}</span>
                     <span
-                      key={muscle}
-                      className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground"
+                      className={
+                        exercise.difficulty === "beginner"
+                          ? "text-green-400"
+                          : exercise.difficulty === "intermediate"
+                          ? "text-yellow-400"
+                          : "text-red-400"
+                      }
                     >
-                      {muscle}
+                      {exercise.difficulty}
                     </span>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{exercise.equipment[0] || "Bodyweight"}</span>
-                  <span
-                    className={
-                      exercise.difficulty === "beginner"
-                        ? "text-green-400"
-                        : exercise.difficulty === "intermediate"
-                        ? "text-yellow-400"
-                        : "text-red-400"
-                    }
-                  >
-                    {exercise.difficulty}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

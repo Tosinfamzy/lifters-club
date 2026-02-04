@@ -22,6 +22,7 @@ import {
   Loader2,
   CheckCircle,
   Clock,
+  Smartphone,
 } from "lucide-react";
 import Link from "next/link";
 import { useAppUser } from "@/providers/user-provider";
@@ -259,6 +260,24 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Mobile App CTA */}
+      <Card className="border-primary/30 bg-linear-to-r from-primary/5 to-transparent">
+        <CardContent className="flex items-center gap-4 py-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Smartphone className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <p className="font-medium">Log Workouts on Mobile</p>
+            <p className="text-sm text-muted-foreground">
+              Use the Lifters Club app to log workouts with offline support, rest timers, and live progression recommendations.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" className="shrink-0">
+            Coming Soon
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
