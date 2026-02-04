@@ -1,4 +1,4 @@
-import { pgSchema, varchar, text, jsonb, integer, timestamp, date, real } from "drizzle-orm/pg-core";
+import { pgSchema, varchar, text, jsonb, integer, timestamp, date, real, boolean, index } from "drizzle-orm/pg-core";
 
 export const training = pgSchema("training");
 
@@ -10,6 +10,10 @@ export const users = training.table("users", {
   trainingLevel: varchar("training_level", { length: 20 }).notNull(),
   primaryGoal: varchar("primary_goal", { length: 20 }).notNull(),
   preferences: jsonb("preferences").$type<Record<string, unknown>>().notNull(),
+
+  // Onboarding progress tracking
+  onboardingComplete: boolean("onboarding_complete").notNull().default(false),
+  baselineComplete: boolean("baseline_complete").notNull().default(false),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -98,8 +102,39 @@ export const decisions = training.table("decisions", {
   output: jsonb("output").$type<Record<string, unknown>>().notNull(),
   reasoning: text("reasoning").notNull(),
 
+  // Algorithm version for tracking which engine version made the decision
+  algorithmVersion: varchar("algorithm_version", { length: 20 }).notNull().default("1.0.0"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("decisions_user_id_idx").on(table.userId),
+  index("decisions_type_idx").on(table.type),
+  index("decisions_created_at_idx").on(table.createdAt),
+]);
+
+// Decision outcomes - tracks what happened after a decision was made
+export const decisionOutcomes = training.table("decision_outcomes", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  decisionId: varchar("decision_id", { length: 64 }).notNull().references(() => decisions.id),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  // What happened
+  outcome: varchar("outcome", { length: 20 }).notNull(), // 'followed' | 'overridden' | 'ignored'
+  success: boolean("success"), // null if not yet determined
+
+  // If overridden, why?
+  overrideReason: varchar("override_reason", { length: 50 }),
+
+  // Evidence
+  expectedValue: jsonb("expected_value").$type<Record<string, unknown>>(),
+  actualValue: jsonb("actual_value").$type<Record<string, unknown>>(),
+
+  evaluatedAt: timestamp("evaluated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("decision_outcomes_user_id_idx").on(table.userId),
+  index("decision_outcomes_decision_id_idx").on(table.decisionId),
+]);
 
 // Push notification tokens for web and mobile
 export const pushTokens = training.table("push_tokens", {
@@ -134,3 +169,25 @@ export const readinessChecks = training.table("readiness_checks", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// User baseline weights for exercises - established during onboarding or calibration
+export const userBaselines = training.table("user_baselines", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+  exerciseId: varchar("exercise_id", { length: 64 }).notNull(),
+
+  // Baseline performance
+  baselineWeight: real("baseline_weight").notNull(),
+  baselineReps: integer("baseline_reps").notNull(),
+  estimatedE1RM: real("estimated_e1rm"),
+
+  // How the baseline was established
+  source: varchar("source", { length: 20 }).notNull(), // 'user_input' | 'calibration' | 'inferred'
+
+  establishedAt: timestamp("established_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("user_baselines_user_id_idx").on(table.userId),
+  index("user_baselines_exercise_id_idx").on(table.exerciseId),
+]);

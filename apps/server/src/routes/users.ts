@@ -2,11 +2,18 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { users, trainingBlocks, readinessChecks } from "@gymapp/db/schema";
+import { users, trainingBlocks, readinessChecks, userBaselines } from "@gymapp/db/schema";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
-import { calculateSessionRecovery, calculateSessionReadiness } from "@gymapp/engine";
+import {
+  calculateSessionRecovery,
+  calculateSessionReadiness,
+  getCalibrationPath,
+  generateCalibrationPlan,
+  estimateOneRepMax,
+} from "@gymapp/engine";
 import type { Env } from "../types";
+import type { PrimaryGoal, BaselineSource } from "@gymapp/types";
 
 const userRoutes = new Hono<Env>();
 
@@ -257,6 +264,177 @@ userRoutes.post(
         reason: recoveryDecision.reason,
       },
     });
+  }
+);
+
+// ============ Baseline Establishment ============
+
+// POST /:id/baselines - Save user baselines
+const createBaselinesSchema = z.object({
+  baselines: z.array(z.object({
+    exerciseId: z.string().min(1),
+    weight: z.number().min(0),
+    reps: z.number().int().min(1),
+    source: z.enum(["user_input", "calibration", "inferred"]),
+  })),
+});
+
+userRoutes.post(
+  "/:id/baselines",
+  zValidator("json", createBaselinesSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const { baselines } = c.req.valid("json");
+
+    // Verify user exists
+    const user = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (user.length === 0) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    // Delete existing baselines for these exercises
+    const exerciseIds = baselines.map((b) => b.exerciseId);
+    for (const exerciseId of exerciseIds) {
+      await db
+        .delete(userBaselines)
+        .where(
+          and(
+            eq(userBaselines.userId, userId),
+            eq(userBaselines.exerciseId, exerciseId)
+          )
+        );
+    }
+
+    // Insert new baselines
+    const now = new Date();
+    const baselinesToInsert = baselines.map((b) => ({
+      id: `bl_${nanoid(12)}`,
+      userId,
+      exerciseId: b.exerciseId,
+      baselineWeight: b.weight,
+      baselineReps: b.reps,
+      estimatedE1RM: estimateOneRepMax(b.weight, b.reps),
+      source: b.source as BaselineSource,
+      establishedAt: now,
+    }));
+
+    const inserted = await db
+      .insert(userBaselines)
+      .values(baselinesToInsert)
+      .returning();
+
+    // Update user's baselineComplete flag
+    await db
+      .update(users)
+      .set({ baselineComplete: true, updatedAt: now })
+      .where(eq(users.id, userId));
+
+    return c.json({ data: inserted }, 201);
+  }
+);
+
+// GET /:id/baselines - Get user baselines
+userRoutes.get("/:id/baselines", async (c) => {
+  const userId = c.req.param("id");
+
+  const baselines = await db
+    .select()
+    .from(userBaselines)
+    .where(eq(userBaselines.userId, userId));
+
+  return c.json({ data: baselines });
+});
+
+// GET /:id/calibration-plan - Get calibration plan based on equipment
+const calibrationPlanQuerySchema = z.object({
+  equipment: z.string().optional(), // comma-separated list
+});
+
+userRoutes.get(
+  "/:id/calibration-plan",
+  zValidator("query", calibrationPlanQuerySchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const { equipment: equipmentStr } = c.req.valid("query");
+
+    // Get user to determine goal
+    const user = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (user.length === 0) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    // Parse equipment list
+    const equipment = equipmentStr
+      ? (equipmentStr.split(",") as Array<"barbell" | "dumbbell" | "cables" | "machines" | "bodyweight">)
+      : [];
+
+    // Determine calibration path
+    const path = getCalibrationPath(equipment);
+
+    // Generate plan
+    const plan = generateCalibrationPlan(
+      path,
+      user[0]!.primaryGoal as PrimaryGoal
+    );
+
+    return c.json({
+      data: {
+        path,
+        plan,
+        needsCalibration: path !== "bodyweight" && path !== "skip",
+      },
+    });
+  }
+);
+
+// PATCH /:id/onboarding - Update onboarding status
+const updateOnboardingSchema = z.object({
+  onboardingComplete: z.boolean().optional(),
+  baselineComplete: z.boolean().optional(),
+});
+
+userRoutes.patch(
+  "/:id/onboarding",
+  zValidator("json", updateOnboardingSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    const existing = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (existing.length === 0) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.onboardingComplete !== undefined) {
+      updateData.onboardingComplete = data.onboardingComplete;
+    }
+    if (data.baselineComplete !== undefined) {
+      updateData.baselineComplete = data.baselineComplete;
+    }
+
+    const result = await db
+      .update(users)
+      .set(updateData)
+      .where(eq(users.id, userId))
+      .returning();
+
+    return c.json({ data: result[0] });
   }
 );
 

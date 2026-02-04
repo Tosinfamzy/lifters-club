@@ -13,8 +13,37 @@ export { generateWeeklyPlan, calculatePerformanceTrend } from "./planning";
 // Readiness assessment
 export { calculateSessionReadiness } from "./readiness";
 
+// Decision feedback and evaluation
+export {
+  evaluateLoadProgression,
+  evaluateVolumeAdjustment,
+  evaluateDecision,
+  getProgressionModifier,
+  getDecisionConfidence,
+} from "./feedback";
+
 // Substitution functions
 export { findSubstitutes, getTopSubstitutes, isValidSubstitute } from "./substitution";
+
+// 1RM estimation and working weight calculation
+export {
+  estimateOneRepMax,
+  calculateWorkingWeight,
+  getPercentageOf1RM,
+  getRepsAtPercentage,
+  adjustForRecentness,
+  getConservativeStartingWeight,
+} from "./estimation";
+
+// Calibration and baseline establishment
+export {
+  getCalibrationPath,
+  generateCalibrationPlan,
+  getCalibrationExerciseForPattern,
+  processCalibrationResults,
+  getWorkingWeightFromBaseline,
+  shouldRunCalibration,
+} from "./calibration";
 
 // Input types
 export type {
@@ -63,8 +92,17 @@ export type {
   ReadinessConfig,
 } from "./readiness";
 
+// Feedback types
+export type { EvaluationResult } from "./feedback";
+
 // Config types for customization
 export type { ProgressionConfig } from "./progression";
 export type { VolumeConfig } from "./volume";
 export type { RotationConfig } from "./rotation";
 export type { DeloadConfig } from "./deload";
+
+// Estimation types
+export type { EstimationConfig } from "./estimation";
+
+// Calibration types
+export type { CalibrationConfig } from "./calibration";

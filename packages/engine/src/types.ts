@@ -5,6 +5,11 @@ export interface ProgressionInput {
   recentSets: Pick<LoggedSet, "reps" | "rpe" | "weight">[];
   currentWeight: number;
   targetRepRange: [number, number];
+
+  /** Optional baseline weight to use when no recent sets exist */
+  baselineWeight?: number;
+  /** Optional baseline reps (used with baselineWeight for starting point calculation) */
+  baselineReps?: number;
 }
 
 export interface VolumeInput {

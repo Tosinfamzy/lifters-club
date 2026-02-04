@@ -81,6 +81,23 @@ export function useApi() {
       // Training blocks (protected)
       createTrainingBlock: (data: Parameters<typeof baseApi.createTrainingBlock>[0]) =>
         authenticatedRequest(() => baseApi.createTrainingBlock(data)),
+
+      // User baselines (protected)
+      getUserBaselines: (userId: string) =>
+        authenticatedRequest(() => baseApi.getUserBaselines(userId)),
+
+      saveUserBaselines: (
+        userId: string,
+        baselines: Parameters<typeof baseApi.saveUserBaselines>[1]
+      ) => authenticatedRequest(() => baseApi.saveUserBaselines(userId, baselines)),
+
+      getCalibrationPlan: (userId: string, equipment: string[]) =>
+        authenticatedRequest(() => baseApi.getCalibrationPlan(userId, equipment)),
+
+      updateOnboardingStatus: (
+        userId: string,
+        data: Parameters<typeof baseApi.updateOnboardingStatus>[1]
+      ) => authenticatedRequest(() => baseApi.updateOnboardingStatus(userId, data)),
     }),
     [authenticatedRequest]
   );

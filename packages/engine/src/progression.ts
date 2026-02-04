@@ -1,5 +1,6 @@
 import type { LoadDecision } from "@gymapp/types";
 import type { ProgressionInput } from "./types";
+import { calculateWorkingWeight, estimateOneRepMax } from "./estimation";
 
 /**
  * Configuration for load progression decisions
@@ -28,10 +29,24 @@ export function calculateLoadProgression(
   input: ProgressionInput,
   config: ProgressionConfig = defaultConfig
 ): LoadDecision {
-  const { recentSets, currentWeight, targetRepRange } = input;
+  const { recentSets, currentWeight, targetRepRange, baselineWeight, baselineReps } = input;
   const [minReps, maxReps] = targetRepRange;
 
+  // When no recent sets, use baseline if available
   if (recentSets.length === 0) {
+    if (baselineWeight !== undefined && baselineReps !== undefined) {
+      // Calculate working weight from baseline for target rep range
+      const targetReps = Math.floor((minReps + maxReps) / 2);
+      const e1rm = estimateOneRepMax(baselineWeight, baselineReps);
+      const workingWeight = calculateWorkingWeight(e1rm, targetReps);
+
+      return {
+        action: "maintain",
+        newWeight: workingWeight,
+        reason: `Using baseline weight as starting point (${baselineWeight}×${baselineReps} → ${workingWeight}kg for ${targetReps} reps)`,
+      };
+    }
+
     return {
       action: "maintain",
       newWeight: currentWeight,

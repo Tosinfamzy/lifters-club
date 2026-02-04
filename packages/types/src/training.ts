@@ -165,7 +165,82 @@ export interface Decision {
   output: Record<string, unknown>;
   reasoning: string;
 
+  algorithmVersion: string;
+
   createdAt: Date;
+}
+
+// ============ Decision Feedback Types ============
+
+/**
+ * What happened after a decision was made
+ */
+export type DecisionOutcome = "followed" | "overridden" | "ignored";
+
+/**
+ * Why a user overrode a decision
+ */
+export type OverrideReason =
+  | "felt_too_heavy"
+  | "felt_too_light"
+  | "equipment_unavailable"
+  | "time_constraint"
+  | "injury_concern"
+  | "other";
+
+/**
+ * Human-readable labels for override reasons
+ */
+export const OVERRIDE_REASON_LABELS: Record<OverrideReason, string> = {
+  felt_too_heavy: "Feels too heavy today",
+  felt_too_light: "Feels too light",
+  equipment_unavailable: "Equipment not available",
+  time_constraint: "Short on time",
+  injury_concern: "Minor injury/discomfort",
+  other: "Other reason",
+};
+
+/**
+ * Recorded outcome for a decision
+ */
+export interface DecisionOutcomeRecord {
+  id: string;
+  decisionId: string;
+  userId: string;
+
+  outcome: DecisionOutcome;
+  success: boolean | null; // null if not yet evaluated
+
+  overrideReason?: OverrideReason;
+
+  expectedValue?: Record<string, unknown>;
+  actualValue?: Record<string, unknown>;
+
+  evaluatedAt?: Date;
+  createdAt: Date;
+}
+
+/**
+ * Accuracy statistics for a user's decisions
+ */
+export interface DecisionAccuracyStats {
+  userId: string;
+  totalDecisions: number;
+  followed: number;
+  overridden: number;
+  ignored: number;
+  successRate: number; // of followed decisions that were evaluated
+  overrideReasons: Partial<Record<OverrideReason, number>>;
+  byType: Partial<
+    Record<
+      DecisionType,
+      {
+        total: number;
+        followed: number;
+        successRate: number;
+      }
+    >
+  >;
 }
 
 /**

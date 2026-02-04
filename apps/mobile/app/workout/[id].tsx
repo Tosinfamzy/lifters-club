@@ -27,6 +27,9 @@ import { useAppUser } from "../../providers/user-provider";
 import { useWorkoutOffline, type LoggedSet as ApiLoggedSet } from "../../hooks";
 import { OfflineIndicator } from "../../components/OfflineIndicator";
 import { ExerciseActionsSheet } from "../../components/ExerciseActionsSheet";
+import { DecisionBadge } from "../../components/workout/DecisionBadge";
+import { DecisionExplanationModal } from "../../components/workout/DecisionExplanationModal";
+import type { DecisionType, OverrideReason } from "@gymapp/types";
 
 type ExerciseAction = "info" | "alternatives" | "skip" | "mark_done";
 
@@ -89,6 +92,16 @@ interface LoadRecommendation {
   reason: string;
 }
 
+interface ExerciseDecision {
+  id: string; // decision ID
+  exerciseId: string;
+  type: DecisionType;
+  summary: string;
+  reasoning: string;
+  confidence: "low" | "medium" | "high";
+  recommendedValue: Record<string, unknown>;
+}
+
 export default function WorkoutScreen() {
   const { id, substitutedExerciseId, substitutedExerciseName, originalExerciseId } =
     useLocalSearchParams<{
@@ -142,6 +155,11 @@ export default function WorkoutScreen() {
   // Load progression recommendations state
   const [loadRecommendations, setLoadRecommendations] = useState<Map<string, LoadRecommendation>>(new Map());
   const [showRecommendation, setShowRecommendation] = useState<string | null>(null);
+
+  // Inline exercise decisions state
+  const [exerciseDecisions, setExerciseDecisions] = useState<Map<string, ExerciseDecision>>(new Map());
+  const [selectedDecision, setSelectedDecision] = useState<ExerciseDecision | null>(null);
+  const [showDecisionModal, setShowDecisionModal] = useState(false);
   const [readinessInputs, setReadinessInputs] = useState({
     sleepQuality: 7,
     muscleSoreness: 3,
@@ -225,11 +243,87 @@ export default function WorkoutScreen() {
     }
   }, [workout, appUser, existingLog, savedSets, startWorkoutLog]);
 
+  // Fetch exercise decisions from the API
+  const fetchExerciseDecisions = useCallback(async () => {
+    if (!appUser || !workout || !isOnline) return;
+
+    try {
+      const token = await getToken();
+      const exerciseIds = (workout.plannedExercises as PlannedExercise[])
+        .map((ex) => ex.exerciseId)
+        .filter(Boolean);
+
+      if (exerciseIds.length === 0) return;
+
+      // Fetch decisions for each exercise from recent decisions
+      const res = await fetch(`${API_URL}/api/decisions?userId=${appUser.id}&limit=50`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const decisionsMap = new Map<string, ExerciseDecision>();
+
+        for (const decision of data.data || []) {
+          const input = decision.input as { exerciseId?: string };
+          if (input.exerciseId && exerciseIds.includes(input.exerciseId)) {
+            // Only keep the most recent decision per exercise
+            if (!decisionsMap.has(input.exerciseId)) {
+              const output = decision.output as Record<string, unknown>;
+              decisionsMap.set(input.exerciseId, {
+                exerciseId: input.exerciseId,
+                id: decision.id,
+                type: decision.type as DecisionType,
+                summary: generateDecisionSummary(decision.type, output),
+                reasoning: decision.reasoning,
+                confidence: "medium", // Default confidence
+                recommendedValue: output,
+              });
+            }
+          }
+        }
+
+        setExerciseDecisions(decisionsMap);
+      }
+    } catch (error) {
+      console.error("Failed to fetch exercise decisions:", error);
+    }
+  }, [appUser, workout, isOnline, getToken]);
+
+  // Helper to generate summary from decision output
+  function generateDecisionSummary(type: string, output: Record<string, unknown>): string {
+    switch (type) {
+      case "load_progression": {
+        const action = output.action as string;
+        const newWeight = output.newWeight as number;
+        if (action === "increase") return `↑ ${newWeight}lbs`;
+        if (action === "decrease") return `↓ ${newWeight}lbs`;
+        return `${newWeight}lbs`;
+      }
+      case "volume_adjustment": {
+        const action = output.action as string;
+        const newSetCount = output.newSetCount as number;
+        if (action === "add_set") return `+1 set (${newSetCount})`;
+        if (action === "reduce_set") return `${newSetCount} sets`;
+        return `${newSetCount} sets`;
+      }
+      case "exercise_rotation":
+        return "Swap suggested";
+      case "deload_recommendation":
+        return (output.recommended as boolean) ? "Deload" : "Continue";
+      default:
+        return "Adjustment";
+    }
+  }
+
   useEffect(() => {
     if (appUser && workout && !isWorkoutLoading) {
       initializeWorkout();
+      fetchExerciseDecisions();
     }
-  }, [appUser, workout, isWorkoutLoading, initializeWorkout]);
+  }, [appUser, workout, isWorkoutLoading, initializeWorkout, fetchExerciseDecisions]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -278,6 +372,65 @@ export default function WorkoutScreen() {
       }
     }
   }, [substitutedExerciseId, substitutedExerciseName, originalExerciseId, exercises, router]);
+
+  // Record decision outcome (accept or override)
+  const recordDecisionOutcome = useCallback(
+    async (
+      decisionId: string,
+      outcome: "followed" | "overridden",
+      overrideReason?: OverrideReason
+    ) => {
+      if (!isOnline) return;
+
+      try {
+        const token = await getToken();
+        await fetch(`${API_URL}/api/decisions/${decisionId}/outcome`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            outcome,
+            overrideReason,
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to record decision outcome:", error);
+      }
+    },
+    [isOnline, getToken]
+  );
+
+  // Handle accepting a decision
+  const handleAcceptDecision = useCallback(() => {
+    if (selectedDecision) {
+      recordDecisionOutcome(selectedDecision.id, "followed");
+      setShowDecisionModal(false);
+      setSelectedDecision(null);
+    }
+  }, [selectedDecision, recordDecisionOutcome]);
+
+  // Handle overriding a decision
+  const handleOverrideDecision = useCallback(
+    (reason: OverrideReason) => {
+      if (selectedDecision) {
+        recordDecisionOutcome(selectedDecision.id, "overridden", reason);
+        setShowDecisionModal(false);
+        setSelectedDecision(null);
+      }
+    },
+    [selectedDecision, recordDecisionOutcome]
+  );
+
+  // Open decision modal
+  const openDecisionModal = useCallback((exerciseId: string) => {
+    const decision = exerciseDecisions.get(exerciseId);
+    if (decision) {
+      setSelectedDecision(decision);
+      setShowDecisionModal(true);
+    }
+  }, [exerciseDecisions]);
 
   // Readiness check still uses API (server-side decision engine)
   const submitReadinessCheck = async () => {
@@ -936,6 +1089,20 @@ export default function WorkoutScreen() {
         onSelectAction={handleExerciseAction}
       />
 
+      {/* Decision Explanation Modal */}
+      {selectedDecision && (
+        <DecisionExplanationModal
+          visible={showDecisionModal}
+          decision={selectedDecision}
+          onAccept={handleAcceptDecision}
+          onOverride={handleOverrideDecision}
+          onClose={() => {
+            setShowDecisionModal(false);
+            setSelectedDecision(null);
+          }}
+        />
+      )}
+
       {/* Celebration Overlay (UNDO functionality) */}
       {recentlyCompleted && (
         <View style={styles.celebrationOverlay}>
@@ -1071,7 +1238,17 @@ export default function WorkoutScreen() {
       <ScrollView style={styles.content}>
         <View style={styles.exerciseHeader}>
           <View style={styles.exerciseTitleContainer}>
-            <Text style={styles.exerciseTitle}>{currentExercise.exerciseName}</Text>
+            <View style={styles.exerciseTitleRow}>
+              <Text style={styles.exerciseTitle}>{currentExercise.exerciseName}</Text>
+              {exerciseDecisions.has(currentExercise.exerciseId) && (
+                <DecisionBadge
+                  type={exerciseDecisions.get(currentExercise.exerciseId)!.type}
+                  summary={exerciseDecisions.get(currentExercise.exerciseId)!.summary}
+                  confidence={exerciseDecisions.get(currentExercise.exerciseId)!.confidence}
+                  onPress={() => openDecisionModal(currentExercise.exerciseId)}
+                />
+              )}
+            </View>
             <Text style={styles.exerciseTarget}>
               Target: {currentExercise.repRange[0]}-{currentExercise.repRange[1]} reps
             </Text>
@@ -1406,6 +1583,12 @@ const styles = StyleSheet.create({
   },
   exerciseTitleContainer: {
     flex: 1,
+  },
+  exerciseTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
   },
   exerciseTitle: {
     color: "#F8FAFC",

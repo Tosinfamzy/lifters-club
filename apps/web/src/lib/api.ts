@@ -261,6 +261,38 @@ class ApiClient {
   async getDecision(id: string) {
     return this.request<ApiResponse<Decision>>(`/api/decisions/${id}`);
   }
+
+  // User Baselines
+  async getUserBaselines(userId: string) {
+    return this.request<ApiResponse<UserBaseline[]>>(`/api/users/${userId}/baselines`);
+  }
+
+  async saveUserBaselines(
+    userId: string,
+    baselines: { exerciseId: string; weight: number; reps: number; source: "user_input" | "calibration" | "inferred" }[]
+  ) {
+    return this.request<ApiResponse<UserBaseline[]>>(`/api/users/${userId}/baselines`, {
+      method: "POST",
+      body: JSON.stringify({ baselines }),
+    });
+  }
+
+  async getCalibrationPlan(userId: string, equipment: string[]) {
+    const equipmentStr = equipment.join(",");
+    return this.request<ApiResponse<CalibrationPlanResponse>>(
+      `/api/users/${userId}/calibration-plan?equipment=${equipmentStr}`
+    );
+  }
+
+  async updateOnboardingStatus(
+    userId: string,
+    data: { onboardingComplete?: boolean; baselineComplete?: boolean }
+  ) {
+    return this.request<ApiResponse<User>>(`/api/users/${userId}/onboarding`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 // Types
@@ -400,6 +432,35 @@ export interface Decision {
   output: Record<string, unknown>;
   reasoning: string;
   createdAt: string;
+}
+
+export interface UserBaseline {
+  id: string;
+  userId: string;
+  exerciseId: string;
+  baselineWeight: number;
+  baselineReps: number;
+  estimatedE1RM?: number;
+  source: "user_input" | "calibration" | "inferred";
+  establishedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalibrationExercise {
+  pattern: string;
+  exerciseId: string;
+  exerciseName: string;
+}
+
+export interface CalibrationPlanResponse {
+  path: "barbell" | "dumbbell" | "bodyweight" | "skip";
+  plan: {
+    path: string;
+    exercises: CalibrationExercise[];
+    instructions: string;
+  } | null;
+  needsCalibration: boolean;
 }
 
 export type DecisionType =

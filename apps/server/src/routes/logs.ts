@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@gymapp/db";
 import { workoutLogs, loggedSets, workouts } from "@gymapp/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { evaluatePendingDecisions } from "../services/decision-eval";
 
 const logRoutes = new Hono();
 
@@ -199,6 +200,9 @@ logRoutes.patch(
       .update(workouts)
       .set({ status: "completed", updatedAt: new Date() })
       .where(eq(workouts.id, existing[0]!.workoutId));
+
+    // Evaluate pending decisions after workout completion
+    await evaluatePendingDecisions(existing[0]!.userId, id);
 
     return c.json({ data: result[0] });
   }

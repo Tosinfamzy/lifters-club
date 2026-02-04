@@ -2,9 +2,11 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { trainingBlocks, workouts, programs, users } from "@gymapp/db/schema";
+import { trainingBlocks, workouts, programs, users, decisions } from "@gymapp/db/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { getDecisionConfidence } from "@gymapp/engine";
 import type { Env } from "../types";
+import type { DecisionType } from "@gymapp/types";
 
 const workoutRoutes = new Hono<Env>();
 
@@ -203,7 +205,7 @@ workoutRoutes.patch(
 
 // ============ Mobile Convenience Endpoints ============
 
-// GET /today - Get today's workout for authenticated user
+// GET /today - Get today's workout for authenticated user with relevant decisions
 workoutRoutes.get(
   "/today",
   async (c) => {
@@ -247,9 +249,120 @@ workoutRoutes.get(
       return c.json({ data: null, message: "No workout scheduled for today" });
     }
 
-    return c.json({ data: todayWorkout[0] });
+    const workout = todayWorkout[0]!;
+
+    // Extract exerciseIds from planned exercises
+    const plannedExercises = workout.plannedExercises as Array<{ exerciseId: string }> | null;
+    const exerciseIds = plannedExercises?.map(e => e.exerciseId).filter(Boolean) ?? [];
+
+    // Fetch recent decisions for these exercises (from last 7 days)
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    let exerciseDecisions: Array<{
+      exerciseId: string;
+      decisionId: string;
+      type: DecisionType;
+      summary: string;
+      reasoning: string;
+      confidence: "low" | "medium" | "high";
+      recommendedValue: unknown;
+    }> = [];
+
+    if (exerciseIds.length > 0) {
+      // Get recent decisions for these exercises
+      const recentDecisions = await db
+        .select()
+        .from(decisions)
+        .where(and(
+          eq(decisions.userId, user.id),
+          gte(decisions.createdAt, oneWeekAgo)
+        ))
+        .orderBy(desc(decisions.createdAt));
+
+      // Filter and transform decisions that match our exercises
+      for (const decision of recentDecisions) {
+        const input = decision.input as { exerciseId?: string };
+        const output = decision.output as Record<string, unknown>;
+
+        if (!input.exerciseId || !exerciseIds.includes(input.exerciseId)) {
+          continue;
+        }
+
+        // Generate summary based on decision type
+        const summary = generateDecisionSummary(decision.type, output);
+        const confidence = getDecisionConfidence(3); // Default data points
+
+        exerciseDecisions.push({
+          exerciseId: input.exerciseId,
+          decisionId: decision.id,
+          type: decision.type as DecisionType,
+          summary,
+          reasoning: decision.reasoning,
+          confidence,
+          recommendedValue: output,
+        });
+      }
+
+      // Keep only the most recent decision per exercise
+      const seenExercises = new Set<string>();
+      exerciseDecisions = exerciseDecisions.filter(d => {
+        if (seenExercises.has(d.exerciseId)) {
+          return false;
+        }
+        seenExercises.add(d.exerciseId);
+        return true;
+      });
+    }
+
+    return c.json({
+      data: {
+        workout,
+        decisions: exerciseDecisions,
+      },
+    });
   }
 );
+
+// Helper to generate human-readable summary from decision output
+function generateDecisionSummary(type: string, output: Record<string, unknown>): string {
+  switch (type) {
+    case "load_progression": {
+      const action = output.action as string;
+      const newWeight = output.newWeight as number;
+      if (action === "increase") {
+        return `Increase to ${newWeight}kg`;
+      } else if (action === "decrease") {
+        return `Reduce to ${newWeight}kg`;
+      }
+      return `Maintain at ${newWeight}kg`;
+    }
+    case "volume_adjustment": {
+      const action = output.action as string;
+      const newSetCount = output.newSetCount as number;
+      if (action === "add_set") {
+        return `Add set (${newSetCount} total)`;
+      } else if (action === "reduce_set") {
+        return `Reduce to ${newSetCount} sets`;
+      }
+      return `Maintain ${newSetCount} sets`;
+    }
+    case "exercise_rotation": {
+      const action = output.action as string;
+      const newExerciseId = output.newExerciseId as string | undefined;
+      if (action === "swap" && newExerciseId) {
+        return `Swap to ${newExerciseId}`;
+      }
+      return "Keep current exercise";
+    }
+    case "deload_recommendation": {
+      const recommended = output.recommended as boolean;
+      return recommended ? "Deload recommended" : "Continue as planned";
+    }
+    default:
+      return "Adjustment recommended";
+  }
+}
 
 // GET /recent - Get recent workouts for authenticated user
 workoutRoutes.get(

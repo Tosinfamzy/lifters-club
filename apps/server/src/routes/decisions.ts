@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { decisions } from "@gymapp/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { decisions, decisionOutcomes } from "@gymapp/db/schema";
+import { eq, desc, and, isNull } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import {
   calculateLoadProgression,
   calculateVolumeAdjustment,
@@ -13,13 +14,15 @@ import {
   calculateMissedSessionHandling,
   generateWeeklyPlan,
   calculatePerformanceTrend,
+  ENGINE_VERSION,
 } from "@gymapp/engine";
+import type { DecisionAccuracyStats, OverrideReason, DecisionType } from "@gymapp/types";
 
 const decisionRoutes = new Hono();
 
 // Helper to generate decision ID
 function generateDecisionId(): string {
-  return `dec_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `dec_${nanoid(12)}`;
 }
 
 // Helper to persist decision
@@ -44,11 +47,23 @@ async function persistDecision(
       input,
       output,
       reasoning,
+      algorithmVersion: ENGINE_VERSION,
     })
     .returning();
 
   return inserted;
 }
+
+// ============ Outcome Reasons ============
+
+const OVERRIDE_REASONS = [
+  "felt_too_heavy",
+  "felt_too_light",
+  "equipment_unavailable",
+  "time_constraint",
+  "injury_concern",
+  "other",
+] as const;
 
 // ============ Decision History ============
 
@@ -97,6 +112,227 @@ decisionRoutes.get("/:id", async (c) => {
 
   return c.json({ data: result[0] });
 });
+
+// ============ Decision Outcomes ============
+
+// Record outcome after user responds to a decision
+const outcomeSchema = z.object({
+  outcome: z.enum(["followed", "overridden", "ignored"]),
+  overrideReason: z.enum(OVERRIDE_REASONS).optional(),
+  actualValue: z.record(z.unknown()).optional(),
+});
+
+decisionRoutes.post(
+  "/:id/outcome",
+  zValidator("json", outcomeSchema),
+  async (c) => {
+    const decisionId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    // Validate: if overridden, require reason
+    if (data.outcome === "overridden" && !data.overrideReason) {
+      return c.json({ error: "Override reason required when outcome is 'overridden'" }, 400);
+    }
+
+    // Get the decision to verify it exists and get userId
+    const decision = await db
+      .select()
+      .from(decisions)
+      .where(eq(decisions.id, decisionId))
+      .limit(1);
+
+    if (decision.length === 0) {
+      return c.json({ error: "Decision not found" }, 404);
+    }
+
+    // Check if outcome already exists
+    const existing = await db
+      .select()
+      .from(decisionOutcomes)
+      .where(eq(decisionOutcomes.decisionId, decisionId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      return c.json({ error: "Outcome already recorded for this decision" }, 409);
+    }
+
+    // Create outcome record
+    const outcomeId = `do_${nanoid(12)}`;
+    const [inserted] = await db
+      .insert(decisionOutcomes)
+      .values({
+        id: outcomeId,
+        decisionId,
+        userId: decision[0]!.userId,
+        outcome: data.outcome,
+        overrideReason: data.overrideReason ?? null,
+        expectedValue: decision[0]!.output,
+        actualValue: data.actualValue ?? null,
+        success: null, // Will be evaluated later
+      })
+      .returning();
+
+    return c.json({ data: inserted });
+  }
+);
+
+// Get decision accuracy stats for a user
+const accuracyQuerySchema = z.object({
+  userId: z.string().min(1),
+});
+
+decisionRoutes.get(
+  "/accuracy",
+  zValidator("query", accuracyQuerySchema),
+  async (c) => {
+    const { userId } = c.req.valid("query");
+
+    // Get all outcomes for this user
+    const outcomes = await db
+      .select({
+        outcome: decisionOutcomes.outcome,
+        success: decisionOutcomes.success,
+        overrideReason: decisionOutcomes.overrideReason,
+        decisionType: decisions.type,
+      })
+      .from(decisionOutcomes)
+      .innerJoin(decisions, eq(decisionOutcomes.decisionId, decisions.id))
+      .where(eq(decisionOutcomes.userId, userId));
+
+    // Calculate stats
+    const totalDecisions = outcomes.length;
+    const followed = outcomes.filter(o => o.outcome === "followed").length;
+    const overridden = outcomes.filter(o => o.outcome === "overridden").length;
+    const ignored = outcomes.filter(o => o.outcome === "ignored").length;
+
+    // Success rate of followed decisions that have been evaluated
+    const evaluatedFollowed = outcomes.filter(o => o.outcome === "followed" && o.success !== null);
+    const successfulFollowed = evaluatedFollowed.filter(o => o.success === true).length;
+    const successRate = evaluatedFollowed.length > 0 ? successfulFollowed / evaluatedFollowed.length : 0;
+
+    // Count override reasons
+    const overrideReasons: Partial<Record<OverrideReason, number>> = {};
+    for (const o of outcomes) {
+      if (o.overrideReason) {
+        const reason = o.overrideReason as OverrideReason;
+        overrideReasons[reason] = (overrideReasons[reason] || 0) + 1;
+      }
+    }
+
+    // Stats by decision type
+    const byType: DecisionAccuracyStats["byType"] = {};
+    const typeGroups = new Map<string, typeof outcomes>();
+    for (const o of outcomes) {
+      const existing = typeGroups.get(o.decisionType) || [];
+      existing.push(o);
+      typeGroups.set(o.decisionType, existing);
+    }
+
+    for (const [type, typeOutcomes] of typeGroups) {
+      const typeFollowed = typeOutcomes.filter(o => o.outcome === "followed");
+      const typeEvaluated = typeFollowed.filter(o => o.success !== null);
+      const typeSuccessful = typeEvaluated.filter(o => o.success === true).length;
+
+      byType[type as DecisionType] = {
+        total: typeOutcomes.length,
+        followed: typeFollowed.length,
+        successRate: typeEvaluated.length > 0 ? typeSuccessful / typeEvaluated.length : 0,
+      };
+    }
+
+    const stats: DecisionAccuracyStats = {
+      userId,
+      totalDecisions,
+      followed,
+      overridden,
+      ignored,
+      successRate,
+      overrideReasons,
+      byType,
+    };
+
+    return c.json({ data: stats });
+  }
+);
+
+// Get decisions pending outcome evaluation
+const pendingQuerySchema = z.object({
+  userId: z.string().min(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+decisionRoutes.get(
+  "/pending-evaluation",
+  zValidator("query", pendingQuerySchema),
+  async (c) => {
+    const { userId, limit } = c.req.valid("query");
+
+    // Find decisions that have 'followed' outcome but success is null
+    const pending = await db
+      .select({
+        decision: decisions,
+        outcome: decisionOutcomes,
+      })
+      .from(decisions)
+      .innerJoin(decisionOutcomes, eq(decisions.id, decisionOutcomes.decisionId))
+      .where(
+        and(
+          eq(decisions.userId, userId),
+          eq(decisionOutcomes.outcome, "followed"),
+          isNull(decisionOutcomes.success)
+        )
+      )
+      .orderBy(desc(decisions.createdAt))
+      .limit(limit);
+
+    return c.json({
+      data: pending.map(p => ({
+        ...p.decision,
+        outcomeId: p.outcome.id,
+        outcomeCreatedAt: p.outcome.createdAt,
+      })),
+    });
+  }
+);
+
+// Update outcome with success evaluation
+const evaluateOutcomeSchema = z.object({
+  success: z.boolean(),
+  actualValue: z.record(z.unknown()).optional(),
+});
+
+decisionRoutes.patch(
+  "/:id/outcome",
+  zValidator("json", evaluateOutcomeSchema),
+  async (c) => {
+    const decisionId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    // Find the outcome for this decision
+    const outcome = await db
+      .select()
+      .from(decisionOutcomes)
+      .where(eq(decisionOutcomes.decisionId, decisionId))
+      .limit(1);
+
+    if (outcome.length === 0) {
+      return c.json({ error: "No outcome recorded for this decision" }, 404);
+    }
+
+    // Update with evaluation
+    const [updated] = await db
+      .update(decisionOutcomes)
+      .set({
+        success: data.success,
+        actualValue: data.actualValue ?? outcome[0]!.actualValue,
+        evaluatedAt: new Date(),
+      })
+      .where(eq(decisionOutcomes.id, outcome[0]!.id))
+      .returning();
+
+    return c.json({ data: updated });
+  }
+);
 
 // ============ Load Progression ============
 
