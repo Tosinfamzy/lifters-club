@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { serve } from "@hono/node-server";
 import { HTTPException } from "hono/http-exception";
 import { openapi } from "./openapi";
 import { config, getCorsOrigins } from "./config";
 import { rateLimiter } from "./middleware/rate-limit";
 import { securityHeaders, requestId } from "./middleware/security-headers";
+import { requestLogger } from "./middleware/request-logger";
 import { initSentry, captureError, flushSentry } from "./lib/sentry";
+import { logger } from "./lib/logger";
 import type { Env } from "./types";
 
 // Initialize Sentry error tracking (must be before app creation)
@@ -18,8 +19,8 @@ const app = new Hono<Env>();
 // Request ID for tracing (should be first)
 app.use("*", requestId);
 
-// Logging
-app.use("*", logger());
+// Structured logging with Pino (creates child logger with request context)
+app.use("*", requestLogger);
 
 // Security headers
 app.use("*", securityHeaders);
@@ -91,15 +92,17 @@ app.onError((err, c) => {
     method: c.req.method,
   });
 
-  // Log unexpected errors with context (but don't expose internals)
-  console.error({
-    type: "unhandled_error",
-    requestId: reqId,
-    path: c.req.path,
-    method: c.req.method,
-    error: err.message,
-    stack: config.NODE_ENV === "development" ? err.stack : undefined,
-  });
+  // Log unexpected errors with structured logger
+  logger.error(
+    {
+      requestId: reqId,
+      userId,
+      path: c.req.path,
+      method: c.req.method,
+      err, // Pino handles Error objects specially
+    },
+    "Unhandled error"
+  );
 
   // Generic error response (don't leak internal details)
   return c.json(
@@ -113,14 +116,14 @@ app.onError((err, c) => {
 
 // Graceful shutdown handling
 async function gracefulShutdown(signal: string) {
-  console.log(`\n${signal} received. Shutting down gracefully...`);
+  logger.info({ signal }, "Shutdown signal received, shutting down gracefully");
 
   // Flush pending Sentry events
   await flushSentry();
 
   // Give in-flight requests time to complete
   setTimeout(() => {
-    console.log("Shutdown complete.");
+    logger.info("Shutdown complete");
     process.exit(0);
   }, 5000);
 }
@@ -129,7 +132,7 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Start server
-console.log(`Server starting on http://0.0.0.0:${config.PORT}`);
+logger.info({ port: config.PORT, env: config.NODE_ENV }, "Server starting");
 
 serve({
   fetch: app.fetch,

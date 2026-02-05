@@ -5,8 +5,14 @@ import { db } from "@gymapp/db";
 import { workoutLogs, loggedSets, workouts } from "@gymapp/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { evaluatePendingDecisions } from "../services/decision-eval";
+import type { Env } from "../types";
+import {
+  verifyWorkoutLogAccess,
+  verifyUserAccess,
+  getAuthenticatedUserFromContext,
+} from "../middleware/authorize";
 
-const logRoutes = new Hono();
+const logRoutes = new Hono<Env>();
 
 // ============ Workout Logs ============
 
@@ -30,14 +36,30 @@ const logQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-// GET /logs - List workout logs with workout details
+// GET /logs - List workout logs with workout details (only user's own logs)
 logRoutes.get(
   "/",
   zValidator("query", logQuerySchema),
   async (c) => {
+    // Verify the user is authenticated
+    const authResult = await getAuthenticatedUserFromContext(c);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
     const query = c.req.valid("query");
 
-    let dbQuery = db
+    // If userId is provided, verify it matches the authenticated user
+    if (query.userId && query.userId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own logs" }, 403);
+    }
+
+    // Build the conditions
+    const conditions = query.workoutId
+      ? and(eq(workoutLogs.userId, authResult.user.id), eq(workoutLogs.workoutId, query.workoutId))
+      : eq(workoutLogs.userId, authResult.user.id);
+
+    const results = await db
       .select({
         id: workoutLogs.id,
         workoutId: workoutLogs.workoutId,
@@ -52,17 +74,8 @@ logRoutes.get(
         plannedExercises: workouts.plannedExercises,
       })
       .from(workoutLogs)
-      .leftJoin(workouts, eq(workoutLogs.workoutId, workouts.id));
-
-    if (query.userId) {
-      dbQuery = dbQuery.where(eq(workoutLogs.userId, query.userId)) as typeof dbQuery;
-    }
-
-    if (query.workoutId) {
-      dbQuery = dbQuery.where(eq(workoutLogs.workoutId, query.workoutId)) as typeof dbQuery;
-    }
-
-    const results = await dbQuery
+      .leftJoin(workouts, eq(workoutLogs.workoutId, workouts.id))
+      .where(conditions)
       .orderBy(desc(workoutLogs.startedAt))
       .limit(query.limit)
       .offset(query.offset);
@@ -86,18 +99,14 @@ logRoutes.get(
   }
 );
 
-// GET /logs/:id - Get single workout log with all sets
+// GET /logs/:id - Get single workout log with all sets (requires ownership)
 logRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
 
-  const log = await db
-    .select()
-    .from(workoutLogs)
-    .where(eq(workoutLogs.id, id))
-    .limit(1);
-
-  if (log.length === 0) {
-    return c.json({ error: "Workout log not found" }, 404);
+  // Verify the authenticated user owns this workout log
+  const authResult = await verifyWorkoutLogAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
   const sets = await db
@@ -108,18 +117,24 @@ logRoutes.get("/:id", async (c) => {
 
   return c.json({
     data: {
-      ...log[0],
+      ...authResult.workoutLog,
       sets,
     },
   });
 });
 
-// POST /logs - Start a new workout log
+// POST /logs - Start a new workout log (requires ownership of userId)
 logRoutes.post(
   "/",
   zValidator("json", createWorkoutLogSchema),
   async (c) => {
     const data = c.req.valid("json");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, data.userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Verify workout exists
     const workout = await db
@@ -163,7 +178,7 @@ logRoutes.post(
   }
 );
 
-// PATCH /logs/:id/complete - Complete a workout log
+// PATCH /logs/:id/complete - Complete a workout log (requires ownership)
 logRoutes.patch(
   "/:id/complete",
   zValidator("json", completeWorkoutLogSchema),
@@ -171,17 +186,13 @@ logRoutes.patch(
     const id = c.req.param("id");
     const data = c.req.valid("json");
 
-    const existing = await db
-      .select()
-      .from(workoutLogs)
-      .where(eq(workoutLogs.id, id))
-      .limit(1);
-
-    if (existing.length === 0) {
-      return c.json({ error: "Workout log not found" }, 404);
+    // Verify the authenticated user owns this workout log
+    const authResult = await verifyWorkoutLogAccess(c, id);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
-    if (existing[0]!.completedAt) {
+    if (authResult.workoutLog.completedAt) {
       return c.json({ error: "Workout log is already completed" }, 400);
     }
 
@@ -199,10 +210,10 @@ logRoutes.patch(
     await db
       .update(workouts)
       .set({ status: "completed", updatedAt: new Date() })
-      .where(eq(workouts.id, existing[0]!.workoutId));
+      .where(eq(workouts.id, authResult.workoutLog.workoutId));
 
     // Evaluate pending decisions after workout completion
-    await evaluatePendingDecisions(existing[0]!.userId, id);
+    await evaluatePendingDecisions(authResult.workoutLog.userId, id);
 
     return c.json({ data: result[0] });
   }
@@ -231,19 +242,14 @@ const batchCreateSetsSchema = z.object({
   sets: z.array(createSetSchema),
 });
 
-// GET /logs/:logId/sets - Get all sets for a workout log
+// GET /logs/:logId/sets - Get all sets for a workout log (requires ownership)
 logRoutes.get("/:logId/sets", async (c) => {
   const logId = c.req.param("logId");
 
-  // Verify log exists
-  const log = await db
-    .select({ id: workoutLogs.id })
-    .from(workoutLogs)
-    .where(eq(workoutLogs.id, logId))
-    .limit(1);
-
-  if (log.length === 0) {
-    return c.json({ error: "Workout log not found" }, 404);
+  // Verify the authenticated user owns this workout log
+  const authResult = await verifyWorkoutLogAccess(c, logId);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
   const sets = await db
@@ -255,7 +261,7 @@ logRoutes.get("/:logId/sets", async (c) => {
   return c.json({ data: sets });
 });
 
-// POST /logs/:logId/sets - Log a single set
+// POST /logs/:logId/sets - Log a single set (requires ownership)
 logRoutes.post(
   "/:logId/sets",
   zValidator("json", createSetSchema),
@@ -263,18 +269,13 @@ logRoutes.post(
     const logId = c.req.param("logId");
     const data = c.req.valid("json");
 
-    // Verify log exists and is not completed
-    const log = await db
-      .select()
-      .from(workoutLogs)
-      .where(eq(workoutLogs.id, logId))
-      .limit(1);
-
-    if (log.length === 0) {
-      return c.json({ error: "Workout log not found" }, 404);
+    // Verify the authenticated user owns this workout log
+    const authResult = await verifyWorkoutLogAccess(c, logId);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
-    if (log[0]!.completedAt) {
+    if (authResult.workoutLog.completedAt) {
       return c.json({ error: "Cannot add sets to a completed workout" }, 400);
     }
 
@@ -296,7 +297,7 @@ logRoutes.post(
   }
 );
 
-// POST /logs/:logId/sets/batch - Log multiple sets at once
+// POST /logs/:logId/sets/batch - Log multiple sets at once (requires ownership)
 logRoutes.post(
   "/:logId/sets/batch",
   zValidator("json", batchCreateSetsSchema),
@@ -304,18 +305,13 @@ logRoutes.post(
     const logId = c.req.param("logId");
     const { sets } = c.req.valid("json");
 
-    // Verify log exists and is not completed
-    const log = await db
-      .select()
-      .from(workoutLogs)
-      .where(eq(workoutLogs.id, logId))
-      .limit(1);
-
-    if (log.length === 0) {
-      return c.json({ error: "Workout log not found" }, 404);
+    // Verify the authenticated user owns this workout log
+    const authResult = await verifyWorkoutLogAccess(c, logId);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
-    if (log[0]!.completedAt) {
+    if (authResult.workoutLog.completedAt) {
       return c.json({ error: "Cannot add sets to a completed workout" }, 400);
     }
 
@@ -336,7 +332,7 @@ logRoutes.post(
   }
 );
 
-// PATCH /logs/:logId/sets/:setId - Update a logged set
+// PATCH /logs/:logId/sets/:setId - Update a logged set (requires ownership)
 logRoutes.patch(
   "/:logId/sets/:setId",
   zValidator("json", updateSetSchema),
@@ -344,6 +340,12 @@ logRoutes.patch(
     const logId = c.req.param("logId");
     const setId = c.req.param("setId");
     const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this workout log
+    const authResult = await verifyWorkoutLogAccess(c, logId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Verify set exists and belongs to the log
     const existing = await db
@@ -375,10 +377,16 @@ logRoutes.patch(
   }
 );
 
-// DELETE /logs/:logId/sets/:setId - Delete a logged set
+// DELETE /logs/:logId/sets/:setId - Delete a logged set (requires ownership)
 logRoutes.delete("/:logId/sets/:setId", async (c) => {
   const logId = c.req.param("logId");
   const setId = c.req.param("setId");
+
+  // Verify the authenticated user owns this workout log
+  const authResult = await verifyWorkoutLogAccess(c, logId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
 
   // Verify set exists and belongs to the log
   const existing = await db
@@ -401,7 +409,7 @@ logRoutes.delete("/:logId/sets/:setId", async (c) => {
 
 // ============ History Queries ============
 
-// GET /logs/exercise/:exerciseId/history - Get history for a specific exercise
+// GET /logs/exercise/:exerciseId/history - Get history for a specific exercise (only user's own)
 logRoutes.get(
   "/exercise/:exerciseId/history",
   zValidator("query", z.object({
@@ -411,6 +419,12 @@ logRoutes.get(
   async (c) => {
     const exerciseId = c.req.param("exerciseId");
     const { userId, limit } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Get recent sets for this exercise from this user
     const sets = await db

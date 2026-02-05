@@ -2,23 +2,14 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { trainingBlocks, workouts, programs, users, decisions } from "@gymapp/db/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { trainingBlocks, workouts, programs, decisions } from "@gymapp/db/schema";
+import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { getDecisionConfidence } from "@gymapp/engine";
 import type { Env } from "../types";
 import type { DecisionType } from "@gymapp/types";
+import { verifyTrainingBlockAccess, verifyWorkoutAccess, getUserByClerkId } from "../middleware/authorize";
 
 const workoutRoutes = new Hono<Env>();
-
-// Helper to get user by clerkId
-async function getUserByClerkId(clerkId: string) {
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.clerkId, clerkId))
-    .limit(1);
-  return result[0];
-}
 
 // ============ Training Blocks ============
 
@@ -67,10 +58,17 @@ workoutRoutes.get(
   }
 );
 
-// GET /training-blocks/:id - Get single training block with program details
+// GET /training-blocks/:id - Get single training block with program details (requires ownership)
 workoutRoutes.get("/training-blocks/:id", async (c) => {
   const id = c.req.param("id");
 
+  // Verify the authenticated user owns this training block
+  const authResult = await verifyTrainingBlockAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  // Get program details for the training block
   const result = await db
     .select({
       trainingBlock: trainingBlocks,
@@ -80,10 +78,6 @@ workoutRoutes.get("/training-blocks/:id", async (c) => {
     .leftJoin(programs, eq(trainingBlocks.programId, programs.id))
     .where(eq(trainingBlocks.id, id))
     .limit(1);
-
-  if (result.length === 0) {
-    return c.json({ error: "Training block not found" }, 404);
-  }
 
   return c.json({ data: result[0] });
 });
@@ -170,7 +164,7 @@ workoutRoutes.post(
   }
 );
 
-// PATCH /training-blocks/:id - Update training block
+// PATCH /training-blocks/:id - Update training block (requires ownership)
 workoutRoutes.patch(
   "/training-blocks/:id",
   zValidator("json", updateTrainingBlockSchema),
@@ -178,14 +172,10 @@ workoutRoutes.patch(
     const id = c.req.param("id");
     const data = c.req.valid("json");
 
-    const existing = await db
-      .select({ id: trainingBlocks.id })
-      .from(trainingBlocks)
-      .where(eq(trainingBlocks.id, id))
-      .limit(1);
-
-    if (existing.length === 0) {
-      return c.json({ error: "Training block not found" }, 404);
+    // Verify the authenticated user owns this training block
+    const authResult = await verifyTrainingBlockAccess(c, id);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -433,17 +423,48 @@ const updateWorkoutSchema = z.object({
   })).optional(),
 });
 
-// GET /workouts - List workouts with filters
+// GET /workouts - List workouts with filters (only user's own workouts)
 workoutRoutes.get(
   "/",
   zValidator("query", workoutQuerySchema),
   async (c) => {
+    const clerkId = c.get("clerkId");
+    if (!clerkId) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+
+    const user = await getUserByClerkId(clerkId);
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
     const query = c.req.valid("query");
+
+    // First get user's training blocks
+    const userBlocks = await db
+      .select({ id: trainingBlocks.id })
+      .from(trainingBlocks)
+      .where(eq(trainingBlocks.userId, user.id));
+
+    const userBlockIds = userBlocks.map(b => b.id);
+
+    if (userBlockIds.length === 0) {
+      return c.json({ data: [] });
+    }
+
+    // If a specific trainingBlockId is requested, verify it belongs to user
+    if (query.trainingBlockId && !userBlockIds.includes(query.trainingBlockId)) {
+      return c.json({ error: "Forbidden: You can only access your own workouts" }, 403);
+    }
 
     let dbQuery = db.select().from(workouts);
 
+    // Filter to only user's training blocks (or specific block if provided)
     if (query.trainingBlockId) {
       dbQuery = dbQuery.where(eq(workouts.trainingBlockId, query.trainingBlockId)) as typeof dbQuery;
+    } else {
+      // Filter to any of user's training blocks
+      dbQuery = dbQuery.where(inArray(workouts.trainingBlockId, userBlockIds)) as typeof dbQuery;
     }
 
     if (query.status) {
@@ -464,24 +485,20 @@ workoutRoutes.get(
   }
 );
 
-// GET /workouts/:id - Get single workout with details
+// GET /workouts/:id - Get single workout with details (requires ownership)
 workoutRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
 
-  const result = await db
-    .select()
-    .from(workouts)
-    .where(eq(workouts.id, id))
-    .limit(1);
-
-  if (result.length === 0) {
-    return c.json({ error: "Workout not found" }, 404);
+  // Verify the authenticated user owns this workout
+  const authResult = await verifyWorkoutAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
-  return c.json({ data: result[0] });
+  return c.json({ data: authResult.workout });
 });
 
-// PATCH /workouts/:id - Update workout
+// PATCH /workouts/:id - Update workout (requires ownership)
 workoutRoutes.patch(
   "/:id",
   zValidator("json", updateWorkoutSchema),
@@ -489,14 +506,10 @@ workoutRoutes.patch(
     const id = c.req.param("id");
     const data = c.req.valid("json");
 
-    const existing = await db
-      .select({ id: workouts.id })
-      .from(workouts)
-      .where(eq(workouts.id, id))
-      .limit(1);
-
-    if (existing.length === 0) {
-      return c.json({ error: "Workout not found" }, 404);
+    // Verify the authenticated user owns this workout
+    const authResult = await verifyWorkoutAccess(c, id);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -513,21 +526,17 @@ workoutRoutes.patch(
   }
 );
 
-// POST /workouts/:id/start - Start a workout session
+// POST /workouts/:id/start - Start a workout session (requires ownership)
 workoutRoutes.post("/:id/start", async (c) => {
   const id = c.req.param("id");
 
-  const existing = await db
-    .select()
-    .from(workouts)
-    .where(eq(workouts.id, id))
-    .limit(1);
-
-  if (existing.length === 0) {
-    return c.json({ error: "Workout not found" }, 404);
+  // Verify the authenticated user owns this workout
+  const authResult = await verifyWorkoutAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
-  if (existing[0]!.status !== "pending") {
+  if (authResult.workout.status !== "pending") {
     return c.json({ error: "Workout has already been started or completed" }, 400);
   }
 
@@ -540,21 +549,17 @@ workoutRoutes.post("/:id/start", async (c) => {
   return c.json({ data: result[0] });
 });
 
-// POST /workouts/:id/complete - Mark workout as complete
+// POST /workouts/:id/complete - Mark workout as complete (requires ownership)
 workoutRoutes.post("/:id/complete", async (c) => {
   const id = c.req.param("id");
 
-  const existing = await db
-    .select()
-    .from(workouts)
-    .where(eq(workouts.id, id))
-    .limit(1);
-
-  if (existing.length === 0) {
-    return c.json({ error: "Workout not found" }, 404);
+  // Verify the authenticated user owns this workout
+  const authResult = await verifyWorkoutAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
-  if (existing[0]!.status === "completed") {
+  if (authResult.workout.status === "completed") {
     return c.json({ error: "Workout is already completed" }, 400);
   }
 
@@ -567,21 +572,17 @@ workoutRoutes.post("/:id/complete", async (c) => {
   return c.json({ data: result[0] });
 });
 
-// POST /workouts/:id/skip - Skip a workout
+// POST /workouts/:id/skip - Skip a workout (requires ownership)
 workoutRoutes.post("/:id/skip", async (c) => {
   const id = c.req.param("id");
 
-  const existing = await db
-    .select()
-    .from(workouts)
-    .where(eq(workouts.id, id))
-    .limit(1);
-
-  if (existing.length === 0) {
-    return c.json({ error: "Workout not found" }, 404);
+  // Verify the authenticated user owns this workout
+  const authResult = await verifyWorkoutAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
-  if (existing[0]!.status === "completed") {
+  if (authResult.workout.status === "completed") {
     return c.json({ error: "Cannot skip a completed workout" }, 400);
   }
 

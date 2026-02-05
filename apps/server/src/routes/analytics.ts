@@ -4,14 +4,16 @@ import { z } from "zod";
 import { db } from "@gymapp/db";
 import { workoutLogs, loggedSets } from "@gymapp/db/schema";
 import { eq, and, desc, gte, sql } from "drizzle-orm";
+import type { Env } from "../types";
+import { verifyUserAccess } from "../middleware/authorize";
 
-const analyticsRoutes = new Hono();
+const analyticsRoutes = new Hono<Env>();
 
 const userQuerySchema = z.object({
   userId: z.string().min(1),
 });
 
-// GET /analytics/exercise/:exerciseId/progress - Get exercise progress over time
+// GET /analytics/exercise/:exerciseId/progress - Get exercise progress over time (requires ownership)
 analyticsRoutes.get(
   "/exercise/:exerciseId/progress",
   zValidator("query", userQuerySchema.extend({
@@ -20,6 +22,12 @@ analyticsRoutes.get(
   async (c) => {
     const exerciseId = c.req.param("exerciseId");
     const { userId, limit } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Get all sets for this exercise, grouped by workout date
     const sets = await db
@@ -89,7 +97,7 @@ analyticsRoutes.get(
   }
 );
 
-// GET /analytics/volume - Get weekly volume data
+// GET /analytics/volume - Get weekly volume data (requires ownership)
 analyticsRoutes.get(
   "/volume",
   zValidator("query", userQuerySchema.extend({
@@ -97,6 +105,12 @@ analyticsRoutes.get(
   })),
   async (c) => {
     const { userId, weeks } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - weeks * 7);
@@ -189,12 +203,18 @@ analyticsRoutes.get(
   }
 );
 
-// GET /analytics/personal-records - Get personal records for each exercise
+// GET /analytics/personal-records - Get personal records for each exercise (requires ownership)
 analyticsRoutes.get(
   "/personal-records",
   zValidator("query", userQuerySchema),
   async (c) => {
     const { userId } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Get all sets for this user
     const sets = await db
@@ -273,12 +293,18 @@ analyticsRoutes.get(
   }
 );
 
-// GET /analytics/summary - Get overall training summary
+// GET /analytics/summary - Get overall training summary (requires ownership)
 analyticsRoutes.get(
   "/summary",
   zValidator("query", userQuerySchema),
   async (c) => {
     const { userId } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Get all completed workout logs
     const logs = await db
@@ -365,7 +391,7 @@ analyticsRoutes.get(
   }
 );
 
-// GET /analytics/weekly-summary - Get detailed weekly training summary
+// GET /analytics/weekly-summary - Get detailed weekly training summary (requires ownership)
 analyticsRoutes.get(
   "/weekly-summary",
   zValidator("query", userQuerySchema.extend({
@@ -373,6 +399,12 @@ analyticsRoutes.get(
   })),
   async (c) => {
     const { userId, weekOffset } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Calculate week boundaries
     const now = new Date();

@@ -17,8 +17,10 @@ import {
   ENGINE_VERSION,
 } from "@gymapp/engine";
 import type { DecisionAccuracyStats, OverrideReason, DecisionType } from "@gymapp/types";
+import type { Env } from "../types";
+import { verifyUserAccess, getAuthenticatedUserFromContext } from "../middleware/authorize";
 
-const decisionRoutes = new Hono();
+const decisionRoutes = new Hono<Env>();
 
 // Helper to generate decision ID
 function generateDecisionId(): string {
@@ -80,6 +82,12 @@ decisionRoutes.get(
   async (c) => {
     const { userId, type, limit, offset } = c.req.valid("query");
 
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
     const conditions = type
       ? and(eq(decisions.userId, userId), eq(decisions.type, type))
       : eq(decisions.userId, userId);
@@ -96,9 +104,15 @@ decisionRoutes.get(
   }
 );
 
-// Get single decision by ID
+// Get single decision by ID (requires ownership)
 decisionRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
+
+  // Verify user is authenticated
+  const authResult = await getAuthenticatedUserFromContext(c);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
 
   const result = await db
     .select()
@@ -108,6 +122,11 @@ decisionRoutes.get("/:id", async (c) => {
 
   if (result.length === 0) {
     return c.json({ error: "Decision not found" }, 404);
+  }
+
+  // Verify the decision belongs to the authenticated user
+  if (result[0]!.userId !== authResult.user.id) {
+    return c.json({ error: "Forbidden: You can only access your own decisions" }, 403);
   }
 
   return c.json({ data: result[0] });
@@ -129,12 +148,18 @@ decisionRoutes.post(
     const decisionId = c.req.param("id");
     const data = c.req.valid("json");
 
+    // Verify user is authenticated
+    const authResult = await getAuthenticatedUserFromContext(c);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
     // Validate: if overridden, require reason
     if (data.outcome === "overridden" && !data.overrideReason) {
       return c.json({ error: "Override reason required when outcome is 'overridden'" }, 400);
     }
 
-    // Get the decision to verify it exists and get userId
+    // Get the decision to verify it exists and belongs to the user
     const decision = await db
       .select()
       .from(decisions)
@@ -143,6 +168,11 @@ decisionRoutes.post(
 
     if (decision.length === 0) {
       return c.json({ error: "Decision not found" }, 404);
+    }
+
+    // Verify the decision belongs to the authenticated user
+    if (decision[0]!.userId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only record outcomes for your own decisions" }, 403);
     }
 
     // Check if outcome already exists
@@ -186,6 +216,12 @@ decisionRoutes.get(
   zValidator("query", accuracyQuerySchema),
   async (c) => {
     const { userId } = c.req.valid("query");
+
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Get all outcomes for this user
     const outcomes = await db
@@ -267,6 +303,12 @@ decisionRoutes.get(
   async (c) => {
     const { userId, limit } = c.req.valid("query");
 
+    // Verify the authenticated user matches the userId in the request
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
     // Find decisions that have 'followed' outcome but success is null
     const pending = await db
       .select({
@@ -308,6 +350,12 @@ decisionRoutes.patch(
     const decisionId = c.req.param("id");
     const data = c.req.valid("json");
 
+    // Verify user is authenticated
+    const authResult = await getAuthenticatedUserFromContext(c);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
     // Find the outcome for this decision
     const outcome = await db
       .select()
@@ -317,6 +365,11 @@ decisionRoutes.patch(
 
     if (outcome.length === 0) {
       return c.json({ error: "No outcome recorded for this decision" }, 404);
+    }
+
+    // Verify the outcome belongs to the authenticated user
+    if (outcome[0]!.userId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only evaluate your own decision outcomes" }, 403);
     }
 
     // Update with evaluation

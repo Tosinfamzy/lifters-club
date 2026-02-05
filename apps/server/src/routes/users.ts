@@ -14,6 +14,7 @@ import {
 } from "@gymapp/engine";
 import type { Env } from "../types";
 import type { PrimaryGoal, BaselineSource } from "@gymapp/types";
+import { verifyUserAccess, verifyBodyUserAccess } from "../middleware/authorize";
 
 const userRoutes = new Hono<Env>();
 
@@ -58,21 +59,17 @@ userRoutes.get(
   }
 );
 
-// GET /:id - Get user by ID
+// GET /:id - Get user by ID (requires ownership)
 userRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
 
-  const user = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, id))
-    .limit(1);
-
-  if (user.length === 0) {
-    return c.json({ error: "User not found" }, 404);
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, id);
+  if (!authResult.authorized) {
+    return authResult.response;
   }
 
-  return c.json({ data: user[0] });
+  return c.json({ data: authResult.user });
 });
 
 // POST / - Create user (called after Clerk sign-up)
@@ -125,14 +122,10 @@ userRoutes.patch(
     const id = c.req.param("id");
     const data = c.req.valid("json");
 
-    const existing = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, id))
-      .limit(1);
-
-    if (existing.length === 0) {
-      return c.json({ error: "User not found" }, 404);
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, id);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -168,6 +161,12 @@ userRoutes.post(
   zValidator("json", readinessSchema),
   async (c) => {
     const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyBodyUserAccess(c, data.userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Calculate readiness using the simple engine function
     const result = calculateSessionReadiness({
@@ -223,6 +222,12 @@ userRoutes.post(
   zValidator("json", extendedReadinessSchema),
   async (c) => {
     const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyBodyUserAccess(c, data.userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
 
     // Calculate recovery adjustments using the comprehensive engine function
     const recoveryDecision = calculateSessionRecovery({
@@ -286,15 +291,10 @@ userRoutes.post(
     const userId = c.req.param("id");
     const { baselines } = c.req.valid("json");
 
-    // Verify user exists
-    const user = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (user.length === 0) {
-      return c.json({ error: "User not found" }, 404);
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
     // Delete existing baselines for these exercises
@@ -338,9 +338,15 @@ userRoutes.post(
   }
 );
 
-// GET /:id/baselines - Get user baselines
+// GET /:id/baselines - Get user baselines (requires ownership)
 userRoutes.get("/:id/baselines", async (c) => {
   const userId = c.req.param("id");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
 
   const baselines = await db
     .select()
@@ -362,15 +368,10 @@ userRoutes.get(
     const userId = c.req.param("id");
     const { equipment: equipmentStr } = c.req.valid("query");
 
-    // Get user to determine goal
-    const user = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (user.length === 0) {
-      return c.json({ error: "User not found" }, 404);
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
     // Parse equipment list
@@ -384,7 +385,7 @@ userRoutes.get(
     // Generate plan
     const plan = generateCalibrationPlan(
       path,
-      user[0]!.primaryGoal as PrimaryGoal
+      authResult.user.primaryGoal as PrimaryGoal
     );
 
     return c.json({
@@ -410,14 +411,10 @@ userRoutes.patch(
     const userId = c.req.param("id");
     const data = c.req.valid("json");
 
-    const existing = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (existing.length === 0) {
-      return c.json({ error: "User not found" }, 404);
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
     }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };

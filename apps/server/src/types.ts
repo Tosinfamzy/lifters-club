@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import type { Logger } from "./lib/logger";
 
 /**
  * Environment variables available in context
@@ -11,6 +12,8 @@ export type Env = {
     userId: string | undefined;
     /** Clerk ID (alias for userId) */
     clerkId: string | undefined;
+    /** Request-scoped logger with context */
+    logger: Logger;
   };
 };
 
