@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Push database schema
-        run: pnpm --filter @gymapp/db drizzle-kit push --force
+      - name: Run database migrations
+        run: pnpm --filter @gymapp/db drizzle-kit migrate
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

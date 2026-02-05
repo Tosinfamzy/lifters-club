@@ -10,21 +10,6 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: gymapp_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
 
@@ -38,16 +23,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Initialize database schemas
-        run: |
-          PGPASSWORD=test psql -h localhost -U test -d gymapp_test -c "CREATE SCHEMA IF NOT EXISTS exercise_lib;"
-          PGPASSWORD=test psql -h localhost -U test -d gymapp_test -c "CREATE SCHEMA IF NOT EXISTS training;"
-
-      - name: Push database schema
-        run: pnpm --filter @gymapp/db drizzle-kit push --force
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/gymapp_test
-
       - name: Type check
         run: pnpm typecheck
 
@@ -56,8 +31,6 @@ jobs:
 
       - name: Test
         run: pnpm test
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/gymapp_test
 
       - name: Build
         run: pnpm build
