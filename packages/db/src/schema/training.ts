@@ -46,7 +46,9 @@ export const trainingBlocks = training.table("training_blocks", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("training_blocks_user_status_idx").on(table.userId, table.status),
+]);
 
 export const workouts = training.table("workouts", {
   id: varchar("id", { length: 64 }).primaryKey(),
@@ -61,7 +63,10 @@ export const workouts = training.table("workouts", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("workouts_block_date_idx").on(table.trainingBlockId, table.scheduledDate),
+  index("workouts_status_idx").on(table.status),
+]);
 
 export const workoutLogs = training.table("workout_logs", {
   id: varchar("id", { length: 64 }).primaryKey(),
@@ -75,7 +80,10 @@ export const workoutLogs = training.table("workout_logs", {
   notes: text("notes"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("workout_logs_user_created_idx").on(table.userId, table.createdAt),
+  index("workout_logs_workout_idx").on(table.workoutId),
+]);
 
 export const loggedSets = training.table("logged_sets", {
   id: varchar("id", { length: 64 }).primaryKey(),
@@ -90,7 +98,10 @@ export const loggedSets = training.table("logged_sets", {
   notes: text("notes"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("logged_sets_exercise_created_idx").on(table.exerciseId, table.createdAt),
+  index("logged_sets_workout_log_idx").on(table.workoutLogId),
+]);
 
 export const decisions = training.table("decisions", {
   id: varchar("id", { length: 64 }).primaryKey(),
@@ -168,7 +179,9 @@ export const readinessChecks = training.table("readiness_checks", {
   recommendation: varchar("recommendation", { length: 20 }).notNull(), // 'proceed', 'modify', 'rest'
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("readiness_checks_user_created_idx").on(table.userId, table.createdAt),
+]);
 
 // User baseline weights for exercises - established during onboarding or calibration
 export const userBaselines = training.table("user_baselines", {

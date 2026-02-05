@@ -5,7 +5,11 @@ import type { Context } from "hono";
  */
 export type Env = {
   Variables: {
+    /** Unique request ID for tracing */
+    requestId: string;
+    /** Authenticated user's ID */
     userId: string | undefined;
+    /** Clerk ID (alias for userId) */
     clerkId: string | undefined;
   };
 };
@@ -13,6 +17,9 @@ export type Env = {
 /**
  * Typed context with auth variables
  */
+export type AppContext = Context<Env>;
+
+/** @deprecated Use AppContext instead */
 export type AuthContext = Context<Env>;
 
 /**
@@ -21,4 +28,11 @@ export type AuthContext = Context<Env>;
  */
 export function getAuthClerkId(c: Context<Env>): string | undefined {
   return c.get("clerkId");
+}
+
+/**
+ * Helper to get request ID from context
+ */
+export function getRequestId(c: Context<Env>): string {
+  return c.get("requestId");
 }
