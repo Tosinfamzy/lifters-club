@@ -3,8 +3,10 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { exercises } from "./schema/exercise-lib";
 
-// Load .env from monorepo root
-config({ path: "../../.env" });
+// Load .env from monorepo root only if DATABASE_URL not already set (e.g., in CI)
+if (!process.env.DATABASE_URL) {
+  config({ path: "../../.env" });
+}
 
 const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client);
