@@ -211,11 +211,13 @@ logRoutes.patch(
       .where(eq(workoutLogs.id, id))
       .returning();
 
-    // Update workout status to completed
-    await db
-      .update(workouts)
-      .set({ status: "completed", updatedAt: new Date() })
-      .where(eq(workouts.id, authResult.workoutLog.workoutId));
+    // Update workout status to completed (only if linked to a planned workout)
+    if (authResult.workoutLog.workoutId) {
+      await db
+        .update(workouts)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(eq(workouts.id, authResult.workoutLog.workoutId));
+    }
 
     // Evaluate pending decisions after workout completion
     await evaluatePendingDecisions(authResult.workoutLog.userId, id);
