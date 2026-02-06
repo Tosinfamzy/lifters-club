@@ -24,9 +24,11 @@ help:
 	@echo "  make db-shell     - Open PostgreSQL shell"
 	@echo "  make db-push      - Push schema (dev only)"
 	@echo "  make migrate      - Run migrations"
-	@echo "  make seed         - Seed exercises"
-	@echo "  make seed-programs - Seed training programs"
-	@echo "  make seed-all     - Seed everything"
+	@echo "  make seed         - Seed exercises (local)"
+	@echo "  make seed-programs - Seed training programs (local)"
+	@echo "  make seed-all     - Seed everything (local)"
+	@echo "  make seed-prod    - Seed exercises (production, needs DATABASE_URL)"
+	@echo "  make seed-all-prod - Seed everything (production, needs DATABASE_URL)"
 	@echo "  make studio       - Open Drizzle Studio"
 	@echo ""
 	@echo "Development:"
@@ -111,16 +113,31 @@ migrate:
 db-push:
 	pnpm db:push
 
-# Seed the exercises
+# Seed the exercises (local)
 seed:
 	pnpm --filter @gymapp/db db:seed
 
-# Seed training programs
+# Seed training programs (local)
 seed-programs:
 	pnpm --filter @gymapp/db db:seed:programs
 
-# Seed everything (exercises + programs)
+# Seed everything (local)
 seed-all:
+	pnpm --filter @gymapp/db db:seed:all
+
+# Seed production database (requires DATABASE_URL env var)
+seed-prod:
+	@if [ -z "$$DATABASE_URL" ]; then echo "Error: DATABASE_URL not set"; exit 1; fi
+	pnpm --filter @gymapp/db db:seed
+
+# Seed production programs (requires DATABASE_URL env var)
+seed-programs-prod:
+	@if [ -z "$$DATABASE_URL" ]; then echo "Error: DATABASE_URL not set"; exit 1; fi
+	pnpm --filter @gymapp/db db:seed:programs
+
+# Seed everything in production (requires DATABASE_URL env var)
+seed-all-prod:
+	@if [ -z "$$DATABASE_URL" ]; then echo "Error: DATABASE_URL not set"; exit 1; fi
 	pnpm --filter @gymapp/db db:seed:all
 
 # Open Drizzle Studio
