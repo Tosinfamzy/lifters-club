@@ -4,12 +4,13 @@ import { users, programs, trainingBlocks, workouts } from "@gymapp/db/schema";
 import { eq, like } from "drizzle-orm";
 
 // Mock Clerk's verifyToken before importing the app
+// NOTE: vi.mock is hoisted, so we must use literal string in factory (not variable reference)
+vi.mock("@clerk/backend", () => ({
+  verifyToken: vi.fn().mockResolvedValue({ sub: "test_clerk_workouts_12345" }),
+}));
+
 const TEST_CLERK_ID = "test_clerk_workouts_12345";
 const OTHER_CLERK_ID = "other_clerk_workouts_67890";
-
-vi.mock("@clerk/backend", () => ({
-  verifyToken: vi.fn().mockResolvedValue({ sub: TEST_CLERK_ID }),
-}));
 
 // Import app after mocking
 import { Hono } from "hono";
