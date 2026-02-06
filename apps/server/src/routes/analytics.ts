@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
 import { workoutLogs, loggedSets } from "@gymapp/db/schema";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import type { Env } from "../types";
 import { verifyUserAccess } from "../middleware/authorize";
 
@@ -428,7 +428,7 @@ analyticsRoutes.get(
       .where(and(
         eq(workoutLogs.userId, userId),
         gte(workoutLogs.startedAt, startOfWeek),
-        sql`${workoutLogs.startedAt} <= ${endOfWeek}`
+        lte(workoutLogs.startedAt, endOfWeek)
       ))
       .orderBy(workoutLogs.startedAt);
 
