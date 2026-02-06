@@ -11,6 +11,7 @@ import {
   verifyUserAccess,
   getAuthenticatedUserFromContext,
 } from "../middleware/authorize";
+import { logger as globalLogger } from "../lib/logger";
 
 const logRoutes = new Hono<Env>();
 
@@ -174,6 +175,9 @@ logRoutes.post(
       .set({ status: "in_progress", updatedAt: new Date() })
       .where(eq(workouts.id, data.workoutId));
 
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ logId: data.id, workoutId: data.workoutId, userId: data.userId }, "Workout log started");
+
     return c.json({ data: result[0] }, 201);
   }
 );
@@ -214,6 +218,9 @@ logRoutes.patch(
 
     // Evaluate pending decisions after workout completion
     await evaluatePendingDecisions(authResult.workoutLog.userId, id);
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ logId: id, userId: authResult.workoutLog.userId, overallRpe: data.overallRpe }, "Workout log completed");
 
     return c.json({ data: result[0] });
   }
@@ -327,6 +334,9 @@ logRoutes.post(
     }));
 
     const result = await db.insert(loggedSets).values(setsToInsert).returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ logId, setCount: sets.length, userId: authResult.workoutLog.userId }, "Batch sets logged");
 
     return c.json({ data: result }, 201);
   }

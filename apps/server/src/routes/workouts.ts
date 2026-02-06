@@ -8,6 +8,7 @@ import { getDecisionConfidence } from "@gymapp/engine";
 import type { Env } from "../types";
 import type { DecisionType } from "@gymapp/types";
 import { verifyTrainingBlockAccess, verifyWorkoutAccess, getUserByClerkId } from "../middleware/authorize";
+import { logger as globalLogger } from "../lib/logger";
 
 const workoutRoutes = new Hono<Env>();
 
@@ -160,6 +161,9 @@ workoutRoutes.post(
       await db.insert(workouts).values(workoutsToCreate);
     }
 
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId: user.id, blockId: data.id, programId: data.programId }, "Training block started");
+
     return c.json({ data: result[0] }, 201);
   }
 );
@@ -188,6 +192,9 @@ workoutRoutes.patch(
       .set(updateData)
       .where(eq(trainingBlocks.id, id))
       .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ blockId: id, status: data.status, currentWeek: data.currentWeek }, "Training block updated");
 
     return c.json({ data: result[0] });
   }
@@ -546,6 +553,9 @@ workoutRoutes.post("/:id/start", async (c) => {
     .where(eq(workouts.id, id))
     .returning();
 
+  const logger = c.get("logger") ?? globalLogger;
+  logger.info({ workoutId: id, userId: authResult.user.id }, "Workout started");
+
   return c.json({ data: result[0] });
 });
 
@@ -569,6 +579,9 @@ workoutRoutes.post("/:id/complete", async (c) => {
     .where(eq(workouts.id, id))
     .returning();
 
+  const logger = c.get("logger") ?? globalLogger;
+  logger.info({ workoutId: id, userId: authResult.user.id }, "Workout completed");
+
   return c.json({ data: result[0] });
 });
 
@@ -591,6 +604,9 @@ workoutRoutes.post("/:id/skip", async (c) => {
     .set({ status: "skipped", updatedAt: new Date() })
     .where(eq(workouts.id, id))
     .returning();
+
+  const logger = c.get("logger") ?? globalLogger;
+  logger.info({ workoutId: id, userId: authResult.user.id }, "Workout skipped");
 
   return c.json({ data: result[0] });
 });

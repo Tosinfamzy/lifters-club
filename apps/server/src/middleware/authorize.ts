@@ -3,6 +3,7 @@ import { db } from "@gymapp/db";
 import { users, trainingBlocks, workouts, workoutLogs } from "@gymapp/db/schema";
 import { eq } from "drizzle-orm";
 import type { Env } from "../types";
+import { logger as globalLogger } from "../lib/logger";
 
 /**
  * Get the authenticated user from the database
@@ -80,6 +81,8 @@ export async function verifyUserAccess(
   }
 
   if (authenticatedUser.id !== requestedUserId) {
+    const logger = c.get("logger") ?? globalLogger;
+    logger.warn({ requestedUserId, authenticatedUserId: authenticatedUser.id }, "User access denied");
     return {
       authorized: false,
       response: c.json({ error: "Forbidden: You can only access your own data" }, 403),
@@ -145,6 +148,8 @@ export async function verifyTrainingBlockAccess(
   }
 
   if (block[0].userId !== authenticatedUser.id) {
+    const logger = c.get("logger") ?? globalLogger;
+    logger.warn({ trainingBlockId, userId: authenticatedUser.id }, "Training block access denied");
     return {
       authorized: false,
       response: c.json({ error: "Forbidden: You can only access your own training blocks" }, 403),
@@ -208,6 +213,8 @@ export async function verifyWorkoutAccess(
     .limit(1);
 
   if (!block[0] || block[0].userId !== authenticatedUser.id) {
+    const logger = c.get("logger") ?? globalLogger;
+    logger.warn({ workoutId, userId: authenticatedUser.id }, "Workout access denied");
     return {
       authorized: false,
       response: c.json({ error: "Forbidden: You can only access your own workouts" }, 403),
@@ -263,6 +270,8 @@ export async function verifyWorkoutLogAccess(
   }
 
   if (log[0].userId !== authenticatedUser.id) {
+    const logger = c.get("logger") ?? globalLogger;
+    logger.warn({ workoutLogId, userId: authenticatedUser.id }, "Workout log access denied");
     return {
       authorized: false,
       response: c.json({ error: "Forbidden: You can only access your own workout logs" }, 403),

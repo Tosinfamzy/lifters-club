@@ -6,6 +6,7 @@ import { exercises } from "@gymapp/db/schema";
 import { eq, ilike, or, sql } from "drizzle-orm";
 import { getTopSubstitutes } from "@gymapp/engine";
 import type { Exercise, EquipmentType, Difficulty } from "@gymapp/types";
+import { logger } from "../lib/logger";
 
 const exerciseRoutes = new Hono();
 
@@ -331,6 +332,8 @@ exerciseRoutes.post(
       })
       .returning();
 
+    logger.info({ exerciseId: data.id, name: data.name }, "Exercise created");
+
     return c.json({ data: result[0] }, 201);
   }
 );
@@ -372,6 +375,8 @@ exerciseRoutes.put(
       })
       .where(eq(exercises.id, id))
       .returning();
+
+    logger.info({ exerciseId: id }, "Exercise updated");
 
     return c.json({ data: result[0] });
   }
@@ -416,6 +421,8 @@ exerciseRoutes.patch(
       .where(eq(exercises.id, id))
       .returning();
 
+    logger.info({ exerciseId: id }, "Exercise updated");
+
     return c.json({ data: result[0] });
   }
 );
@@ -437,6 +444,8 @@ exerciseRoutes.delete("/:id", async (c) => {
 
   // Delete the exercise
   await db.delete(exercises).where(eq(exercises.id, id));
+
+  logger.info({ exerciseId: id }, "Exercise deleted");
 
   return c.json({ message: "Exercise deleted successfully" });
 });

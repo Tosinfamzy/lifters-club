@@ -10,6 +10,7 @@ import { decisions, decisionOutcomes, loggedSets } from "@gymapp/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { evaluateDecision } from "@gymapp/engine";
 import type { Decision, LoggedSet } from "@gymapp/types";
+import { logger as globalLogger } from "../lib/logger";
 
 /**
  * Evaluate all pending decisions for a user after workout completion
@@ -25,6 +26,8 @@ export async function evaluatePendingDecisions(
   userId: string,
   completedWorkoutLogId: string
 ): Promise<void> {
+  globalLogger.debug({ userId, workoutLogId: completedWorkoutLogId }, "Starting decision evaluation");
+
   // 1. Get decisions with 'followed' outcome but no success evaluation
   const pendingOutcomes = await db
     .select({
@@ -119,6 +122,8 @@ export async function evaluatePendingDecisions(
           evaluatedAt: new Date(),
         })
         .where(eq(decisionOutcomes.id, outcome.id));
+
+      globalLogger.info({ decisionId: decision.id, success: evaluation.success, userId }, "Decision evaluated");
     }
   }
 }

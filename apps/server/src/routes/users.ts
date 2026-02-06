@@ -15,6 +15,7 @@ import {
 import type { Env } from "../types";
 import type { PrimaryGoal, BaselineSource } from "@gymapp/types";
 import { verifyUserAccess, verifyBodyUserAccess } from "../middleware/authorize";
+import { logger as globalLogger } from "../lib/logger";
 
 const userRoutes = new Hono<Env>();
 
@@ -104,6 +105,9 @@ userRoutes.post(
       .values(data)
       .returning();
 
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId: result[0]!.id, clerkId: data.clerkId }, "User created");
+
     return c.json({ data: result[0] }, 201);
   }
 );
@@ -138,6 +142,9 @@ userRoutes.patch(
       .set(updateData)
       .where(eq(users.id, id))
       .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId: id, fields: Object.keys(data) }, "User profile updated");
 
     return c.json({ data: result[0] });
   }
@@ -189,6 +196,9 @@ userRoutes.post(
       score: result.score,
       recommendation: result.recommendation,
     });
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId: data.userId, score: result.score, recommendation: result.recommendation }, "Readiness check submitted");
 
     return c.json({
       data: {
@@ -334,6 +344,9 @@ userRoutes.post(
       .set({ baselineComplete: true, updatedAt: now })
       .where(eq(users.id, userId));
 
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId, exerciseCount: baselines.length }, "User baselines established");
+
     return c.json({ data: inserted }, 201);
   }
 );
@@ -430,6 +443,9 @@ userRoutes.patch(
       .set(updateData)
       .where(eq(users.id, userId))
       .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId, onboardingComplete: data.onboardingComplete, baselineComplete: data.baselineComplete }, "Onboarding status updated");
 
     return c.json({ data: result[0] });
   }

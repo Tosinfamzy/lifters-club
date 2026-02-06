@@ -19,6 +19,7 @@ import {
 import type { DecisionAccuracyStats, OverrideReason, DecisionType } from "@gymapp/types";
 import type { Env } from "../types";
 import { verifyUserAccess, getAuthenticatedUserFromContext } from "../middleware/authorize";
+import { logger as globalLogger } from "../lib/logger";
 
 const decisionRoutes = new Hono<Env>();
 
@@ -201,6 +202,9 @@ decisionRoutes.post(
         success: null, // Will be evaluated later
       })
       .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ decisionId, outcome: data.outcome, userId: authResult.user.id }, "Decision outcome recorded");
 
     return c.json({ data: inserted });
   }
@@ -419,6 +423,11 @@ decisionRoutes.post(
       workoutId
     );
 
+    if (userId) {
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ exerciseId: input.exerciseId, action: result.action, newWeight: result.newWeight, userId }, "Load progression decided");
+    }
+
     return c.json({ data: result });
   }
 );
@@ -455,6 +464,11 @@ decisionRoutes.post(
       workoutId
     );
 
+    if (userId) {
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ exerciseId: input.exerciseId, action: result.action, newSetCount: result.newSetCount, userId }, "Volume adjustment decided");
+    }
+
     return c.json({ data: result });
   }
 );
@@ -486,6 +500,11 @@ decisionRoutes.post(
       workoutId
     );
 
+    if (userId) {
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ weekNumber: input.weekNumber, recommended: result.recommended, userId }, "Deload decision made");
+    }
+
     return c.json({ data: result });
   }
 );
@@ -516,6 +535,11 @@ decisionRoutes.post(
       userId,
       workoutId
     );
+
+    if (userId) {
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ exerciseId: input.exerciseId, action: result.action, userId }, "Rotation decision made");
+    }
 
     return c.json({ data: result });
   }
@@ -549,6 +573,11 @@ decisionRoutes.post(
       userId,
       workoutId
     );
+
+    if (userId) {
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ score: result.readinessScore, recommendation: result.recommendation, userId }, "Recovery decision made");
+    }
 
     return c.json({ data: result });
   }

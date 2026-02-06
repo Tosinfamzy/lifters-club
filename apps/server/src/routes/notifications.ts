@@ -6,6 +6,7 @@ import { pushTokens, users } from "@gymapp/db/schema";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { Env } from "../types";
+import { logger as globalLogger } from "../lib/logger";
 
 const notificationRoutes = new Hono<Env>();
 
@@ -73,6 +74,9 @@ notificationRoutes.post(
         deviceId: data.deviceId,
       })
       .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId: data.userId, platform: data.platform }, "Push token registered");
 
     return c.json({ data: result[0] }, 201);
   }

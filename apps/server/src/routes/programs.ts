@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@gymapp/db";
 import { programs } from "@gymapp/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 const programRoutes = new Hono();
 
@@ -144,6 +145,8 @@ programRoutes.post(
       })
       .returning();
 
+    logger.info({ programId: data.id, name: data.name }, "Program created");
+
     return c.json({ data: result[0] }, 201);
   }
 );
@@ -180,6 +183,8 @@ programRoutes.patch(
       .where(eq(programs.id, id))
       .returning();
 
+    logger.info({ programId: id }, "Program updated");
+
     return c.json({ data: result[0] });
   }
 );
@@ -199,6 +204,8 @@ programRoutes.delete("/:id", async (c) => {
   }
 
   await db.delete(programs).where(eq(programs.id, id));
+
+  logger.info({ programId: id }, "Program deleted");
 
   return c.json({ message: "Program deleted successfully" });
 });
