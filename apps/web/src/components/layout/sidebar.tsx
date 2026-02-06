@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAppUser } from "@/providers/user-provider";
 
-const navigation = [
+export const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Programs", href: "/programs", icon: Dumbbell },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
@@ -29,7 +29,7 @@ export function Sidebar() {
   const { appUser } = useAppUser();
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-border bg-card">
+    <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-border bg-card hidden md:block">
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className="flex h-16 items-center gap-2 border-b border-border px-6">
@@ -75,7 +75,6 @@ export function Sidebar() {
           </Link>
           <div className="flex items-center gap-3 px-3 py-2">
             <UserButton
-              afterSignOutUrl="/"
               appearance={{
                 elements: {
                   avatarBox: "h-8 w-8",
