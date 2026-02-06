@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@gymapp/db";
 import { workoutLogs, loggedSets, workouts } from "@gymapp/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { evaluatePendingDecisions } from "../services/decision-eval";
 import type { Env } from "../types";
 import {
@@ -223,6 +224,101 @@ logRoutes.patch(
     logger.info({ logId: id, userId: authResult.workoutLog.userId, overallRpe: data.overallRpe }, "Workout log completed");
 
     return c.json({ data: result[0] });
+  }
+);
+
+// ============ Retrospective Logging ============
+
+const retrospectiveLogSchema = z.object({
+  date: z.string().datetime(),
+  overallRpe: z.number().min(1).max(10).optional(),
+  notes: z.string().max(1000).optional(),
+  exercises: z.array(z.object({
+    exerciseId: z.string().min(1).max(64),
+    sets: z.array(z.object({
+      weight: z.number().min(0).max(2000),
+      reps: z.number().int().min(1).max(100),
+      rpe: z.number().min(1).max(10).optional(),
+    })).min(1),
+  })).min(1),
+});
+
+// POST /logs/retrospective - Log a past workout (creates log + all sets atomically)
+logRoutes.post(
+  "/retrospective",
+  zValidator("json", retrospectiveLogSchema),
+  async (c) => {
+    const data = c.req.valid("json");
+
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    const userId = authResult.user.id;
+    const logId = `log_${nanoid(12)}`;
+    const workoutDate = new Date(data.date);
+
+    // Create the workout log (retrospective logs use a special workoutId pattern)
+    const retrospectiveWorkoutId = `retrospective-${workoutDate.toISOString().split("T")[0]}`;
+
+    await db.insert(workoutLogs).values({
+      id: logId,
+      workoutId: retrospectiveWorkoutId,
+      userId: userId,
+      startedAt: workoutDate,
+      completedAt: workoutDate,
+      overallRpe: data.overallRpe ?? null,
+      notes: data.notes ?? null,
+    });
+
+    // Create all sets
+    let setCount = 0;
+    const setsToInsert: {
+      id: string;
+      workoutLogId: string;
+      exerciseId: string;
+      setNumber: number;
+      weight: number;
+      reps: number;
+      rpe: number | null;
+    }[] = [];
+
+    for (const exercise of data.exercises) {
+      for (let i = 0; i < exercise.sets.length; i++) {
+        const set = exercise.sets[i]!;
+        setsToInsert.push({
+          id: `set_${nanoid(12)}`,
+          workoutLogId: logId,
+          exerciseId: exercise.exerciseId,
+          setNumber: i + 1,
+          weight: set.weight,
+          reps: set.reps,
+          rpe: set.rpe ?? null,
+        });
+        setCount++;
+      }
+    }
+
+    if (setsToInsert.length > 0) {
+      await db.insert(loggedSets).values(setsToInsert);
+    }
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info(
+      { logId, userId, exercises: data.exercises.length, sets: setCount },
+      "Retrospective workout logged"
+    );
+
+    return c.json({
+      data: {
+        id: logId,
+        exercises: data.exercises.length,
+        sets: setCount,
+        date: data.date,
+      },
+    }, 201);
   }
 );
 

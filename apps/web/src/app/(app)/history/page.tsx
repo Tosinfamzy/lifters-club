@@ -18,6 +18,7 @@ import {
   HistoryFilters,
   type HistoryFiltersType,
   ExportDialog,
+  LogWorkoutDialog,
 } from "@/components/history";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -232,7 +233,10 @@ export default function HistoryPage() {
               Review and edit your past training sessions
             </p>
           </div>
-          <ExportDialog workouts={filteredAndSortedLogs} getToken={getToken} />
+          <div className="flex gap-2">
+            <LogWorkoutDialog getToken={getToken} onSuccess={fetchWorkoutLogs} />
+            <ExportDialog workouts={filteredAndSortedLogs} getToken={getToken} />
+          </div>
         </div>
 
         {/* Stats Overview */}
