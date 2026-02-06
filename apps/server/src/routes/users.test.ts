@@ -425,7 +425,7 @@ describe("Users API", () => {
       expect(body.data).toBeDefined();
       expect(body.data!.score).toBeGreaterThan(0);
       expect(body.data!.recommendation).toBeDefined();
-      expect(["full_session", "modified_session", "light_session", "rest_day"]).toContain(
+      expect(["full_session", "reduced_volume", "reduced_intensity", "light_session", "rest_day"]).toContain(
         body.data!.recommendation
       );
     });
