@@ -260,12 +260,10 @@ logRoutes.post(
     const logId = `log_${nanoid(12)}`;
     const workoutDate = new Date(data.date);
 
-    // Create the workout log (retrospective logs use a special workoutId pattern)
-    const retrospectiveWorkoutId = `retrospective-${workoutDate.toISOString().split("T")[0]}`;
-
+    // Create the workout log (retrospective logs have null workoutId since they're not linked to planned workouts)
     await db.insert(workoutLogs).values({
       id: logId,
-      workoutId: retrospectiveWorkoutId,
+      workoutId: null,
       userId: userId,
       startedAt: workoutDate,
       completedAt: workoutDate,

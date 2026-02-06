@@ -1,0 +1,1 @@
+ALTER TABLE "training"."workout_logs" ALTER COLUMN "workout_id" DROP NOT NULL;

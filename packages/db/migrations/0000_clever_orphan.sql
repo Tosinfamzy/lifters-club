@@ -1,6 +1,6 @@
-CREATE SCHEMA "exercise_lib";
+CREATE SCHEMA IF NOT EXISTS "exercise_lib";
 --> statement-breakpoint
-CREATE SCHEMA "training";
+CREATE SCHEMA IF NOT EXISTS "training";
 --> statement-breakpoint
 CREATE TABLE "exercise_lib"."exercises" (
 	"id" varchar(64) PRIMARY KEY NOT NULL,

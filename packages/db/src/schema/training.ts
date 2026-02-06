@@ -70,7 +70,7 @@ export const workouts = training.table("workouts", {
 
 export const workoutLogs = training.table("workout_logs", {
   id: varchar("id", { length: 64 }).primaryKey(),
-  workoutId: varchar("workout_id", { length: 64 }).notNull().references(() => workouts.id),
+  workoutId: varchar("workout_id", { length: 64 }).references(() => workouts.id), // Nullable for retrospective logs
   userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
 
   startedAt: timestamp("started_at").notNull(),
