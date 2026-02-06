@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build packages
+        run: pnpm build --filter=@gymapp/types --filter=@gymapp/validation --filter=@gymapp/db --filter=@gymapp/engine
+
       - name: Type check
         run: pnpm typecheck
 
@@ -53,5 +56,5 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build
+      - name: Build apps
         run: pnpm build
