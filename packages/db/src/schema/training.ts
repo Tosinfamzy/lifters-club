@@ -71,6 +71,7 @@ export const workouts = training.table("workouts", {
 export const workoutLogs = training.table("workout_logs", {
   id: varchar("id", { length: 64 }).primaryKey(),
   workoutId: varchar("workout_id", { length: 64 }).references(() => workouts.id), // Nullable for retrospective logs
+  standaloneWorkoutId: varchar("standalone_workout_id", { length: 64 }), // Nullable - references standaloneWorkouts (added later due to circular dep)
   userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
 
   startedAt: timestamp("started_at").notNull(),
@@ -83,6 +84,7 @@ export const workoutLogs = training.table("workout_logs", {
 }, (table) => [
   index("workout_logs_user_created_idx").on(table.userId, table.createdAt),
   index("workout_logs_workout_idx").on(table.workoutId),
+  index("workout_logs_standalone_workout_idx").on(table.standaloneWorkoutId),
 ]);
 
 export const loggedSets = training.table("logged_sets", {
@@ -203,4 +205,68 @@ export const userBaselines = training.table("user_baselines", {
 }, (table) => [
   index("user_baselines_user_id_idx").on(table.userId),
   index("user_baselines_exercise_id_idx").on(table.exerciseId),
+]);
+
+// Workout templates - reusable workout blueprints (e.g., "Back Day", "Push Day")
+export const workoutTemplates = training.table("workout_templates", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+
+  focusMuscles: jsonb("focus_muscles").$type<string[]>().notNull(), // MuscleGroup[]
+  exercises: jsonb("exercises").$type<Record<string, unknown>[]>().notNull(), // PlannedExercise[]
+
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("workout_templates_user_id_idx").on(table.userId),
+]);
+
+// Weekly plans - standalone week of workouts (not tied to multi-week programs)
+export const weeklyPlans = training.table("weekly_plans", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+
+  startDate: date("start_date").notNull(),
+  daysPerWeek: integer("days_per_week").notNull(),
+
+  goal: varchar("goal", { length: 20 }).notNull(), // 'strength' | 'hypertrophy' | 'conditioning'
+  status: varchar("status", { length: 20 }).notNull().default("active"), // 'active' | 'completed' | 'archived'
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("weekly_plans_user_status_idx").on(table.userId, table.status),
+]);
+
+// Standalone workouts - individual workout instances not tied to programs
+export const standaloneWorkouts = training.table("standalone_workouts", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  templateId: varchar("template_id", { length: 64 }).references(() => workoutTemplates.id), // nullable - if created from template
+  weeklyPlanId: varchar("weekly_plan_id", { length: 64 }).references(() => weeklyPlans.id), // nullable - if part of weekly plan
+
+  name: varchar("name", { length: 255 }).notNull(),
+  scheduledDate: date("scheduled_date").notNull(),
+  dayOfWeek: integer("day_of_week"), // 1-7 for weekly plan placement
+
+  plannedExercises: jsonb("planned_exercises").$type<Record<string, unknown>[]>().notNull(), // PlannedExercise[]
+  focusMuscles: jsonb("focus_muscles").$type<string[]>().notNull(), // MuscleGroup[]
+
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'in_progress' | 'completed' | 'skipped'
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("standalone_workouts_user_date_idx").on(table.userId, table.scheduledDate),
+  index("standalone_workouts_weekly_plan_idx").on(table.weeklyPlanId),
+  index("standalone_workouts_status_idx").on(table.status),
 ]);

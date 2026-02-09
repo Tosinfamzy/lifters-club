@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { trainingBlocks, workouts, programs, decisions } from "@gymapp/db/schema";
+import { trainingBlocks, workouts, programs, decisions, standaloneWorkouts } from "@gymapp/db/schema";
 import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { getDecisionConfidence } from "@gymapp/engine";
 import type { Env } from "../types";
@@ -286,6 +286,7 @@ workoutRoutes.post(
 // ============ Mobile Convenience Endpoints ============
 
 // GET /today - Get today's workout for authenticated user with relevant decisions
+// Returns both program workouts and standalone workouts scheduled for today
 workoutRoutes.get(
   "/today",
   async (c) => {
@@ -301,7 +302,7 @@ workoutRoutes.get(
 
     const today = new Date().toISOString().split("T")[0]!;
 
-    // Find user's active training block
+    // Find user's active training block and today's program workout
     const activeBlock = await db
       .select()
       .from(trainingBlocks)
@@ -311,29 +312,54 @@ workoutRoutes.get(
       ))
       .limit(1);
 
-    if (activeBlock.length === 0) {
-      return c.json({ data: null, message: "No active training block" });
+    let programWorkout = null;
+    if (activeBlock.length > 0) {
+      const todayWorkout = await db
+        .select()
+        .from(workouts)
+        .where(and(
+          eq(workouts.trainingBlockId, activeBlock[0]!.id),
+          eq(workouts.scheduledDate, today)
+        ))
+        .limit(1);
+
+      if (todayWorkout.length > 0) {
+        programWorkout = todayWorkout[0];
+      }
     }
 
-    // Find today's workout
-    const todayWorkout = await db
+    // Find today's standalone workouts
+    const todayStandaloneWorkouts = await db
       .select()
-      .from(workouts)
+      .from(standaloneWorkouts)
       .where(and(
-        eq(workouts.trainingBlockId, activeBlock[0]!.id),
-        eq(workouts.scheduledDate, today)
+        eq(standaloneWorkouts.userId, user.id),
+        eq(standaloneWorkouts.scheduledDate, today)
       ))
-      .limit(1);
+      .orderBy(standaloneWorkouts.createdAt);
 
-    if (todayWorkout.length === 0) {
+    // If no workouts at all, return null
+    if (!programWorkout && todayStandaloneWorkouts.length === 0) {
       return c.json({ data: null, message: "No workout scheduled for today" });
     }
 
-    const workout = todayWorkout[0]!;
+    // Collect all exercise IDs from both program and standalone workouts
+    const allExerciseIds: string[] = [];
 
-    // Extract exerciseIds from planned exercises
-    const plannedExercises = workout.plannedExercises as Array<{ exerciseId: string }> | null;
-    const exerciseIds = plannedExercises?.map(e => e.exerciseId).filter(Boolean) ?? [];
+    if (programWorkout) {
+      const plannedExercises = programWorkout.plannedExercises as Array<{ exerciseId: string }> | null;
+      const ids = plannedExercises?.map(e => e.exerciseId).filter(Boolean) ?? [];
+      allExerciseIds.push(...ids);
+    }
+
+    for (const sw of todayStandaloneWorkouts) {
+      const plannedExercises = sw.plannedExercises as Array<{ exerciseId: string }> | null;
+      const ids = plannedExercises?.map(e => e.exerciseId).filter(Boolean) ?? [];
+      allExerciseIds.push(...ids);
+    }
+
+    // Use all exercise IDs for decision lookups
+    const exerciseIds = [...new Set(allExerciseIds)]; // Remove duplicates
 
     // Fetch recent decisions for these exercises (from last 7 days)
     const oneWeekAgo = new Date();
@@ -397,7 +423,8 @@ workoutRoutes.get(
 
     return c.json({
       data: {
-        workout,
+        programWorkout,
+        standaloneWorkouts: todayStandaloneWorkouts,
         decisions: exerciseDecisions,
       },
     });

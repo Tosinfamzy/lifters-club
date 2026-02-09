@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { workoutLogs, loggedSets, workouts } from "@gymapp/db/schema";
+import { workoutLogs, loggedSets, workouts, standaloneWorkouts } from "@gymapp/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { evaluatePendingDecisions } from "../services/decision-eval";
@@ -19,11 +19,15 @@ const logRoutes = new Hono<Env>();
 // ============ Workout Logs ============
 
 const createWorkoutLogSchema = z.object({
-  id: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
-  workoutId: z.string().min(1).max(64),
+  id: z.string().min(1).max(64).regex(/^[a-z0-9-_]+$/),
+  workoutId: z.string().min(1).max(64).optional(),
+  standaloneWorkoutId: z.string().min(1).max(64).optional(),
   userId: z.string().min(1).max(64),
   startedAt: z.string().datetime(),
-});
+}).refine(
+  (data) => data.workoutId || data.standaloneWorkoutId,
+  { message: "Either workoutId or standaloneWorkoutId is required" }
+);
 
 const completeWorkoutLogSchema = z.object({
   completedAt: z.string().datetime(),
@@ -126,6 +130,7 @@ logRoutes.get("/:id", async (c) => {
 });
 
 // POST /logs - Start a new workout log (requires ownership of userId)
+// Supports both program workouts (workoutId) and standalone workouts (standaloneWorkoutId)
 logRoutes.post(
   "/",
   zValidator("json", createWorkoutLogSchema),
@@ -138,48 +143,106 @@ logRoutes.post(
       return authResult.response;
     }
 
-    // Verify workout exists
-    const workout = await db
-      .select({ id: workouts.id, status: workouts.status })
-      .from(workouts)
-      .where(eq(workouts.id, data.workoutId))
-      .limit(1);
+    // Handle program-based workout
+    if (data.workoutId) {
+      // Verify workout exists
+      const workout = await db
+        .select({ id: workouts.id, status: workouts.status })
+        .from(workouts)
+        .where(eq(workouts.id, data.workoutId))
+        .limit(1);
 
-    if (workout.length === 0) {
-      return c.json({ error: "Workout not found" }, 404);
+      if (workout.length === 0) {
+        return c.json({ error: "Workout not found" }, 404);
+      }
+
+      // Check if log already exists for this workout
+      const existingLog = await db
+        .select({ id: workoutLogs.id })
+        .from(workoutLogs)
+        .where(eq(workoutLogs.workoutId, data.workoutId))
+        .limit(1);
+
+      if (existingLog.length > 0) {
+        return c.json({ error: "Workout log already exists for this workout" }, 409);
+      }
+
+      const result = await db
+        .insert(workoutLogs)
+        .values({
+          id: data.id,
+          workoutId: data.workoutId,
+          standaloneWorkoutId: null,
+          userId: data.userId,
+          startedAt: new Date(data.startedAt),
+        })
+        .returning();
+
+      // Update workout status to in_progress
+      await db
+        .update(workouts)
+        .set({ status: "in_progress", updatedAt: new Date() })
+        .where(eq(workouts.id, data.workoutId));
+
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ logId: data.id, workoutId: data.workoutId, userId: data.userId }, "Workout log started");
+
+      return c.json({ data: result[0] }, 201);
     }
 
-    // Check if log already exists for this workout
-    const existingLog = await db
-      .select({ id: workoutLogs.id })
-      .from(workoutLogs)
-      .where(eq(workoutLogs.workoutId, data.workoutId))
-      .limit(1);
+    // Handle standalone workout
+    if (data.standaloneWorkoutId) {
+      // Verify standalone workout exists and belongs to user
+      const standaloneWorkout = await db
+        .select({ id: standaloneWorkouts.id, status: standaloneWorkouts.status, userId: standaloneWorkouts.userId })
+        .from(standaloneWorkouts)
+        .where(eq(standaloneWorkouts.id, data.standaloneWorkoutId))
+        .limit(1);
 
-    if (existingLog.length > 0) {
-      return c.json({ error: "Workout log already exists for this workout" }, 409);
+      const standaloneWorkoutRecord = standaloneWorkout[0];
+      if (!standaloneWorkoutRecord) {
+        return c.json({ error: "Standalone workout not found" }, 404);
+      }
+
+      if (standaloneWorkoutRecord.userId !== data.userId) {
+        return c.json({ error: "Forbidden: You can only log your own workouts" }, 403);
+      }
+
+      // Check if log already exists for this standalone workout
+      const existingLog = await db
+        .select({ id: workoutLogs.id })
+        .from(workoutLogs)
+        .where(eq(workoutLogs.standaloneWorkoutId, data.standaloneWorkoutId))
+        .limit(1);
+
+      if (existingLog.length > 0) {
+        return c.json({ error: "Workout log already exists for this standalone workout" }, 409);
+      }
+
+      const result = await db
+        .insert(workoutLogs)
+        .values({
+          id: data.id,
+          workoutId: null,
+          standaloneWorkoutId: data.standaloneWorkoutId,
+          userId: data.userId,
+          startedAt: new Date(data.startedAt),
+        })
+        .returning();
+
+      // Update standalone workout status to in_progress
+      await db
+        .update(standaloneWorkouts)
+        .set({ status: "in_progress", updatedAt: new Date() })
+        .where(eq(standaloneWorkouts.id, data.standaloneWorkoutId));
+
+      const logger = c.get("logger") ?? globalLogger;
+      logger.info({ logId: data.id, standaloneWorkoutId: data.standaloneWorkoutId, userId: data.userId }, "Standalone workout log started");
+
+      return c.json({ data: result[0] }, 201);
     }
 
-    const result = await db
-      .insert(workoutLogs)
-      .values({
-        id: data.id,
-        workoutId: data.workoutId,
-        userId: data.userId,
-        startedAt: new Date(data.startedAt),
-      })
-      .returning();
-
-    // Update workout status to in_progress
-    await db
-      .update(workouts)
-      .set({ status: "in_progress", updatedAt: new Date() })
-      .where(eq(workouts.id, data.workoutId));
-
-    const logger = c.get("logger") ?? globalLogger;
-    logger.info({ logId: data.id, workoutId: data.workoutId, userId: data.userId }, "Workout log started");
-
-    return c.json({ data: result[0] }, 201);
+    return c.json({ error: "Either workoutId or standaloneWorkoutId is required" }, 400);
   }
 );
 
@@ -211,12 +274,20 @@ logRoutes.patch(
       .where(eq(workoutLogs.id, id))
       .returning();
 
-    // Update workout status to completed (only if linked to a planned workout)
+    // Update workout status to completed (for both program and standalone workouts)
     if (authResult.workoutLog.workoutId) {
       await db
         .update(workouts)
         .set({ status: "completed", updatedAt: new Date() })
         .where(eq(workouts.id, authResult.workoutLog.workoutId));
+    }
+
+    // Update standalone workout status to completed
+    if (authResult.workoutLog.standaloneWorkoutId) {
+      await db
+        .update(standaloneWorkouts)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(eq(standaloneWorkouts.id, authResult.workoutLog.standaloneWorkoutId));
     }
 
     // Evaluate pending decisions after workout completion

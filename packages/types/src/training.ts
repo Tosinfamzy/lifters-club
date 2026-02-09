@@ -86,7 +86,12 @@ export interface TrainingBlock {
 }
 
 /**
- * Workout - planned session instance
+ * Workout status for both program and standalone workouts
+ */
+export type WorkoutStatus = "pending" | "in_progress" | "completed" | "skipped";
+
+/**
+ * Workout - planned session instance (tied to a training block/program)
  */
 export interface Workout {
   id: string;
@@ -97,7 +102,71 @@ export interface Workout {
   dayNumber: number;
 
   plannedExercises: PlannedExercise[];
-  status: "pending" | "in_progress" | "completed" | "skipped";
+  status: WorkoutStatus;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Standalone Workouts ============
+
+/**
+ * Workout Template - reusable workout blueprint (e.g., "Back Day", "Push Day")
+ */
+export interface WorkoutTemplate {
+  id: string;
+  userId: string;
+
+  name: string;
+  description?: string;
+
+  focusMuscles: MuscleGroup[];
+  exercises: PlannedExercise[];
+
+  estimatedDurationMinutes?: number;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Weekly Plan - standalone week of workouts (not tied to multi-week programs)
+ */
+export interface WeeklyPlan {
+  id: string;
+  userId: string;
+
+  name: string;
+  description?: string;
+
+  startDate: Date;
+  daysPerWeek: number;
+
+  goal: PrimaryGoal;
+  status: "active" | "completed" | "archived";
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Standalone Workout - single workout not tied to a program
+ */
+export interface StandaloneWorkout {
+  id: string;
+  userId: string;
+
+  templateId?: string; // if created from a template
+  weeklyPlanId?: string; // if part of a weekly plan
+
+  name: string;
+  scheduledDate: Date;
+  dayOfWeek?: number; // 1-7 for weekly plan placement
+
+  plannedExercises: PlannedExercise[];
+  focusMuscles: MuscleGroup[];
+
+  status: WorkoutStatus;
 
   createdAt: Date;
   updatedAt: Date;
@@ -123,10 +192,12 @@ export interface LoggedSet {
 
 /**
  * Workout Log - completed workout record
+ * Can be linked to a program workout, standalone workout, or neither (retrospective)
  */
 export interface WorkoutLog {
   id: string;
-  workoutId: string;
+  workoutId?: string; // program workout (nullable)
+  standaloneWorkoutId?: string; // standalone workout (nullable)
   userId: string;
 
   startedAt: Date;

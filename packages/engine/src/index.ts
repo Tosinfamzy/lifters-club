@@ -8,7 +8,7 @@ export { calculateExerciseRotation } from "./rotation";
 export { calculateDeloadNeed } from "./deload";
 export { calculateSessionRecovery } from "./recovery";
 export { calculateMissedSessionHandling } from "./missed-session";
-export { generateWeeklyPlan, calculatePerformanceTrend } from "./planning";
+export { generateWeeklyPlan, calculatePerformanceTrend, generateQuickWorkout } from "./planning";
 
 // Readiness assessment
 export { calculateSessionReadiness } from "./readiness";
@@ -75,6 +75,11 @@ export type {
   PlannedExerciseUpdate,
   WeeklyPlanDecision,
   PlanningConfig,
+  // Quick workout types
+  AvailableExercise,
+  QuickWorkoutInput,
+  QuickWorkoutOutput,
+  QuickWorkoutConfig,
 } from "./planning";
 
 // Substitution types

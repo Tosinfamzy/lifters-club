@@ -8,6 +8,9 @@ import { decisionRoutes } from "./routes/decisions";
 import { userRoutes } from "./routes/users";
 import { analyticsRoutes } from "./routes/analytics";
 import { notificationRoutes } from "./routes/notifications";
+import { templateRoutes } from "./routes/templates";
+import { standaloneWorkoutRoutes } from "./routes/standalone-workouts";
+import { weeklyPlanRoutes } from "./routes/weekly-plans";
 import { authMiddleware } from "./middleware/auth";
 import { publicRateLimiter } from "./middleware/rate-limit";
 
@@ -28,6 +31,9 @@ openapi.use("/logs/*", authMiddleware);
 openapi.use("/decisions/*", authMiddleware);
 openapi.use("/analytics/*", authMiddleware);
 openapi.use("/notifications/*", authMiddleware);
+openapi.use("/templates/*", authMiddleware);
+openapi.use("/standalone-workouts/*", authMiddleware);
+openapi.use("/weekly-plans/*", authMiddleware);
 
 // Mount protected routes
 openapi.route("/workouts", workoutRoutes);
@@ -36,6 +42,9 @@ openapi.route("/decisions", decisionRoutes);
 openapi.route("/users", userRoutes);
 openapi.route("/analytics", analyticsRoutes);
 openapi.route("/notifications", notificationRoutes);
+openapi.route("/templates", templateRoutes);
+openapi.route("/standalone-workouts", standaloneWorkoutRoutes);
+openapi.route("/weekly-plans", weeklyPlanRoutes);
 
 // OpenAPI spec (manually maintained for documentation)
 const openAPISpec = {
@@ -50,6 +59,9 @@ const openAPISpec = {
     { name: "Programs", description: "Training program templates" },
     { name: "Training Blocks", description: "User's active program instances" },
     { name: "Workouts", description: "Scheduled workout sessions" },
+    { name: "Workout Templates", description: "Reusable workout blueprints (e.g., 'Back Day', 'Push Day')" },
+    { name: "Standalone Workouts", description: "Single workouts not tied to programs" },
+    { name: "Weekly Plans", description: "Standalone week of workouts" },
     { name: "Logs", description: "Workout logging and set tracking" },
     { name: "Decisions", description: "Training decision engine - intelligent adjustments based on performance" },
     { name: "Users", description: "User profile and readiness check-ins" },

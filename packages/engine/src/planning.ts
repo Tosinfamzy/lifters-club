@@ -5,7 +5,15 @@
  * with appropriate adjustments based on performance and recovery.
  */
 
-import type { LoadDecision, VolumeDecision, DeloadDecision, RotationDecision } from "@gymapp/types";
+import type {
+  LoadDecision,
+  VolumeDecision,
+  DeloadDecision,
+  RotationDecision,
+  MuscleGroup,
+  PlannedExercise,
+  EquipmentType,
+} from "@gymapp/types";
 
 export interface ExercisePerformance {
   exerciseId: string;
@@ -246,4 +254,297 @@ export function calculatePerformanceTrend(
   if (changePercent > 2) return "improving";
   if (changePercent < -2) return "declining";
   return "stagnant";
+}
+
+// ============ Quick Workout Generation ============
+
+/**
+ * Available exercise with metadata for selection
+ */
+export interface AvailableExercise {
+  exerciseId: string;
+  primaryMuscles: MuscleGroup[];
+  secondaryMuscles: MuscleGroup[];
+  equipment: EquipmentType[];
+  isCompound: boolean;
+  /** Most recent performance data if user has history */
+  lastPerformance?: {
+    weight: number;
+    reps: number;
+    rpe?: number;
+    date: Date;
+  };
+  /** User's baseline if set during calibration */
+  baseline?: {
+    weight: number;
+    reps: number;
+  };
+}
+
+export interface QuickWorkoutInput {
+  /** Target muscle groups for this workout */
+  focusMuscles: MuscleGroup[];
+  /** Available exercises (pre-filtered by equipment/constraints) */
+  availableExercises: AvailableExercise[];
+  /** User's available equipment (optional, for prioritization) */
+  availableEquipment?: EquipmentType[];
+  /** Target session duration in minutes (default: 45) */
+  sessionDurationMinutes?: number;
+  /** Training goal affects rep ranges */
+  goal?: "strength" | "hypertrophy" | "conditioning";
+}
+
+export interface QuickWorkoutOutput {
+  exercises: PlannedExercise[];
+  estimatedDurationMinutes: number;
+  /** Explains the selection rationale */
+  reasoning: string[];
+}
+
+export interface QuickWorkoutConfig {
+  /** Average time per set including rest (minutes) */
+  minutesPerSet: number;
+  /** Default rest between sets (seconds) */
+  defaultRestSeconds: number;
+  /** Minimum exercises to include */
+  minExercises: number;
+  /** Maximum exercises to include */
+  maxExercises: number;
+  /** How much to reduce weight for new exercises (multiplier) */
+  newExerciseWeightMultiplier: number;
+}
+
+const defaultQuickWorkoutConfig: QuickWorkoutConfig = {
+  minutesPerSet: 2.5, // ~90s rest + execution
+  defaultRestSeconds: 90,
+  minExercises: 3,
+  maxExercises: 6,
+  newExerciseWeightMultiplier: 0.7, // Start at 70% for exercises without history
+};
+
+/**
+ * Get rep range based on training goal
+ */
+function getRepRangeForGoal(goal: "strength" | "hypertrophy" | "conditioning"): [number, number] {
+  switch (goal) {
+    case "strength":
+      return [4, 6];
+    case "hypertrophy":
+      return [8, 12];
+    case "conditioning":
+      return [12, 20];
+  }
+}
+
+/**
+ * Get set count based on training goal
+ */
+function getSetCountForGoal(goal: "strength" | "hypertrophy" | "conditioning", isCompound: boolean): number {
+  if (goal === "strength") {
+    return isCompound ? 4 : 3;
+  }
+  if (goal === "hypertrophy") {
+    return isCompound ? 4 : 3;
+  }
+  // Conditioning
+  return isCompound ? 3 : 2;
+}
+
+/**
+ * Score an exercise for selection based on muscle targeting and equipment preference
+ */
+function scoreExercise(
+  exercise: AvailableExercise,
+  focusMuscles: MuscleGroup[],
+  availableEquipment?: EquipmentType[]
+): number {
+  let score = 0;
+
+  // Primary muscle match is most important
+  for (const muscle of exercise.primaryMuscles) {
+    if (focusMuscles.includes(muscle)) {
+      score += 10;
+    }
+  }
+
+  // Secondary muscle match adds value
+  for (const muscle of exercise.secondaryMuscles) {
+    if (focusMuscles.includes(muscle)) {
+      score += 3;
+    }
+  }
+
+  // Compound exercises are generally more valuable
+  if (exercise.isCompound) {
+    score += 5;
+  }
+
+  // Prefer exercises user has history with
+  if (exercise.lastPerformance) {
+    score += 8;
+  } else if (exercise.baseline) {
+    score += 4;
+  }
+
+  // Equipment preference
+  if (availableEquipment) {
+    const hasPreferredEquipment = exercise.equipment.some((e) => availableEquipment.includes(e));
+    if (hasPreferredEquipment) {
+      score += 2;
+    }
+  }
+
+  // Slight preference for barbell/dumbbell over machines for most goals
+  if (exercise.equipment.includes("barbell") || exercise.equipment.includes("dumbbell")) {
+    score += 1;
+  }
+
+  return score;
+}
+
+/**
+ * Calculate working weight for an exercise
+ */
+function calculateExerciseWeight(
+  exercise: AvailableExercise,
+  goal: "strength" | "hypertrophy" | "conditioning"
+): number {
+  // If user has recent performance, use it as baseline
+  if (exercise.lastPerformance) {
+    const { weight, reps, rpe } = exercise.lastPerformance;
+
+    // If they hit high reps at low RPE, suggest a slight increase
+    if (reps >= 10 && (rpe === undefined || rpe < 7)) {
+      return Math.round(weight * 1.05 * 2) / 2; // Round to nearest 0.5
+    }
+
+    // If they were at high RPE, keep same or reduce slightly
+    if (rpe && rpe >= 9) {
+      return Math.round(weight * 0.95 * 2) / 2;
+    }
+
+    // Otherwise maintain
+    return weight;
+  }
+
+  // If user has baseline from calibration
+  if (exercise.baseline) {
+    // Adjust baseline based on goal
+    const goalMultiplier = goal === "strength" ? 0.9 : goal === "hypertrophy" ? 0.75 : 0.6;
+    return Math.round(exercise.baseline.weight * goalMultiplier * 2) / 2;
+  }
+
+  // No history - return 0 to indicate user should set weight
+  // The API can decide to use bodyweight or ask user
+  return 0;
+}
+
+/**
+ * Generate a quick workout based on focus muscles and available exercises
+ *
+ * This is a pure function - all data must be passed in. The API layer is responsible for:
+ * 1. Querying exercise library for exercises matching focusMuscles
+ * 2. Filtering by user's available equipment
+ * 3. Enriching with user's exercise history (lastPerformance, baseline)
+ */
+export function generateQuickWorkout(
+  input: QuickWorkoutInput,
+  config: QuickWorkoutConfig = defaultQuickWorkoutConfig
+): QuickWorkoutOutput {
+  const {
+    focusMuscles,
+    availableExercises,
+    availableEquipment,
+    sessionDurationMinutes = 45,
+    goal = "hypertrophy",
+  } = input;
+
+  const reasoning: string[] = [];
+
+  if (availableExercises.length === 0) {
+    return {
+      exercises: [],
+      estimatedDurationMinutes: 0,
+      reasoning: ["No exercises available for the selected muscle groups and equipment."],
+    };
+  }
+
+  // Score and sort exercises
+  const scoredExercises = availableExercises
+    .map((exercise) => ({
+      exercise,
+      score: scoreExercise(exercise, focusMuscles, availableEquipment),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  // Estimate how many exercises we can fit
+  const avgSetsPerExercise = 3.5;
+  const setsAvailable = Math.floor(sessionDurationMinutes / config.minutesPerSet);
+  const targetExerciseCount = Math.min(
+    Math.max(config.minExercises, Math.floor(setsAvailable / avgSetsPerExercise)),
+    config.maxExercises,
+    scoredExercises.length
+  );
+
+  reasoning.push(
+    `Target: ${targetExerciseCount} exercises in ${sessionDurationMinutes} minutes (~${setsAvailable} total sets)`
+  );
+
+  // Select exercises ensuring muscle coverage
+  const selectedExercises: AvailableExercise[] = [];
+  const coveredMuscles = new Set<MuscleGroup>();
+
+  // First pass: ensure each focus muscle is covered by at least one exercise
+  for (const muscle of focusMuscles) {
+    if (selectedExercises.length >= targetExerciseCount) break;
+
+    const bestForMuscle = scoredExercises.find(
+      ({ exercise }) =>
+        !selectedExercises.includes(exercise) &&
+        exercise.primaryMuscles.includes(muscle)
+    );
+
+    if (bestForMuscle) {
+      selectedExercises.push(bestForMuscle.exercise);
+      bestForMuscle.exercise.primaryMuscles.forEach((m) => coveredMuscles.add(m));
+      bestForMuscle.exercise.secondaryMuscles.forEach((m) => coveredMuscles.add(m));
+      reasoning.push(`Selected ${bestForMuscle.exercise.exerciseId} for ${muscle}`);
+    }
+  }
+
+  // Second pass: fill remaining slots with highest scoring exercises
+  for (const { exercise } of scoredExercises) {
+    if (selectedExercises.length >= targetExerciseCount) break;
+    if (selectedExercises.includes(exercise)) continue;
+
+    selectedExercises.push(exercise);
+    reasoning.push(`Added ${exercise.exerciseId} (score: ${scoreExercise(exercise, focusMuscles, availableEquipment)})`);
+  }
+
+  // Build planned exercises
+  const plannedExercises: PlannedExercise[] = selectedExercises.map((exercise) => {
+    const sets = getSetCountForGoal(goal, exercise.isCompound);
+    const weight = calculateExerciseWeight(exercise, goal);
+
+    return {
+      exerciseId: exercise.exerciseId,
+      sets,
+      repRange: getRepRangeForGoal(goal),
+      restSeconds: exercise.isCompound ? config.defaultRestSeconds + 30 : config.defaultRestSeconds,
+      notes: weight === 0 ? "Set weight based on feel - start light" : undefined,
+    };
+  });
+
+  // Calculate actual duration
+  const totalSets = plannedExercises.reduce((sum, e) => sum + e.sets, 0);
+  const estimatedDurationMinutes = Math.round(totalSets * config.minutesPerSet);
+
+  reasoning.push(`Generated ${plannedExercises.length} exercises with ${totalSets} total sets`);
+  reasoning.push(`Estimated duration: ${estimatedDurationMinutes} minutes`);
+
+  return {
+    exercises: plannedExercises,
+    estimatedDurationMinutes,
+    reasoning,
+  };
 }
