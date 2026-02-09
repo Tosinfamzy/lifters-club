@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
-import { Play, Calendar, Target } from "lucide-react-native";
+import { Play, Calendar, Target, Dumbbell, BookOpen, History, TrendingUp, Sparkles } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
@@ -32,11 +32,19 @@ interface Workout {
   status: string;
 }
 
+interface UserStats {
+  totalWorkouts: number;
+  workoutsThisWeek: number;
+  currentStreak: number;
+  lastWorkout: string | null;
+}
+
 export default function TodayScreen() {
   const router = useRouter();
   const { getToken } = useAuth();
   const { appUser } = useAppUser();
   const [workout, setWorkout] = useState<Workout | null>(null);
+  const [stats, setStats] = useState<UserStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,17 +54,27 @@ export default function TodayScreen() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/workouts/today`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
 
-      if (response.ok) {
-        const data = await response.json();
+      // Fetch today's workout and stats in parallel
+      const [workoutRes, statsRes] = await Promise.all([
+        fetch(`${API_URL}/api/workouts/today`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_URL}/api/analytics/summary`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      if (workoutRes.ok) {
+        const data = await workoutRes.json();
         setWorkout(data.data);
       } else {
         setWorkout(null);
+      }
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats(statsData.data);
       }
     } catch {
       setError("Could not connect to server");
@@ -104,14 +122,128 @@ export default function TodayScreen() {
   }
 
   if (!workout) {
+    const isNewUser = !stats || stats.totalWorkouts === 0;
+    const daysSinceLastWorkout = stats?.lastWorkout
+      ? Math.floor((Date.now() - new Date(stats.lastWorkout).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
     return (
-      <View style={styles.centered}>
-        <Calendar size={64} color="#94A3B8" />
-        <Text style={styles.noWorkoutTitle}>No Workout Today</Text>
-        <Text style={styles.noWorkoutText}>
-          Start a program to get scheduled workouts
-        </Text>
-      </View>
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />
+        }
+      >
+        {/* Header */}
+        <View style={styles.emptyHeader}>
+          <Text style={styles.emptyGreeting}>
+            {isNewUser ? "Welcome to Lifters Club!" : "Rest Day?"}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {isNewUser
+              ? "Let's get you started on your fitness journey"
+              : "No scheduled workout today. Here's what you can do:"}
+          </Text>
+        </View>
+
+        {/* Stats Card - only show for returning users */}
+        {stats && stats.totalWorkouts > 0 && (
+          <View style={styles.statsCard}>
+            <View style={styles.statsCardHeader}>
+              <TrendingUp size={20} color="#3B82F6" />
+              <Text style={styles.statsCardTitle}>Your Progress</Text>
+            </View>
+            <View style={styles.statsGrid}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.totalWorkouts}</Text>
+                <Text style={styles.statLabel}>Total Workouts</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.workoutsThisWeek}</Text>
+                <Text style={styles.statLabel}>This Week</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.currentStreak}</Text>
+                <Text style={styles.statLabel}>Day Streak</Text>
+              </View>
+            </View>
+            {daysSinceLastWorkout !== null && daysSinceLastWorkout > 0 && (
+              <Text style={styles.lastWorkoutText}>
+                Last workout: {daysSinceLastWorkout === 1 ? "Yesterday" : `${daysSinceLastWorkout} days ago`}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* Quick Actions */}
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push("/(tabs)/programs")}
+        >
+          <View style={[styles.actionIcon, { backgroundColor: "rgba(59, 130, 246, 0.15)" }]}>
+            <BookOpen size={24} color="#3B82F6" />
+          </View>
+          <View style={styles.actionContent}>
+            <Text style={styles.actionTitle}>
+              {isNewUser ? "Browse Programs" : "Start a New Program"}
+            </Text>
+            <Text style={styles.actionDescription}>
+              {isNewUser
+                ? "Find a training program that matches your goals"
+                : "Pick up a new program to follow"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push("/(tabs)/history")}
+        >
+          <View style={[styles.actionIcon, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
+            <Dumbbell size={24} color="#10B981" />
+          </View>
+          <View style={styles.actionContent}>
+            <Text style={styles.actionTitle}>Log a Workout</Text>
+            <Text style={styles.actionDescription}>
+              Track an ad-hoc training session
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push("/(tabs)/exercises")}
+        >
+          <View style={[styles.actionIcon, { backgroundColor: "rgba(139, 92, 246, 0.15)" }]}>
+            <History size={24} color="#8B5CF6" />
+          </View>
+          <View style={styles.actionContent}>
+            <Text style={styles.actionTitle}>Explore Exercises</Text>
+            <Text style={styles.actionDescription}>
+              Browse our library of {">"}100 exercises
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* Tips for new users */}
+        {isNewUser && (
+          <View style={styles.tipCard}>
+            <View style={styles.tipHeader}>
+              <Sparkles size={16} color="#F59E0B" />
+              <Text style={styles.tipTitle}>Getting Started</Text>
+            </View>
+            <Text style={styles.tipText}>
+              1. Browse programs and find one that fits your schedule{"\n"}
+              2. Start the program to get daily workouts{"\n"}
+              3. Log your sets and the app will adjust weights for you
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.bottomPadding} />
+      </ScrollView>
     );
   }
 
@@ -210,17 +342,112 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
   },
-  noWorkoutTitle: {
-    color: "#F8FAFC",
-    fontSize: 24,
-    fontWeight: "700",
-    marginTop: 16,
+  emptyHeader: {
+    marginBottom: 24,
   },
-  noWorkoutText: {
+  emptyGreeting: {
+    color: "#F8FAFC",
+    fontSize: 28,
+    fontWeight: "700",
+  },
+  emptySubtitle: {
     color: "#94A3B8",
     fontSize: 16,
     marginTop: 8,
+    lineHeight: 22,
+  },
+  statsCard: {
+    backgroundColor: "#1E293B",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+  },
+  statsCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  statsCardTitle: {
+    color: "#F8FAFC",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  statsGrid: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+  statItem: {
+    alignItems: "center",
+  },
+  statValue: {
+    color: "#F8FAFC",
+    fontSize: 32,
+    fontWeight: "700",
+  },
+  statLabel: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  lastWorkoutText: {
+    color: "#64748B",
+    fontSize: 12,
     textAlign: "center",
+    marginTop: 16,
+  },
+  actionCard: {
+    backgroundColor: "#1E293B",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  actionContent: {
+    flex: 1,
+  },
+  actionTitle: {
+    color: "#F8FAFC",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  actionDescription: {
+    color: "#94A3B8",
+    fontSize: 13,
+    marginTop: 2,
+  },
+  tipCard: {
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.2)",
+  },
+  tipHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  tipTitle: {
+    color: "#F59E0B",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tipText: {
+    color: "#CBD5E1",
+    fontSize: 13,
+    lineHeight: 20,
   },
   headerCard: {
     backgroundColor: "#1E293B",

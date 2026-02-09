@@ -9,11 +9,14 @@ import { userRoutes } from "./routes/users";
 import { analyticsRoutes } from "./routes/analytics";
 import { notificationRoutes } from "./routes/notifications";
 import { authMiddleware } from "./middleware/auth";
+import { publicRateLimiter } from "./middleware/rate-limit";
 
 // Create main API router
 const openapi = new Hono();
 
-// Public routes (no auth required)
+// Public routes (no auth required) - use more permissive rate limiter (200/min vs 100/min)
+openapi.use("/exercises/*", publicRateLimiter);
+openapi.use("/programs/*", publicRateLimiter);
 openapi.route("/exercises", exerciseRoutes);
 openapi.route("/programs", programRoutes); // Programs are public to browse
 

@@ -26,7 +26,18 @@ app.use("*", requestLogger);
 app.use("*", securityHeaders);
 
 // Rate limiting (before CORS to reject early)
-app.use("*", rateLimiter());
+// Skip entirely in development for easier testing, skip public routes in production
+app.use("*", rateLimiter({
+  skip: (c) => {
+    // No rate limiting in development mode
+    if (config.NODE_ENV === "development") {
+      return true;
+    }
+    const path = c.req.path;
+    // Public exercise/program endpoints get higher limits (applied in openapi.ts)
+    return path.startsWith("/api/exercises") || path.startsWith("/api/programs");
+  }
+}));
 
 // CORS with proper origin handling
 app.use(

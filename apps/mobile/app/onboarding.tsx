@@ -67,6 +67,8 @@ export default function OnboardingScreen() {
         // 409 = user already exists, which is fine - just proceed
         await refetch();
         router.replace("/(tabs)");
+      } else if (response.status === 429) {
+        setError("Too many requests. Please wait a moment and try again.");
       } else {
         const data = await response.json();
         setError(data.error || "Failed to create profile");
