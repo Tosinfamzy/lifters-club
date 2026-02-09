@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
 import {
   Card,
   CardContent,
@@ -22,13 +21,21 @@ import {
   Loader2,
   CheckCircle,
   Clock,
-  Smartphone,
 } from "lucide-react";
 import Link from "next/link";
 import { useAppUser } from "@/providers/user-provider";
-import { WeeklySummary } from "@/components/dashboard";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { useApi } from "@/lib/use-api";
+import {
+  WeeklySummary,
+  TodaysWorkoutCard,
+  RecentWorkoutsCard,
+} from "@/components/dashboard";
+import type {
+  Workout,
+  TrainingBlock,
+  Decision,
+  TodaysWorkoutResponse,
+} from "@/lib/api";
 
 interface SummaryData {
   totalWorkouts: number;
@@ -40,87 +47,100 @@ interface SummaryData {
   lastWorkout: string | null;
 }
 
-interface Decision {
-  id: string;
-  userId: string;
-  decisionType: string;
-  input: Record<string, unknown>;
-  output: Record<string, unknown>;
-  createdAt: string;
-}
-
-interface TrainingBlock {
-  id: string;
-  programId: string;
-  status: string;
-  currentWeek: number;
-  startDate: string;
-}
-
 export default function DashboardPage() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
-  const { getToken } = useAuth();
+  const api = useApi();
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [trainingBlock, setTrainingBlock] = useState<TrainingBlock | null>(null);
+  const [todaysWorkout, setTodaysWorkout] = useState<TodaysWorkoutResponse | null>(null);
+  const [recentWorkouts, setRecentWorkouts] = useState<Workout[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isTodayLoading, setIsTodayLoading] = useState(true);
+  const [isRecentLoading, setIsRecentLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(true);
 
   const fetchDashboardData = useCallback(async () => {
     if (!appUser?.id) {
       setIsLoading(false);
+      setIsTodayLoading(false);
+      setIsRecentLoading(false);
       return;
     }
 
     setIsLoading(true);
-    try {
-      const token = await getToken();
-      const headers = {
-        Authorization: `Bearer ${token}`,
-      };
+    setIsTodayLoading(true);
+    setIsRecentLoading(true);
 
-      const [summaryRes, decisionsRes, blocksRes] = await Promise.all([
-        fetch(`${API_URL}/api/analytics/summary?userId=${appUser.id}`, {
-          headers,
-        }).catch(() => null),
-        fetch(
-          `${API_URL}/api/decisions/history?userId=${appUser.id}&limit=3`,
-          { headers }
-        ).catch(() => null),
-        fetch(
-          `${API_URL}/api/workouts/training-blocks?userId=${appUser.id}&status=active`,
-          { headers }
-        ).catch(() => null),
+    try {
+      // Fetch all data in parallel
+      const [
+        blocksResult,
+        decisionsResult,
+        todayResult,
+        recentResult,
+      ] = await Promise.allSettled([
+        api.getTrainingBlocks(appUser.id, "active"),
+        api.getDecisionHistory({ userId: appUser.id, limit: 3 }),
+        api.getTodaysWorkout(appUser.id),
+        api.getRecentWorkouts(appUser.id, 5),
       ]);
 
-      if (summaryRes?.ok) {
-        const data = await summaryRes.json();
-        setSummary(data.data || null);
-        setApiConnected(true);
-      } else if (summaryRes === null) {
-        setApiConnected(false);
-      }
-
-      if (decisionsRes?.ok) {
-        const data = await decisionsRes.json();
-        setDecisions(data.data || []);
-      }
-
-      if (blocksRes?.ok) {
-        const data = await blocksRes.json();
-        const blocks = data.data || [];
+      // Handle training blocks
+      if (blocksResult.status === "fulfilled") {
+        const blocks = blocksResult.value.data || [];
         if (blocks.length > 0) {
-          setTrainingBlock(blocks[0]);
+          setTrainingBlock(blocks[0] ?? null);
         }
+        setApiConnected(true);
+      }
+
+      // Handle decisions
+      if (decisionsResult.status === "fulfilled") {
+        setDecisions(decisionsResult.value.data || []);
+      }
+
+      // Handle today's workout
+      if (todayResult.status === "fulfilled") {
+        setTodaysWorkout(todayResult.value.data || null);
+      }
+      setIsTodayLoading(false);
+
+      // Handle recent workouts
+      if (recentResult.status === "fulfilled") {
+        setRecentWorkouts(recentResult.value.data || []);
+      }
+      setIsRecentLoading(false);
+
+      // Fetch summary separately (analytics endpoint)
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+        const token = await (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string> } } }).Clerk?.session?.getToken();
+        const summaryRes = await fetch(
+          `${API_URL}/api/analytics/summary?userId=${appUser.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        if (summaryRes.ok) {
+          const data = await summaryRes.json();
+          setSummary(data.data || null);
+        }
+      } catch {
+        // Summary fetch failed, continue without it
       }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
       setApiConnected(false);
     } finally {
       setIsLoading(false);
+      setIsTodayLoading(false);
+      setIsRecentLoading(false);
     }
-  }, [appUser?.id, getToken]);
+  }, [appUser?.id, api]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -144,8 +164,10 @@ export default function DashboardPage() {
       case "load_progression":
         return <TrendingUp className="h-4 w-4" />;
       case "volume":
+      case "volume_adjustment":
         return <BarChart3 className="h-4 w-4" />;
       case "recovery":
+      case "session_recovery":
         return <Clock className="h-4 w-4" />;
       default:
         return <Brain className="h-4 w-4" />;
@@ -157,12 +179,16 @@ export default function DashboardPage() {
       case "load_progression":
         return "Weight Adjustment";
       case "volume":
+      case "volume_adjustment":
         return "Volume Change";
       case "recovery":
+      case "session_recovery":
         return "Recovery Adjustment";
       case "deload":
+      case "deload_check":
         return "Deload Recommendation";
       case "rotation":
+      case "exercise_rotation":
         return "Exercise Rotation";
       default:
         return type.replace(/_/g, " ");
@@ -202,6 +228,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Today's Workout - Prominent */}
+      <TodaysWorkoutCard data={todaysWorkout} isLoading={isTodayLoading} />
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -262,24 +291,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Mobile App CTA */}
-      <Card className="border-primary/30 bg-linear-to-r from-primary/5 to-transparent">
-        <CardContent className="flex items-center gap-4 py-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Smartphone className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <p className="font-medium">Log Workouts on Mobile</p>
-            <p className="text-sm text-muted-foreground">
-              Use the Lifters Club app to log workouts with offline support, rest timers, and live progression recommendations.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" className="shrink-0">
-            Coming Soon
-          </Button>
-        </CardContent>
-      </Card>
-
       {/* Weekly Summary */}
       <WeeklySummary />
 
@@ -314,11 +325,11 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center gap-3 rounded-lg bg-secondary p-3 hover:bg-secondary/80 transition-colors">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-                        {getDecisionIcon(decision.decisionType)}
+                        {getDecisionIcon(decision.type)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">
-                          {getDecisionTitle(decision.decisionType)}
+                          {getDecisionTitle(decision.type)}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {formatRelativeDate(decision.createdAt)}
@@ -339,13 +350,18 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-            <CardDescription>Jump to key features</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* Recent Workouts */}
+        <RecentWorkoutsCard workouts={recentWorkouts} isLoading={isRecentLoading} />
+      </div>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+          <CardDescription>Jump to key features</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Link href="/analytics" className="block">
               <div className="flex items-center gap-3 rounded-lg bg-secondary p-4 hover:bg-secondary/80 transition-colors">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
@@ -354,10 +370,9 @@ export default function DashboardPage() {
                 <div className="flex-1">
                   <p className="font-medium">Analytics</p>
                   <p className="text-sm text-muted-foreground">
-                    View progress charts and PRs
+                    View progress
                   </p>
                 </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground" />
               </div>
             </Link>
 
@@ -367,12 +382,11 @@ export default function DashboardPage() {
                   <History className="h-5 w-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium">Workout History</p>
+                  <p className="font-medium">History</p>
                   <p className="text-sm text-muted-foreground">
-                    Review and edit past sessions
+                    Past sessions
                   </p>
                 </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground" />
               </div>
             </Link>
 
@@ -384,10 +398,9 @@ export default function DashboardPage() {
                 <div className="flex-1">
                   <p className="font-medium">Programs</p>
                   <p className="text-sm text-muted-foreground">
-                    Browse and customize programs
+                    Browse & start
                   </p>
                 </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground" />
               </div>
             </Link>
 
@@ -397,17 +410,16 @@ export default function DashboardPage() {
                   <Brain className="h-5 w-5" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium">Decision History</p>
+                  <p className="font-medium">Decisions</p>
                   <p className="text-sm text-muted-foreground">
-                    Understand why your program changes
+                    AI insights
                   </p>
                 </div>
-                <ArrowRight className="h-5 w-5 text-muted-foreground" />
               </div>
             </Link>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Current Training Block or Getting Started */}
       {trainingBlock ? (

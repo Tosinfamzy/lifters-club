@@ -44,6 +44,11 @@ export function useApi() {
       getDecision: (id: string) =>
         authenticatedRequest(() => baseApi.getDecision(id)),
 
+      recordDecisionOutcome: (
+        decisionId: string,
+        data: Parameters<typeof baseApi.recordDecisionOutcome>[1]
+      ) => authenticatedRequest(() => baseApi.recordDecisionOutcome(decisionId, data)),
+
       getTrainingBlocks: (userId: string, status?: string) =>
         authenticatedRequest(() => baseApi.getTrainingBlocks(userId, status)),
 

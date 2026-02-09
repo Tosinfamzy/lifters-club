@@ -188,7 +188,7 @@ class ApiClient {
 
   // Workouts
   async getTodaysWorkout(userId: string) {
-    return this.request<ApiResponse<Workout | null>>(
+    return this.request<ApiResponse<TodaysWorkoutResponse | null>>(
       `/api/workouts/today?userId=${userId}`
     );
   }
@@ -260,6 +260,23 @@ class ApiClient {
 
   async getDecision(id: string) {
     return this.request<ApiResponse<Decision>>(`/api/decisions/${id}`);
+  }
+
+  async recordDecisionOutcome(
+    decisionId: string,
+    data: {
+      outcome: DecisionOutcome;
+      overrideReason?: OverrideReason;
+      actualValue?: Record<string, unknown>;
+    }
+  ) {
+    return this.request<ApiResponse<DecisionOutcomeRecord>>(
+      `/api/decisions/${decisionId}/outcome`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    );
   }
 
   // User Baselines
@@ -432,6 +449,12 @@ export interface Decision {
   output: Record<string, unknown>;
   reasoning: string;
   createdAt: string;
+  outcome?: {
+    status: DecisionOutcome;
+    overrideReason?: OverrideReason;
+    success: boolean | null;
+    recordedAt: string;
+  } | null;
 }
 
 export interface UserBaseline {
@@ -483,5 +506,52 @@ export const DECISION_TYPE_LABELS: Record<DecisionType, string> = {
   weekly_plan: "Weekly Plan",
   performance_trend: "Performance Trend",
 };
+
+export interface ExerciseDecision {
+  exerciseId: string;
+  decisionId: string;
+  type: DecisionType;
+  summary: string;
+  reasoning: string;
+  confidence: "low" | "medium" | "high";
+  recommendedValue: unknown;
+}
+
+export interface TodaysWorkoutResponse {
+  workout: Workout;
+  decisions: ExerciseDecision[];
+}
+
+export type OverrideReason =
+  | "felt_too_heavy"
+  | "felt_too_light"
+  | "equipment_unavailable"
+  | "time_constraint"
+  | "injury_concern"
+  | "other";
+
+export const OVERRIDE_REASON_LABELS: Record<OverrideReason, string> = {
+  felt_too_heavy: "Felt too heavy",
+  felt_too_light: "Felt too light",
+  equipment_unavailable: "Equipment unavailable",
+  time_constraint: "Time constraint",
+  injury_concern: "Injury concern",
+  other: "Other reason",
+};
+
+export type DecisionOutcome = "followed" | "overridden" | "ignored";
+
+export interface DecisionOutcomeRecord {
+  id: string;
+  decisionId: string;
+  userId: string;
+  outcome: DecisionOutcome;
+  success: boolean | null;
+  overrideReason?: OverrideReason;
+  expectedValue?: Record<string, unknown>;
+  actualValue?: Record<string, unknown>;
+  evaluatedAt?: string;
+  createdAt: string;
+}
 
 export const api = new ApiClient(API_BASE_URL);

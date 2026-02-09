@@ -93,15 +93,55 @@ decisionRoutes.get(
       ? and(eq(decisions.userId, userId), eq(decisions.type, type))
       : eq(decisions.userId, userId);
 
+    // Left join with outcomes to include status
     const results = await db
-      .select()
+      .select({
+        id: decisions.id,
+        userId: decisions.userId,
+        workoutId: decisions.workoutId,
+        type: decisions.type,
+        input: decisions.input,
+        output: decisions.output,
+        reasoning: decisions.reasoning,
+        algorithmVersion: decisions.algorithmVersion,
+        createdAt: decisions.createdAt,
+        // Include outcome data if available
+        outcome: {
+          status: decisionOutcomes.outcome,
+          overrideReason: decisionOutcomes.overrideReason,
+          success: decisionOutcomes.success,
+          recordedAt: decisionOutcomes.createdAt,
+        },
+      })
       .from(decisions)
+      .leftJoin(decisionOutcomes, eq(decisions.id, decisionOutcomes.decisionId))
       .where(conditions)
       .orderBy(desc(decisions.createdAt))
       .limit(limit)
       .offset(offset);
 
-    return c.json({ data: results });
+    // Transform results to flatten the structure
+    const transformedResults = results.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      workoutId: row.workoutId,
+      type: row.type,
+      input: row.input,
+      output: row.output,
+      reasoning: row.reasoning,
+      algorithmVersion: row.algorithmVersion,
+      createdAt: row.createdAt,
+      outcome: row.outcome?.status
+        ? {
+            status: row.outcome.status,
+            overrideReason: row.outcome.overrideReason,
+            success: row.outcome.success,
+            recordedAt: row.outcome.recordedAt,
+          }
+        : null,
+    }));
+
+    return c.json({ data: transformedResults });
   }
 );
 

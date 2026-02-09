@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import type { Decision, DecisionType } from "@/lib/api";
 import { DECISION_TYPE_LABELS } from "@/lib/api";
 import {
@@ -18,6 +19,8 @@ import {
   Calendar,
   BarChart3,
   Activity,
+  Check,
+  Edit,
 } from "lucide-react";
 
 interface DecisionCardProps {
@@ -131,6 +134,46 @@ function getActionIcon(decision: Decision) {
   return null;
 }
 
+function OutcomeBadge({ decision }: { decision: Decision }) {
+  if (!decision.outcome) {
+    return (
+      <Badge variant="outline" className="text-xs bg-muted/50">
+        Pending
+      </Badge>
+    );
+  }
+
+  if (decision.outcome.status === "followed") {
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs bg-green-500/10 text-green-500 border-green-500/20"
+      >
+        <Check className="mr-1 h-3 w-3" />
+        Followed
+      </Badge>
+    );
+  }
+
+  if (decision.outcome.status === "overridden") {
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+      >
+        <Edit className="mr-1 h-3 w-3" />
+        Adjusted
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="outline" className="text-xs bg-muted/50">
+      Ignored
+    </Badge>
+  );
+}
+
 export function DecisionCard({ decision, onSelect }: DecisionCardProps) {
   const Icon = TYPE_ICONS[decision.type];
   const colorClass = TYPE_COLORS[decision.type];
@@ -155,7 +198,10 @@ export function DecisionCard({ decision, onSelect }: DecisionCardProps) {
               </CardDescription>
             </div>
           </div>
-          {getActionIcon(decision)}
+          <div className="flex items-center gap-2">
+            <OutcomeBadge decision={decision} />
+            {getActionIcon(decision)}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0">

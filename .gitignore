@@ -65,3 +65,4 @@ coverage
 *.lcov
 .vercel
 .env*.local
+.env.test

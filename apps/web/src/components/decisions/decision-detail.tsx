@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -13,8 +15,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { Decision, DecisionType } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { Decision, DecisionType, DecisionOutcome, OverrideReason } from "@/lib/api";
 import { DECISION_TYPE_LABELS } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
+import { OverrideReasonPicker } from "./override-reason-picker";
 import {
   TrendingUp,
   TrendingDown,
@@ -27,12 +33,16 @@ import {
   Info,
   Target,
   ArrowRight,
+  Check,
+  Edit,
+  Loader2,
 } from "lucide-react";
 
 interface DecisionDetailProps {
   decision: Decision | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOutcomeRecorded?: (decisionId: string, outcome: DecisionOutcome) => void;
 }
 
 // Icons for decision types
@@ -210,10 +220,55 @@ export function DecisionDetail({
   decision,
   open,
   onOpenChange,
+  onOutcomeRecorded,
 }: DecisionDetailProps) {
+  const api = useApi();
+  const [isRecording, setIsRecording] = useState(false);
+  const [showReasonPicker, setShowReasonPicker] = useState(false);
+  const [recordedOutcome, setRecordedOutcome] = useState<DecisionOutcome | null>(null);
+
   if (!decision) return null;
 
   const Icon = TYPE_ICONS[decision.type];
+
+  const handleFollow = async () => {
+    setIsRecording(true);
+    try {
+      await api.recordDecisionOutcome(decision.id, { outcome: "followed" });
+      setRecordedOutcome("followed");
+      onOutcomeRecorded?.(decision.id, "followed");
+    } catch (error) {
+      console.error("Failed to record outcome:", error);
+    } finally {
+      setIsRecording(false);
+    }
+  };
+
+  const handleOverride = async (reason: OverrideReason) => {
+    setIsRecording(true);
+    try {
+      await api.recordDecisionOutcome(decision.id, {
+        outcome: "overridden",
+        overrideReason: reason,
+      });
+      setRecordedOutcome("overridden");
+      setShowReasonPicker(false);
+      onOutcomeRecorded?.(decision.id, "overridden");
+    } catch (error) {
+      console.error("Failed to record outcome:", error);
+    } finally {
+      setIsRecording(false);
+    }
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // Reset state when closing
+      setRecordedOutcome(null);
+      setShowReasonPicker(false);
+    }
+    onOpenChange(newOpen);
+  };
 
   const renderDetail = () => {
     switch (decision.type) {
@@ -227,27 +282,91 @@ export function DecisionDetail({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <Icon className="h-5 w-5 text-primary" />
-            <DialogTitle>{DECISION_TYPE_LABELS[decision.type]}</DialogTitle>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <Icon className="h-5 w-5 text-primary" />
+              <DialogTitle>{DECISION_TYPE_LABELS[decision.type]}</DialogTitle>
+            </div>
+            <DialogDescription>
+              {formatDateTime(decision.createdAt)}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Reasoning */}
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+            <p className="text-sm font-medium mb-1">Why this decision?</p>
+            <p className="text-sm text-muted-foreground">{decision.reasoning}</p>
           </div>
-          <DialogDescription>
-            {formatDateTime(decision.createdAt)}
-          </DialogDescription>
-        </DialogHeader>
 
-        {/* Reasoning */}
-        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-          <p className="text-sm font-medium mb-1">Why this decision?</p>
-          <p className="text-sm text-muted-foreground">{decision.reasoning}</p>
-        </div>
+          {/* Detail sections */}
+          {renderDetail()}
 
-        {/* Detail sections */}
-        {renderDetail()}
-      </DialogContent>
-    </Dialog>
+          {/* Action Buttons */}
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            {!recordedOutcome ? (
+              <>
+                <Button
+                  onClick={handleFollow}
+                  disabled={isRecording}
+                  className="w-full sm:w-auto"
+                >
+                  {isRecording ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="mr-2 h-4 w-4" />
+                  )}
+                  Follow Recommendation
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowReasonPicker(true)}
+                  disabled={isRecording}
+                  className="w-full sm:w-auto"
+                >
+                  <Edit className="mr-2 h-4 w-4" />
+                  I&apos;ll Adjust
+                </Button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 w-full justify-center">
+                <Badge
+                  variant="outline"
+                  className={
+                    recordedOutcome === "followed"
+                      ? "bg-green-500/10 text-green-500 border-green-500/20"
+                      : "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                  }
+                >
+                  {recordedOutcome === "followed" ? (
+                    <>
+                      <Check className="mr-1 h-3 w-3" />
+                      Followed
+                    </>
+                  ) : (
+                    <>
+                      <Edit className="mr-1 h-3 w-3" />
+                      Adjusted
+                    </>
+                  )}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  Response recorded
+                </span>
+              </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <OverrideReasonPicker
+        open={showReasonPicker}
+        onOpenChange={setShowReasonPicker}
+        onConfirm={handleOverride}
+        isLoading={isRecording}
+      />
+    </>
   );
 }
