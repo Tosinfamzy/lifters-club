@@ -19,25 +19,10 @@ import {
   Smartphone,
 } from "lucide-react";
 import Link from "next/link";
-import type { Workout, DecisionType } from "@/lib/api";
-
-interface ExerciseDecision {
-  exerciseId: string;
-  decisionId: string;
-  type: DecisionType;
-  summary: string;
-  reasoning: string;
-  confidence: "low" | "medium" | "high";
-  recommendedValue: unknown;
-}
-
-interface TodaysWorkoutData {
-  workout: Workout;
-  decisions: ExerciseDecision[];
-}
+import type { DecisionType, TodaysWorkoutResponse } from "@/lib/api";
 
 interface TodaysWorkoutCardProps {
-  data: TodaysWorkoutData | null;
+  data: TodaysWorkoutResponse | null;
   isLoading: boolean;
 }
 

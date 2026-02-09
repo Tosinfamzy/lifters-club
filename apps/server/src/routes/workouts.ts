@@ -9,6 +9,7 @@ import type { Env } from "../types";
 import type { DecisionType } from "@gymapp/types";
 import { verifyTrainingBlockAccess, verifyWorkoutAccess, getUserByClerkId } from "../middleware/authorize";
 import { logger as globalLogger } from "../lib/logger";
+import { generateNextWeek, isWeekComplete } from "../services/week-generation";
 
 const workoutRoutes = new Hono<Env>();
 
@@ -200,6 +201,88 @@ workoutRoutes.patch(
   }
 );
 
+// POST /training-blocks/:id/generate-week - Generate next week's workouts
+const generateWeekSchema = z.object({
+  forceDeload: z.boolean().optional(),
+});
+
+workoutRoutes.post(
+  "/training-blocks/:id/generate-week",
+  zValidator("json", generateWeekSchema.optional()),
+  async (c) => {
+    const id = c.req.param("id");
+    const body = c.req.valid("json") ?? {};
+
+    // Verify the authenticated user owns this training block
+    const authResult = await verifyTrainingBlockAccess(c, id);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    const logger = c.get("logger") ?? globalLogger;
+
+    try {
+      // Check if current week is complete before generating next week
+      const block = await db
+        .select()
+        .from(trainingBlocks)
+        .where(eq(trainingBlocks.id, id))
+        .limit(1);
+
+      if (block.length === 0) {
+        return c.json({ error: "Training block not found" }, 404);
+      }
+
+      const currentWeek = block[0]!.currentWeek;
+      const weekComplete = await isWeekComplete(id, currentWeek);
+
+      if (!weekComplete) {
+        return c.json(
+          {
+            error: `Week ${currentWeek} is not complete. Complete or skip all workouts before generating the next week.`,
+          },
+          400
+        );
+      }
+
+      // Generate the next week
+      const result = await generateNextWeek(id, authResult.user.id, {
+        forceDeload: body.forceDeload,
+      });
+
+      logger.info(
+        {
+          blockId: id,
+          userId: authResult.user.id,
+          weekNumber: result.weekNumber,
+          workoutsCreated: result.workouts.length,
+          decisionsCreated: result.decisions.length,
+          isDeload: result.isDeloadWeek,
+        },
+        "Week generated successfully"
+      );
+
+      return c.json({
+        data: {
+          workouts: result.workouts,
+          decisions: result.decisions.map((d) => ({
+            id: d.id,
+            type: d.type,
+            reasoning: d.reasoning,
+          })),
+          weekNumber: result.weekNumber,
+          isDeloadWeek: result.isDeloadWeek,
+          summary: result.summary,
+        },
+      }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to generate week";
+      logger.error({ blockId: id, error: message }, "Week generation failed");
+      return c.json({ error: message }, 400);
+    }
+  }
+);
+
 // ============ Mobile Convenience Endpoints ============
 
 // GET /today - Get today's workout for authenticated user with relevant decisions
@@ -352,7 +435,7 @@ function generateDecisionSummary(type: string, output: Record<string, unknown>):
       }
       return "Keep current exercise";
     }
-    case "deload_recommendation": {
+    case "deload_check": {
       const recommended = output.recommended as boolean;
       return recommended ? "Deload recommended" : "Continue as planned";
     }
@@ -582,7 +665,20 @@ workoutRoutes.post("/:id/complete", async (c) => {
   const logger = c.get("logger") ?? globalLogger;
   logger.info({ workoutId: id, userId: authResult.user.id }, "Workout completed");
 
-  return c.json({ data: result[0] });
+  // Check if all workouts for the current week are now complete
+  const workout = result[0]!;
+  const weekComplete = await isWeekComplete(
+    workout.trainingBlockId,
+    workout.weekNumber
+  );
+
+  return c.json({
+    data: result[0],
+    weekComplete,
+    message: weekComplete
+      ? `Week ${workout.weekNumber} complete! You can now generate the next week's workouts.`
+      : undefined,
+  });
 });
 
 // POST /workouts/:id/skip - Skip a workout (requires ownership)
@@ -608,7 +704,20 @@ workoutRoutes.post("/:id/skip", async (c) => {
   const logger = c.get("logger") ?? globalLogger;
   logger.info({ workoutId: id, userId: authResult.user.id }, "Workout skipped");
 
-  return c.json({ data: result[0] });
+  // Check if all workouts for the current week are now complete
+  const workout = result[0]!;
+  const weekComplete = await isWeekComplete(
+    workout.trainingBlockId,
+    workout.weekNumber
+  );
+
+  return c.json({
+    data: result[0],
+    weekComplete,
+    message: weekComplete
+      ? `Week ${workout.weekNumber} complete! You can now generate the next week's workouts.`
+      : undefined,
+  });
 });
 
 export { workoutRoutes };

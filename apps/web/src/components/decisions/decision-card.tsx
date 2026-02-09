@@ -82,17 +82,17 @@ function getDecisionSummary(decision: Decision): string {
     case "volume_adjustment": {
       const action = output.action as string;
       const newSetCount = output.newSetCount as number;
-      if (action === "add") return `Add sets (${newSetCount} total)`;
-      if (action === "reduce") return `Reduce sets (${newSetCount} total)`;
+      if (action === "add_set") return `Add sets (${newSetCount} total)`;
+      if (action === "reduce_set") return `Reduce sets (${newSetCount} total)`;
       return "Maintain volume";
     }
     case "deload_check": {
-      const needsDeload = output.needsDeload as boolean;
-      return needsDeload ? "Deload recommended" : "Continue training";
+      const recommended = output.recommended as boolean;
+      return recommended ? "Deload recommended" : "Continue training";
     }
     case "exercise_rotation": {
-      const shouldRotate = output.shouldRotate as boolean;
-      return shouldRotate ? "Rotate exercise" : "Keep current exercise";
+      const action = output.action as string;
+      return action === "swap" ? "Rotate exercise" : "Keep current exercise";
     }
     case "session_recovery": {
       const recommendation = output.recommendation as string;
@@ -122,10 +122,10 @@ function getActionIcon(decision: Decision) {
 
   if (decision.type === "load_progression" || decision.type === "volume_adjustment") {
     const action = output.action as string;
-    if (action === "increase" || action === "add") {
+    if (action === "increase" || action === "add_set") {
       return <TrendingUp className="h-4 w-4 text-green-500" />;
     }
-    if (action === "decrease" || action === "reduce") {
+    if (action === "decrease" || action === "reduce_set") {
       return <TrendingDown className="h-4 w-4 text-red-500" />;
     }
     return <Minus className="h-4 w-4 text-yellow-500" />;

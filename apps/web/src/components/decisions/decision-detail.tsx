@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -227,7 +227,17 @@ export function DecisionDetail({
   const [showReasonPicker, setShowReasonPicker] = useState(false);
   const [recordedOutcome, setRecordedOutcome] = useState<DecisionOutcome | null>(null);
 
+  // Reset local state when decision changes
+  useEffect(() => {
+    setRecordedOutcome(null);
+    setShowReasonPicker(false);
+    setIsRecording(false);
+  }, [decision?.id]);
+
   if (!decision) return null;
+
+  // Use existing outcome from the decision if available, otherwise use locally recorded outcome
+  const effectiveOutcome = decision.outcome?.status ?? recordedOutcome;
 
   const Icon = TYPE_ICONS[decision.type];
 
@@ -306,7 +316,7 @@ export function DecisionDetail({
 
           {/* Action Buttons */}
           <DialogFooter className="flex-col gap-2 sm:flex-row">
-            {!recordedOutcome ? (
+            {!effectiveOutcome ? (
               <>
                 <Button
                   onClick={handleFollow}
@@ -335,12 +345,12 @@ export function DecisionDetail({
                 <Badge
                   variant="outline"
                   className={
-                    recordedOutcome === "followed"
+                    effectiveOutcome === "followed"
                       ? "bg-green-500/10 text-green-500 border-green-500/20"
                       : "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
                   }
                 >
-                  {recordedOutcome === "followed" ? (
+                  {effectiveOutcome === "followed" ? (
                     <>
                       <Check className="mr-1 h-3 w-3" />
                       Followed

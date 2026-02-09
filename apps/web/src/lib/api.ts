@@ -1,8 +1,96 @@
+import { z } from "zod";
+
 // Server-side (Docker): use internal service name; Client-side (browser): use public URL
 const API_BASE_URL =
   typeof window === "undefined"
     ? process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
     : process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+// Enums for validation matching TypeScript types
+const decisionTypes = [
+  "load_progression",
+  "volume_adjustment",
+  "deload_check",
+  "exercise_rotation",
+  "session_recovery",
+  "missed_session",
+  "weekly_plan",
+  "performance_trend",
+] as const;
+
+const overrideReasons = [
+  "felt_too_heavy",
+  "felt_too_light",
+  "equipment_unavailable",
+  "time_constraint",
+  "injury_concern",
+  "other",
+] as const;
+
+// Zod schemas for runtime validation
+const DecisionSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  workoutId: z.string().nullable(),
+  type: z.enum(decisionTypes),
+  input: z.record(z.unknown()),
+  output: z.record(z.unknown()),
+  reasoning: z.string(),
+  createdAt: z.string(),
+  outcome: z
+    .object({
+      status: z.enum(["followed", "overridden", "ignored"]),
+      overrideReason: z.enum(overrideReasons).optional(),
+      success: z.boolean().nullable(),
+      recordedAt: z.string(),
+    })
+    .nullable()
+    .optional(),
+});
+
+const WorkoutSchema = z.object({
+  id: z.string(),
+  trainingBlockId: z.string(),
+  scheduledDate: z.string(),
+  weekNumber: z.number(),
+  dayNumber: z.number(),
+  plannedExercises: z.array(
+    z.object({
+      exerciseId: z.string(),
+      sets: z.number(),
+      repRange: z.tuple([z.number(), z.number()]),
+      restSeconds: z.number(),
+      notes: z.string().optional(),
+    })
+  ),
+  status: z.enum(["pending", "in_progress", "completed", "skipped"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const AnalyticsSummarySchema = z.object({
+  totalWorkouts: z.number(),
+  workoutsThisWeek: z.number(),
+  workoutsThisMonth: z.number(),
+  averageRpe: z.number().nullable(),
+  averageDuration: z.number().nullable(),
+  currentStreak: z.number(),
+  lastWorkout: z.string().nullable(),
+});
+
+// Validation helper - logs warnings but falls back to unvalidated data
+function validateResponse<T>(schema: z.ZodSchema<T>, data: unknown, context: string): T {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    console.warn(`API response validation failed for ${context}:`, result.error.issues);
+    return data as T; // Fallback for backwards compatibility
+  }
+  return result.data;
+}
+
+function validateArrayResponse<T>(schema: z.ZodSchema<T>, data: unknown[], context: string): T[] {
+  return data.map((item, index) => validateResponse(schema, item, `${context}[${index}]`));
+}
 
 export interface ApiResponse<T> {
   data: T;
@@ -186,6 +274,16 @@ class ApiClient {
     );
   }
 
+  async generateWeek(trainingBlockId: string, options?: { forceDeload?: boolean }) {
+    return this.request<ApiResponse<GenerateWeekResponse>>(
+      `/api/workouts/training-blocks/${trainingBlockId}/generate-week`,
+      {
+        method: "POST",
+        body: JSON.stringify(options ?? {}),
+      }
+    );
+  }
+
   // Workouts
   async getTodaysWorkout(userId: string) {
     return this.request<ApiResponse<TodaysWorkoutResponse | null>>(
@@ -208,9 +306,13 @@ class ApiClient {
     if (params.userId) searchParams.set("userId", params.userId);
     if (params.trainingBlockId) searchParams.set("trainingBlockId", params.trainingBlockId);
     if (params.status) searchParams.set("status", params.status);
-    return this.request<ApiResponse<Workout[]>>(
+    const response = await this.request<ApiResponse<Workout[]>>(
       `/api/workouts?${searchParams}`
     );
+    return {
+      ...response,
+      data: validateArrayResponse(WorkoutSchema, response.data || [], "workouts"),
+    };
   }
 
   // Workout Logs
@@ -253,13 +355,21 @@ class ApiClient {
     if (params.type) searchParams.set("type", params.type);
     if (params.limit) searchParams.set("limit", String(params.limit));
     if (params.offset) searchParams.set("offset", String(params.offset));
-    return this.request<ApiResponse<Decision[]>>(
+    const response = await this.request<ApiResponse<Decision[]>>(
       `/api/decisions/history?${searchParams}`
     );
+    return {
+      ...response,
+      data: validateArrayResponse(DecisionSchema, response.data || [], "decisions"),
+    };
   }
 
   async getDecision(id: string) {
-    return this.request<ApiResponse<Decision>>(`/api/decisions/${id}`);
+    const response = await this.request<ApiResponse<Decision>>(`/api/decisions/${id}`);
+    return {
+      ...response,
+      data: validateResponse(DecisionSchema, response.data, "decision"),
+    };
   }
 
   async recordDecisionOutcome(
@@ -309,6 +419,24 @@ class ApiClient {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  }
+
+  async getAnalyticsSummary(userId: string) {
+    const response = await this.request<
+      ApiResponse<{
+        totalWorkouts: number;
+        workoutsThisWeek: number;
+        workoutsThisMonth: number;
+        averageRpe: number | null;
+        averageDuration: number | null;
+        currentStreak: number;
+        lastWorkout: string | null;
+      }>
+    >(`/api/analytics/summary?userId=${userId}`);
+    return {
+      ...response,
+      data: validateResponse(AnalyticsSummarySchema, response.data, "analyticsSummary"),
+    };
   }
 }
 
@@ -520,6 +648,14 @@ export interface ExerciseDecision {
 export interface TodaysWorkoutResponse {
   workout: Workout;
   decisions: ExerciseDecision[];
+}
+
+export interface GenerateWeekResponse {
+  workouts: Workout[];
+  decisions: { id: string; type: string; reasoning: string }[];
+  weekNumber: number;
+  isDeloadWeek: boolean;
+  summary: string;
 }
 
 export type OverrideReason =

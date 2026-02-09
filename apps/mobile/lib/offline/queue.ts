@@ -24,12 +24,19 @@ export interface QueuedWorkoutLog {
   notes?: string;
 }
 
+export interface QueuedDecisionOutcome {
+  decisionId: string;
+  outcome: "followed" | "overridden";
+  overrideReason?: string;
+}
+
 export type QueuedOperation =
   | { type: "CREATE_WORKOUT_LOG"; data: QueuedWorkoutLog }
   | { type: "UPDATE_WORKOUT_LOG"; data: Partial<QueuedWorkoutLog> & { id: string } }
   | { type: "CREATE_LOGGED_SET"; data: QueuedLoggedSet }
   | { type: "UPDATE_LOGGED_SET"; data: Partial<QueuedLoggedSet> & { id: string } }
-  | { type: "DELETE_LOGGED_SET"; data: { id: string } };
+  | { type: "DELETE_LOGGED_SET"; data: { id: string } }
+  | { type: "RECORD_DECISION_OUTCOME"; data: QueuedDecisionOutcome };
 
 export interface QueueItem {
   id: string;
@@ -116,5 +123,13 @@ export const updateWorkoutLogOperation = (
   data: Partial<QueuedWorkoutLog> & { id: string }
 ): QueuedOperation => ({
   type: "UPDATE_WORKOUT_LOG",
+  data,
+});
+
+// Helper to create a decision outcome operation
+export const createDecisionOutcomeOperation = (
+  data: QueuedDecisionOutcome
+): QueuedOperation => ({
+  type: "RECORD_DECISION_OUTCOME",
   data,
 });

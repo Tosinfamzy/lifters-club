@@ -104,10 +104,20 @@ notificationRoutes.delete("/push-tokens/:token", async (c) => {
 
 // GET /push-tokens - Get user's registered tokens (for debugging)
 notificationRoutes.get("/push-tokens", async (c) => {
+  const clerkId = c.get("clerkId") as string | undefined;
   const userId = c.req.query("userId");
 
   if (!userId) {
     return c.json({ error: "userId is required" }, 400);
+  }
+
+  // Verify the authenticated user is requesting their own tokens
+  if (!clerkId) {
+    return c.json({ error: "Authentication required" }, 401);
+  }
+
+  if (userId !== clerkId) {
+    return c.json({ error: "Access denied: You can only view your own tokens" }, 403);
   }
 
   const tokens = await db

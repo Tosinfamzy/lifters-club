@@ -9,6 +9,7 @@ import {
   TextInput,
   RefreshControl,
   ScrollView,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Search, Dumbbell, ChevronRight, X, Filter } from "lucide-react-native";
@@ -60,6 +61,7 @@ export default function ExercisesScreen() {
   const [offset, setOffset] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({
     difficulty: null,
     muscle: null,
@@ -79,6 +81,7 @@ export default function ExercisesScreen() {
     const currentFilters = filtersRef.current;
 
     try {
+      setError(null);
       const params = new URLSearchParams({
         limit: "20",
         offset: String(currentOffset),
@@ -112,9 +115,20 @@ export default function ExercisesScreen() {
         }
 
         setHasMore(data.pagination?.hasMore ?? false);
+      } else {
+        throw new Error(`Server error: ${response.status}`);
       }
-    } catch {
-      // Silently fail
+    } catch (err) {
+      console.error("Failed to load exercises:", err);
+      setError("Unable to load exercises");
+      if (reset) {
+        // Only show alert on initial load or explicit refresh, not on scroll pagination
+        Alert.alert(
+          "Connection Error",
+          "Unable to load exercises. Please check your connection and try again.",
+          [{ text: "Retry", onPress: () => fetchExercises(query, true) }]
+        );
+      }
     } finally {
       setIsLoading(false);
     }

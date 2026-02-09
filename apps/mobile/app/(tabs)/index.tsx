@@ -46,7 +46,7 @@ export default function TodayScreen() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/workouts/today?userId=${appUser.id}`, {
+      const response = await fetch(`${API_URL}/api/workouts/today`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

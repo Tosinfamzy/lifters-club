@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
 import { programs } from "@gymapp/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 const programRoutes = new Hono();
@@ -81,11 +81,9 @@ programRoutes.get(
 
     let queryBuilder = db.select().from(programs);
 
-    // Apply conditions if any
+    // Apply conditions using AND (not chaining .where() which overwrites)
     if (conditions.length > 0) {
-      for (const condition of conditions) {
-        queryBuilder = queryBuilder.where(condition) as typeof queryBuilder;
-      }
+      queryBuilder = queryBuilder.where(and(...conditions)) as typeof queryBuilder;
     }
 
     const results = await queryBuilder

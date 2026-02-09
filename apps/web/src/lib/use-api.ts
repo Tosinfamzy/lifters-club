@@ -87,6 +87,11 @@ export function useApi() {
       createTrainingBlock: (data: Parameters<typeof baseApi.createTrainingBlock>[0]) =>
         authenticatedRequest(() => baseApi.createTrainingBlock(data)),
 
+      generateWeek: (
+        trainingBlockId: string,
+        options?: Parameters<typeof baseApi.generateWeek>[1]
+      ) => authenticatedRequest(() => baseApi.generateWeek(trainingBlockId, options)),
+
       // User baselines (protected)
       getUserBaselines: (userId: string) =>
         authenticatedRequest(() => baseApi.getUserBaselines(userId)),
@@ -103,6 +108,10 @@ export function useApi() {
         userId: string,
         data: Parameters<typeof baseApi.updateOnboardingStatus>[1]
       ) => authenticatedRequest(() => baseApi.updateOnboardingStatus(userId, data)),
+
+      // Analytics (protected)
+      getAnalyticsSummary: (userId: string) =>
+        authenticatedRequest(() => baseApi.getAnalyticsSummary(userId)),
     }),
     [authenticatedRequest]
   );

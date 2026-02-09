@@ -1,8 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/clerk-expo";
 import { offlineQueue, QueueItem } from "../lib/offline/queue";
 import { offlineStorage } from "../lib/offline/storage";
+import { fetchWithTimeout, FetchTimeoutError } from "../lib/fetch-with-timeout";
+
+const SYNC_LOCK_KEY = "@lifters/sync_lock";
+const SYNC_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute stale lock detection
 
 interface OfflineContextType {
   isOnline: boolean;
@@ -84,19 +89,32 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             body = undefined;
             break;
 
+          case "RECORD_DECISION_OUTCOME":
+            endpoint = `/api/decisions/${operation.data.decisionId}/outcome`;
+            method = "POST";
+            body = {
+              outcome: operation.data.outcome,
+              overrideReason: operation.data.overrideReason,
+            };
+            break;
+
           default:
             console.warn("Unknown operation type");
             return false;
         }
 
-        const response = await fetch(`${API_URL}${endpoint}`, {
-          method,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+        const response = await fetchWithTimeout(
+          `${API_URL}${endpoint}`,
+          {
+            method,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: body ? JSON.stringify(body) : undefined,
           },
-          body: body ? JSON.stringify(body) : undefined,
-        });
+          30000 // 30 second timeout
+        );
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -104,19 +122,51 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
         return true;
       } catch (error) {
-        console.error("Failed to process queue item:", error);
+        if (error instanceof FetchTimeoutError) {
+          console.error("Sync request timed out:", error.message);
+        } else {
+          console.error("Failed to process queue item:", error);
+        }
         return false;
       }
     },
     []
   );
 
-  // Sync all pending operations
+  // Sync lock helpers for Phase 6 - preventing race conditions
+  const acquireSyncLock = async (): Promise<boolean> => {
+    const existing = await AsyncStorage.getItem(SYNC_LOCK_KEY);
+    if (existing) {
+      const lockTime = parseInt(existing, 10);
+      // Stale lock detection - release if older than 5 minutes
+      if (Date.now() - lockTime < SYNC_LOCK_TIMEOUT_MS) {
+        return false; // Lock is held by another sync
+      }
+    }
+    await AsyncStorage.setItem(SYNC_LOCK_KEY, Date.now().toString());
+    return true;
+  };
+
+  const releaseSyncLock = async () => {
+    await AsyncStorage.removeItem(SYNC_LOCK_KEY);
+  };
+
+  // Sync all pending operations with lock to prevent race conditions
   const syncNow = useCallback(async () => {
-    if (isSyncing || !isOnline) return;
+    if (!isOnline) return;
+
+    // Try to acquire sync lock to prevent duplicate syncs
+    const acquired = await acquireSyncLock();
+    if (!acquired) {
+      console.log("Sync already in progress (lock held)");
+      return;
+    }
 
     const queue = await offlineQueue.getQueue();
-    if (queue.length === 0) return;
+    if (queue.length === 0) {
+      await releaseSyncLock();
+      return;
+    }
 
     setIsSyncing(true);
 
@@ -149,10 +199,11 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Sync failed:", error);
     } finally {
+      await releaseSyncLock();
       setIsSyncing(false);
       updatePendingCount();
     }
-  }, [isOnline, isSyncing, getToken, processQueueItem, updatePendingCount]);
+  }, [isOnline, getToken, processQueueItem, updatePendingCount]);
 
   // Monitor network state
   useEffect(() => {

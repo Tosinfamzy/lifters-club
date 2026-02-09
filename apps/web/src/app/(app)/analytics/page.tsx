@@ -78,6 +78,7 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (!appUser?.id) return;
 
+    const controller = new AbortController();
     const userId = appUser.id;
 
     async function fetchAllAnalytics() {
@@ -94,20 +95,21 @@ export default function AnalyticsPage() {
           await Promise.all([
             fetch(
               `${API_URL}/api/analytics/volume?userId=${userId}&weeks=12`,
-              { headers }
+              { headers, signal: controller.signal }
             ),
             fetch(`${API_URL}/api/analytics/summary?userId=${userId}`, {
               headers,
+              signal: controller.signal,
             }),
             fetch(
               `${API_URL}/api/logs?userId=${userId}&limit=50`,
-              { headers }
+              { headers, signal: controller.signal }
             ),
             fetch(
               `${API_URL}/api/analytics/personal-records?userId=${userId}`,
-              { headers }
+              { headers, signal: controller.signal }
             ),
-            fetch(`${API_URL}/api/exercises?limit=50`), // Public endpoint
+            fetch(`${API_URL}/api/exercises?limit=50`, { signal: controller.signal }), // Public endpoint
           ]);
 
         // Process volume data
@@ -173,13 +175,19 @@ export default function AnalyticsPage() {
           setExercises(data.data || []);
         }
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          return; // Component unmounted, ignore
+        }
         console.error("Failed to fetch analytics:", error);
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
       }
     }
 
     fetchAllAnalytics();
+    return () => controller.abort();
   }, [appUser?.id, getToken]);
 
   if (isUserLoading || isLoading) {

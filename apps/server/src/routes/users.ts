@@ -288,8 +288,8 @@ userRoutes.post(
 const createBaselinesSchema = z.object({
   baselines: z.array(z.object({
     exerciseId: z.string().min(1),
-    weight: z.number().min(0),
-    reps: z.number().int().min(1),
+    weight: z.number().min(1, "Weight must be at least 1"),
+    reps: z.number().int().min(1).max(100),
     source: z.enum(["user_input", "calibration", "inferred"]),
   })),
 });

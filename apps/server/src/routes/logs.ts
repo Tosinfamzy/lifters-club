@@ -262,18 +262,7 @@ logRoutes.post(
     const logId = `log_${nanoid(12)}`;
     const workoutDate = new Date(data.date);
 
-    // Create the workout log (retrospective logs have null workoutId since they're not linked to planned workouts)
-    await db.insert(workoutLogs).values({
-      id: logId,
-      workoutId: null,
-      userId: userId,
-      startedAt: workoutDate,
-      completedAt: workoutDate,
-      overallRpe: data.overallRpe ?? null,
-      notes: data.notes ?? null,
-    });
-
-    // Create all sets
+    // Build sets to insert
     let setCount = 0;
     const setsToInsert: {
       id: string;
@@ -301,9 +290,24 @@ logRoutes.post(
       }
     }
 
-    if (setsToInsert.length > 0) {
-      await db.insert(loggedSets).values(setsToInsert);
-    }
+    // Create workout log and sets atomically in a transaction
+    await db.transaction(async (tx) => {
+      // Create the workout log (retrospective logs have null workoutId since they're not linked to planned workouts)
+      await tx.insert(workoutLogs).values({
+        id: logId,
+        workoutId: null,
+        userId: userId,
+        startedAt: workoutDate,
+        completedAt: workoutDate,
+        overallRpe: data.overallRpe ?? null,
+        notes: data.notes ?? null,
+      });
+
+      // Create all sets
+      if (setsToInsert.length > 0) {
+        await tx.insert(loggedSets).values(setsToInsert);
+      }
+    });
 
     const logger = c.get("logger") ?? globalLogger;
     logger.info(

@@ -5,12 +5,13 @@ import { db } from "@gymapp/db";
 import { workoutLogs, loggedSets } from "@gymapp/db/schema";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import type { Env } from "../types";
-import { verifyUserAccess } from "../middleware/authorize";
+import { getAuthenticatedUserFromContext } from "../middleware/authorize";
 
 const analyticsRoutes = new Hono<Env>();
 
+// userId is now optional - if not provided, use authenticated user's ID
 const userQuerySchema = z.object({
-  userId: z.string().min(1),
+  userId: z.string().min(1).optional(),
 });
 
 // GET /analytics/exercise/:exerciseId/progress - Get exercise progress over time (requires ownership)
@@ -21,13 +22,20 @@ analyticsRoutes.get(
   })),
   async (c) => {
     const exerciseId = c.req.param("exerciseId");
-    const { userId, limit } = c.req.valid("query");
+    const { userId: queryUserId, limit } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user - use query userId if provided and valid, otherwise use authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     // Get all sets for this exercise, grouped by workout date
     const sets = await db
@@ -104,13 +112,20 @@ analyticsRoutes.get(
     weeks: z.coerce.number().int().min(1).max(52).default(8),
   })),
   async (c) => {
-    const { userId, weeks } = c.req.valid("query");
+    const { userId: queryUserId, weeks } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - weeks * 7);
@@ -208,13 +223,20 @@ analyticsRoutes.get(
   "/personal-records",
   zValidator("query", userQuerySchema),
   async (c) => {
-    const { userId } = c.req.valid("query");
+    const { userId: queryUserId } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     // Get all sets for this user
     const sets = await db
@@ -298,13 +320,20 @@ analyticsRoutes.get(
   "/summary",
   zValidator("query", userQuerySchema),
   async (c) => {
-    const { userId } = c.req.valid("query");
+    const { userId: queryUserId } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     // Get all completed workout logs
     const logs = await db
@@ -398,13 +427,20 @@ analyticsRoutes.get(
     weekOffset: z.coerce.number().int().min(0).max(52).default(0), // 0 = current week, 1 = last week, etc.
   })),
   async (c) => {
-    const { userId, weekOffset } = c.req.valid("query");
+    const { userId: queryUserId, weekOffset } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     // Calculate week boundaries
     const now = new Date();

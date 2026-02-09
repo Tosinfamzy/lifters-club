@@ -18,7 +18,8 @@ import {
 } from "@gymapp/engine";
 import type { DecisionAccuracyStats, OverrideReason, DecisionType } from "@gymapp/types";
 import type { Env } from "../types";
-import { verifyUserAccess, getAuthenticatedUserFromContext } from "../middleware/authorize";
+import { getAuthenticatedUserFromContext } from "../middleware/authorize";
+import { verifyUserAccess as verifyRequestUserId } from "../lib/auth";
 import { logger as globalLogger } from "../lib/logger";
 
 const decisionRoutes = new Hono<Env>();
@@ -71,23 +72,30 @@ const OVERRIDE_REASONS = [
 // ============ Decision History ============
 
 const historyQuerySchema = z.object({
-  userId: z.string().min(1),
+  userId: z.string().min(1).optional(), // Now optional - will use authenticated user if not provided
   type: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  offset: z.coerce.number().int().min(0).default(0),
+  offset: z.coerce.number().int().min(0).max(10000).default(0),
 });
 
 decisionRoutes.get(
   "/history",
   zValidator("query", historyQuerySchema),
   async (c) => {
-    const { userId, type, limit, offset } = c.req.valid("query");
+    const { userId: queryUserId, type, limit, offset } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own decisions" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     const conditions = type
       ? and(eq(decisions.userId, userId), eq(decisions.type, type))
@@ -252,20 +260,27 @@ decisionRoutes.post(
 
 // Get decision accuracy stats for a user
 const accuracyQuerySchema = z.object({
-  userId: z.string().min(1),
+  userId: z.string().min(1).optional(), // Now optional - will use authenticated user if not provided
 });
 
 decisionRoutes.get(
   "/accuracy",
   zValidator("query", accuracyQuerySchema),
   async (c) => {
-    const { userId } = c.req.valid("query");
+    const { userId: queryUserId } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     // Get all outcomes for this user
     const outcomes = await db
@@ -337,7 +352,7 @@ decisionRoutes.get(
 
 // Get decisions pending outcome evaluation
 const pendingQuerySchema = z.object({
-  userId: z.string().min(1),
+  userId: z.string().min(1).optional(), // Now optional - will use authenticated user if not provided
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
@@ -345,13 +360,20 @@ decisionRoutes.get(
   "/pending-evaluation",
   zValidator("query", pendingQuerySchema),
   async (c) => {
-    const { userId, limit } = c.req.valid("query");
+    const { userId: queryUserId, limit } = c.req.valid("query");
 
-    // Verify the authenticated user matches the userId in the request
-    const authResult = await verifyUserAccess(c, userId);
+    // Get authenticated user
+    const authResult = await getAuthenticatedUserFromContext(c);
     if (!authResult.authorized) {
       return authResult.response;
     }
+
+    // If userId provided in query, verify it matches authenticated user
+    if (queryUserId && queryUserId !== authResult.user.id) {
+      return c.json({ error: "Forbidden: You can only access your own data" }, 403);
+    }
+
+    const userId = authResult.user.id;
 
     // Find decisions that have 'followed' outcome but success is null
     const pending = await db
@@ -452,6 +474,10 @@ decisionRoutes.post(
   zValidator("json", loadProgressionSchema),
   async (c) => {
     const { userId, workoutId, ...input } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculateLoadProgression(input);
 
     await persistDecision(
@@ -459,13 +485,13 @@ decisionRoutes.post(
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
-      userId,
+      userId ? verifiedUserId : undefined,
       workoutId
     );
 
     if (userId) {
       const logger = c.get("logger") ?? globalLogger;
-      logger.info({ exerciseId: input.exerciseId, action: result.action, newWeight: result.newWeight, userId }, "Load progression decided");
+      logger.info({ exerciseId: input.exerciseId, action: result.action, newWeight: result.newWeight, userId: verifiedUserId }, "Load progression decided");
     }
 
     return c.json({ data: result });
@@ -493,6 +519,10 @@ decisionRoutes.post(
   zValidator("json", volumeAdjustmentSchema),
   async (c) => {
     const { userId, workoutId, ...input } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculateVolumeAdjustment(input);
 
     await persistDecision(
@@ -500,13 +530,13 @@ decisionRoutes.post(
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
-      userId,
+      userId ? verifiedUserId : undefined,
       workoutId
     );
 
     if (userId) {
       const logger = c.get("logger") ?? globalLogger;
-      logger.info({ exerciseId: input.exerciseId, action: result.action, newSetCount: result.newSetCount, userId }, "Volume adjustment decided");
+      logger.info({ exerciseId: input.exerciseId, action: result.action, newSetCount: result.newSetCount, userId: verifiedUserId }, "Volume adjustment decided");
     }
 
     return c.json({ data: result });
@@ -529,6 +559,10 @@ decisionRoutes.post(
   zValidator("json", deloadCheckSchema),
   async (c) => {
     const { userId, workoutId, ...input } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculateDeloadNeed(input);
 
     await persistDecision(
@@ -536,13 +570,13 @@ decisionRoutes.post(
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
-      userId,
+      userId ? verifiedUserId : undefined,
       workoutId
     );
 
     if (userId) {
       const logger = c.get("logger") ?? globalLogger;
-      logger.info({ weekNumber: input.weekNumber, recommended: result.recommended, userId }, "Deload decision made");
+      logger.info({ weekNumber: input.weekNumber, recommended: result.recommended, userId: verifiedUserId }, "Deload decision made");
     }
 
     return c.json({ data: result });
@@ -565,6 +599,10 @@ decisionRoutes.post(
   zValidator("json", rotationCheckSchema),
   async (c) => {
     const { userId, workoutId, ...input } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculateExerciseRotation(input);
 
     await persistDecision(
@@ -572,13 +610,13 @@ decisionRoutes.post(
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
-      userId,
+      userId ? verifiedUserId : undefined,
       workoutId
     );
 
     if (userId) {
       const logger = c.get("logger") ?? globalLogger;
-      logger.info({ exerciseId: input.exerciseId, action: result.action, userId }, "Rotation decision made");
+      logger.info({ exerciseId: input.exerciseId, action: result.action, userId: verifiedUserId }, "Rotation decision made");
     }
 
     return c.json({ data: result });
@@ -603,6 +641,10 @@ decisionRoutes.post(
   zValidator("json", recoveryCheckSchema),
   async (c) => {
     const { userId, workoutId, ...input } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculateSessionRecovery(input);
 
     await persistDecision(
@@ -610,13 +652,13 @@ decisionRoutes.post(
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
-      userId,
+      userId ? verifiedUserId : undefined,
       workoutId
     );
 
     if (userId) {
       const logger = c.get("logger") ?? globalLogger;
-      logger.info({ score: result.readinessScore, recommendation: result.recommendation, userId }, "Recovery decision made");
+      logger.info({ score: result.readinessScore, recommendation: result.recommendation, userId: verifiedUserId }, "Recovery decision made");
     }
 
     return c.json({ data: result });
@@ -642,6 +684,10 @@ decisionRoutes.post(
   zValidator("json", missedSessionSchema),
   async (c) => {
     const { userId, workoutId, ...input } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculateMissedSessionHandling(input);
 
     await persistDecision(
@@ -649,7 +695,7 @@ decisionRoutes.post(
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
-      userId,
+      userId ? verifiedUserId : undefined,
       workoutId
     );
 
@@ -698,6 +744,10 @@ decisionRoutes.post(
   zValidator("json", weeklyPlanSchema),
   async (c) => {
     const { workoutId, persist, ...data } = c.req.valid("json");
+
+    // Verify userId matches authenticated user (required for weekly plan)
+    const verifiedUserId = verifyRequestUserId(c, data.userId);
+
     const result = generateWeeklyPlan(data);
 
     if (persist) {
@@ -706,7 +756,7 @@ decisionRoutes.post(
         data as unknown as Record<string, unknown>,
         result as unknown as Record<string, unknown>,
         result.summary,
-        data.userId,
+        verifiedUserId,
         workoutId
       );
     }
@@ -729,6 +779,10 @@ decisionRoutes.post(
   zValidator("json", performanceTrendSchema),
   async (c) => {
     const { userId, exerciseId, ...data } = c.req.valid("json");
+
+    // Verify userId matches authenticated user if provided
+    const verifiedUserId = verifyRequestUserId(c, userId);
+
     const result = calculatePerformanceTrend(data.recentWeights, data.recentReps);
 
     if (userId) {
@@ -737,7 +791,7 @@ decisionRoutes.post(
         { ...data, exerciseId } as Record<string, unknown>,
         { trend: result },
         `Performance trend: ${result}`,
-        userId
+        verifiedUserId
       );
     }
 

@@ -76,6 +76,10 @@ export async function evaluatePendingDecisions(
     // Check if any of the logged sets are for the exercise in this decision
     const decisionInput = decision.input as { exerciseId?: string };
     if (!decisionInput.exerciseId) {
+      globalLogger.warn(
+        { decisionId: decision.id, userId },
+        "Skipping decision evaluation: missing exerciseId in decision input"
+      );
       continue;
     }
 

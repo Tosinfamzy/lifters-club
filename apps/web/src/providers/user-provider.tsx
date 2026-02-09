@@ -44,6 +44,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const token = await getToken();
+
+      // If no token, user is not authenticated yet - wait for Clerk to initialize
+      if (!token) {
+        setIsLoading(false);
+        return;
+      }
+
       const response = await fetch(`${API_URL}/api/users/me`, {
         headers: {
           Authorization: `Bearer ${token}`,

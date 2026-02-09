@@ -63,7 +63,7 @@ export default function HistoryScreen() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/logs?userId=${appUser.id}&limit=20`, {
+      const response = await fetch(`${API_URL}/api/logs?limit=20`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -83,43 +83,45 @@ export default function HistoryScreen() {
 
     try {
       const token = await getToken();
-      const [volumeRes, summaryRes] = await Promise.all([
-        fetch(`${API_URL}/api/analytics/volume?userId=${appUser.id}&weeks=8`, {
+      const [volumeResult, summaryResult] = await Promise.allSettled([
+        fetch(`${API_URL}/api/analytics/volume?weeks=8`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         }),
-        fetch(`${API_URL}/api/analytics/summary?userId=${appUser.id}`, {
+        fetch(`${API_URL}/api/analytics/summary`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         }),
       ]);
 
-      if (volumeRes.ok) {
-        const data = await volumeRes.json();
+      // Handle volume data - don't let one failure affect the other
+      if (volumeResult.status === "fulfilled" && volumeResult.value.ok) {
+        const data = await volumeResult.value.json();
         setVolumeData(data.data?.weeks || []);
       }
 
-      if (summaryRes.ok) {
-        const data = await summaryRes.json();
+      // Handle summary data independently
+      if (summaryResult.status === "fulfilled" && summaryResult.value.ok) {
+        const data = await summaryResult.value.json();
         setSummary(data.data || null);
       }
     } catch {
-      // Silently fail
+      // Silently fail for other unexpected errors
     }
   }, [appUser, getToken]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchHistory(), fetchAnalytics()]);
+    await Promise.allSettled([fetchHistory(), fetchAnalytics()]);
     setRefreshing(false);
   }, [fetchHistory, fetchAnalytics]);
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      await Promise.all([fetchHistory(), fetchAnalytics()]);
+      await Promise.allSettled([fetchHistory(), fetchAnalytics()]);
       setIsLoading(false);
     };
 

@@ -281,6 +281,7 @@ export function LogWorkoutDialog({ getToken, onSuccess }: LogWorkoutDialogProps)
                       size="icon"
                       onClick={() => removeExercise(entry.id)}
                       className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove ${entry.exercise?.name || "exercise"}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>

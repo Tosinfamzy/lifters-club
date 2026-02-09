@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -34,6 +34,8 @@ const DECISION_TYPE_OPTIONS: { value: DecisionType | "all"; label: string; icon:
   { value: "exercise_rotation", label: "Rotation", icon: RotateCcw },
   { value: "session_recovery", label: "Recovery", icon: Activity },
   { value: "missed_session", label: "Missed", icon: Calendar },
+  { value: "weekly_plan", label: "Weekly Plan", icon: Calendar },
+  { value: "performance_trend", label: "Trend", icon: TrendingUp },
 ];
 
 export function DecisionsContent() {
@@ -46,7 +48,11 @@ export function DecisionsContent() {
   const [selectedDecision, setSelectedDecision] = useState<Decision | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
+    isMountedRef.current = true;
+
     async function fetchDecisions() {
       if (!appUser?.id) return;
 
@@ -64,15 +70,24 @@ export function DecisionsContent() {
         }
 
         const response = await api.getDecisionHistory(params);
-        setDecisions(response.data || []);
+        if (isMountedRef.current) {
+          setDecisions(response.data || []);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load decisions");
+        if (isMountedRef.current) {
+          setError(err instanceof Error ? err.message : "Failed to load decisions");
+        }
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     }
 
     fetchDecisions();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [appUser?.id, selectedType]);
 
   const handleSelectDecision = (decision: Decision) => {

@@ -48,9 +48,15 @@ export default function ExerciseAlternativesScreen() {
   const [rememberChoice, setRememberChoice] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const currentExerciseData: CurrentExerciseData | null = currentExercise
-    ? JSON.parse(currentExercise)
-    : null;
+  // Safely parse current exercise data with try-catch
+  let currentExerciseData: CurrentExerciseData | null = null;
+  if (currentExercise) {
+    try {
+      currentExerciseData = JSON.parse(currentExercise);
+    } catch {
+      console.error("Failed to parse current exercise data");
+    }
+  }
 
   useEffect(() => {
     loadSubstitutes();

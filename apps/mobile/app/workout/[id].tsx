@@ -29,6 +29,7 @@ import { OfflineIndicator } from "../../components/OfflineIndicator";
 import { ExerciseActionsSheet } from "../../components/ExerciseActionsSheet";
 import { DecisionBadge } from "../../components/workout/DecisionBadge";
 import { DecisionExplanationModal } from "../../components/workout/DecisionExplanationModal";
+import { offlineQueue, createDecisionOutcomeOperation } from "../../lib/offline/queue";
 import type { DecisionType, OverrideReason } from "@gymapp/types";
 
 type ExerciseAction = "info" | "alternatives" | "skip" | "mark_done";
@@ -136,6 +137,12 @@ export default function WorkoutScreen() {
   const [isResting, setIsResting] = useState(false);
   const [targetRestTime, setTargetRestTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Ref to track current online state (fixes stale closure issue in callbacks)
+  const isOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
 
   // Exercise actions state
   const [showExerciseActions, setShowExerciseActions] = useState(false);
@@ -256,7 +263,7 @@ export default function WorkoutScreen() {
       if (exerciseIds.length === 0) return;
 
       // Fetch decisions for each exercise from recent decisions
-      const res = await fetch(`${API_URL}/api/decisions?userId=${appUser.id}&limit=50`, {
+      const res = await fetch(`${API_URL}/api/decisions/history?limit=50`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -278,7 +285,7 @@ export default function WorkoutScreen() {
                 type: decision.type as DecisionType,
                 summary: generateDecisionSummary(decision.type, output),
                 reasoning: decision.reasoning,
-                confidence: "medium", // Default confidence
+                confidence: (output.confidence as "low" | "medium" | "high") ?? "medium",
                 recommendedValue: output,
               });
             }
@@ -380,7 +387,21 @@ export default function WorkoutScreen() {
       outcome: "followed" | "overridden",
       overrideReason?: OverrideReason
     ) => {
-      if (!isOnline) return;
+      // Use ref for current online state to avoid stale closure
+      if (!isOnlineRef.current) {
+        try {
+          await offlineQueue.enqueue(
+            createDecisionOutcomeOperation({
+              decisionId,
+              outcome,
+              overrideReason,
+            })
+          );
+        } catch (error) {
+          console.error("Failed to queue decision outcome:", error);
+        }
+        return;
+      }
 
       try {
         const token = await getToken();
@@ -397,9 +418,21 @@ export default function WorkoutScreen() {
         });
       } catch (error) {
         console.error("Failed to record decision outcome:", error);
+        // Queue for retry if online request fails
+        try {
+          await offlineQueue.enqueue(
+            createDecisionOutcomeOperation({
+              decisionId,
+              outcome,
+              overrideReason,
+            })
+          );
+        } catch (queueError) {
+          console.error("Failed to queue decision outcome for retry:", queueError);
+        }
       }
     },
-    [isOnline, getToken]
+    [getToken] // Using isOnlineRef instead of isOnline to avoid stale closure
   );
 
   // Handle accepting a decision

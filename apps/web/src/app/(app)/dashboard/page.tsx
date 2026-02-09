@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -30,9 +30,11 @@ import {
   TodaysWorkoutCard,
   RecentWorkoutsCard,
 } from "@/components/dashboard";
+import { TrainingBlockProgress } from "@/components/programs/training-block-progress";
 import type {
   Workout,
   TrainingBlock,
+  Program,
   Decision,
   TodaysWorkoutResponse,
 } from "@/lib/api";
@@ -54,12 +56,16 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [trainingBlock, setTrainingBlock] = useState<TrainingBlock | null>(null);
+  const [blockProgram, setBlockProgram] = useState<Program | null>(null);
+  const [blockWorkouts, setBlockWorkouts] = useState<Workout[]>([]);
   const [todaysWorkout, setTodaysWorkout] = useState<TodaysWorkoutResponse | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<Workout[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isTodayLoading, setIsTodayLoading] = useState(true);
   const [isRecentLoading, setIsRecentLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(true);
+
+  const isMountedRef = useRef(true);
 
   const fetchDashboardData = useCallback(async () => {
     if (!appUser?.id) {
@@ -88,62 +94,80 @@ export default function DashboardPage() {
       ]);
 
       // Handle training blocks
-      if (blocksResult.status === "fulfilled") {
+      if (blocksResult.status === "fulfilled" && isMountedRef.current) {
         const blocks = blocksResult.value.data || [];
         if (blocks.length > 0) {
-          setTrainingBlock(blocks[0] ?? null);
+          const block = blocks[0] ?? null;
+          setTrainingBlock(block);
+
+          // Fetch program and workouts for the training block
+          if (block) {
+            try {
+              const [blockDetails, workoutsResult] = await Promise.all([
+                api.getTrainingBlock(block.id),
+                api.getWorkouts({ trainingBlockId: block.id }),
+              ]);
+
+              if (isMountedRef.current) {
+                if (blockDetails.data.program) {
+                  setBlockProgram(blockDetails.data.program);
+                }
+                if (workoutsResult.data) {
+                  setBlockWorkouts(workoutsResult.data);
+                }
+              }
+            } catch {
+              // Continue without block details
+            }
+          }
         }
         setApiConnected(true);
       }
 
       // Handle decisions
-      if (decisionsResult.status === "fulfilled") {
+      if (decisionsResult.status === "fulfilled" && isMountedRef.current) {
         setDecisions(decisionsResult.value.data || []);
       }
 
       // Handle today's workout
-      if (todayResult.status === "fulfilled") {
+      if (todayResult.status === "fulfilled" && isMountedRef.current) {
         setTodaysWorkout(todayResult.value.data || null);
       }
-      setIsTodayLoading(false);
+      if (isMountedRef.current) setIsTodayLoading(false);
 
       // Handle recent workouts
-      if (recentResult.status === "fulfilled") {
+      if (recentResult.status === "fulfilled" && isMountedRef.current) {
         setRecentWorkouts(recentResult.value.data || []);
       }
-      setIsRecentLoading(false);
+      if (isMountedRef.current) setIsRecentLoading(false);
 
-      // Fetch summary separately (analytics endpoint)
+      // Fetch summary using the API client
       try {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-        const token = await (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string> } } }).Clerk?.session?.getToken();
-        const summaryRes = await fetch(
-          `${API_URL}/api/analytics/summary?userId=${appUser.id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        if (summaryRes.ok) {
-          const data = await summaryRes.json();
-          setSummary(data.data || null);
+        const summaryResponse = await api.getAnalyticsSummary(appUser.id);
+        if (isMountedRef.current) {
+          setSummary(summaryResponse.data || null);
         }
       } catch {
         // Summary fetch failed, continue without it
       }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
-      setApiConnected(false);
+      if (isMountedRef.current) setApiConnected(false);
     } finally {
-      setIsLoading(false);
-      setIsTodayLoading(false);
-      setIsRecentLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        setIsTodayLoading(false);
+        setIsRecentLoading(false);
+      }
     }
   }, [appUser?.id, api]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchDashboardData();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [fetchDashboardData]);
 
   const formatRelativeDate = (dateString: string) => {
@@ -422,7 +446,14 @@ export default function DashboardPage() {
       </Card>
 
       {/* Current Training Block or Getting Started */}
-      {trainingBlock ? (
+      {trainingBlock && blockProgram ? (
+        <TrainingBlockProgress
+          block={trainingBlock}
+          program={blockProgram}
+          workouts={blockWorkouts}
+          onWeekGenerated={fetchDashboardData}
+        />
+      ) : trainingBlock ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
