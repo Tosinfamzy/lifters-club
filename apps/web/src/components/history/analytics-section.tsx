@@ -4,15 +4,9 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VolumeChart } from "@/components/charts";
 import { TrendingUp, Dumbbell, Clock, BarChart3 } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface WeekData {
-  weekStart: string;
-  totalVolume: number;
-  workoutCount: number;
-  setCount: number;
-}
+import { useApi } from "@/lib/use-api";
+import { toast } from "sonner";
+import type { VolumeWeekData } from "@/lib/api";
 
 interface SummaryData {
   totalWorkouts: number;
@@ -29,36 +23,44 @@ interface AnalyticsSectionProps {
 }
 
 export function AnalyticsSection({ userId }: AnalyticsSectionProps) {
-  const [volumeData, setVolumeData] = useState<WeekData[]>([]);
+  const api = useApi();
+  const [volumeData, setVolumeData] = useState<VolumeWeekData[]>([]);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchAnalytics() {
       try {
-        const [volumeRes, summaryRes] = await Promise.all([
-          fetch(`${API_URL}/api/analytics/volume?userId=${userId}&weeks=8`),
-          fetch(`${API_URL}/api/analytics/summary?userId=${userId}`),
+        const [volumeResult, summaryResult] = await Promise.allSettled([
+          api.getVolumeAnalytics(userId, 8),
+          api.getAnalyticsSummary(userId),
         ]);
 
-        if (volumeRes.ok) {
-          const data = await volumeRes.json();
-          setVolumeData(data.data?.weeks || []);
+        if (cancelled) return;
+
+        if (volumeResult.status === "fulfilled") {
+          setVolumeData(volumeResult.value.data?.weeks || []);
         }
 
-        if (summaryRes.ok) {
-          const data = await summaryRes.json();
-          setSummary(data.data || null);
+        if (summaryResult.status === "fulfilled") {
+          setSummary(summaryResult.value.data || null);
         }
       } catch {
-        // Silently fail
+        if (!cancelled) {
+          toast.error("Failed to load analytics");
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     fetchAnalytics();
-  }, [userId]);
+    return () => { cancelled = true; };
+  }, [userId, api]);
 
   if (isLoading) {
     return (

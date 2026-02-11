@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   VolumeChart,
@@ -11,16 +10,15 @@ import {
   StrengthProgress,
 } from "@/components/charts";
 import { useAppUser } from "@/providers/user-provider";
+import { useApi } from "@/lib/use-api";
+import { toast } from "sonner";
 import { TrendingUp, Dumbbell, Clock, BarChart3, Loader2 } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface WeekData {
-  weekStart: string;
-  totalVolume: number;
-  workoutCount: number;
-  setCount: number;
-}
+import type {
+  VolumeWeekData,
+  PersonalRecord as PersonalRecordType,
+  Exercise,
+  WorkoutLog,
+} from "@/lib/api";
 
 interface SummaryData {
   totalWorkouts: number;
@@ -42,86 +40,47 @@ interface RpeDataPoint {
   rpe: number;
 }
 
-interface PersonalRecord {
-  exerciseId: string;
-  exerciseName?: string;
-  weightPR: {
-    weight: number;
-    reps: number;
-    date: string;
-  } | null;
-  volumePR: {
-    weight: number;
-    reps: number;
-    volume: number;
-    date: string;
-  } | null;
-}
-
-interface Exercise {
-  id: string;
-  name: string;
-}
-
 export default function AnalyticsPage() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
-  const { getToken } = useAuth();
+  const api = useApi();
 
-  const [volumeData, setVolumeData] = useState<WeekData[]>([]);
+  const [volumeData, setVolumeData] = useState<VolumeWeekData[]>([]);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [workoutDays, setWorkoutDays] = useState<WorkoutDay[]>([]);
   const [rpeData, setRpeData] = useState<RpeDataPoint[]>([]);
-  const [personalRecords, setPersonalRecords] = useState<PersonalRecord[]>([]);
+  const [personalRecords, setPersonalRecords] = useState<PersonalRecordType[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (!appUser?.id) return;
 
-    const controller = new AbortController();
+    let cancelled = false;
     const userId = appUser.id;
 
     async function fetchAllAnalytics() {
       setIsLoading(true);
 
       try {
-        const token = await getToken();
-        const headers = {
-          Authorization: `Bearer ${token}`,
-        };
-
-        // Fetch all analytics data in parallel
-        const [volumeRes, summaryRes, logsRes, prsRes, exercisesRes] =
-          await Promise.all([
-            fetch(
-              `${API_URL}/api/analytics/volume?userId=${userId}&weeks=12`,
-              { headers, signal: controller.signal }
-            ),
-            fetch(`${API_URL}/api/analytics/summary?userId=${userId}`, {
-              headers,
-              signal: controller.signal,
-            }),
-            fetch(
-              `${API_URL}/api/logs?userId=${userId}&limit=50`,
-              { headers, signal: controller.signal }
-            ),
-            fetch(
-              `${API_URL}/api/analytics/personal-records?userId=${userId}`,
-              { headers, signal: controller.signal }
-            ),
-            fetch(`${API_URL}/api/exercises?limit=50`, { signal: controller.signal }), // Public endpoint
+        const [volumeResult, summaryResult, logsResult, prsResult, exercisesResult] =
+          await Promise.allSettled([
+            api.getVolumeAnalytics(userId, 12),
+            api.getAnalyticsSummary(userId),
+            api.getWorkoutLogs({ userId, limit: 50 }),
+            api.getPersonalRecords(userId),
+            api.getExercises({ limit: 50 }),
           ]);
 
+        if (cancelled) return;
+
         // Process volume data
-        if (volumeRes.ok) {
-          const data = await volumeRes.json();
-          setVolumeData(data.data?.weeks || []);
+        if (volumeResult.status === "fulfilled") {
+          const weeks = volumeResult.value.data?.weeks || [];
+          setVolumeData(weeks);
 
           // Convert to workout days for heatmap
-          const days: WorkoutDay[] = (data.data?.weeks || []).flatMap(
-            (week: WeekData) => {
-              // Create days for this week based on workout count
-              // This is a simplified approach - ideally we'd have daily data
+          const days: WorkoutDay[] = weeks.flatMap(
+            (week: VolumeWeekData) => {
               const weekDays: WorkoutDay[] = [];
               if (week.workoutCount > 0) {
                 const startDate = new Date(week.weekStart);
@@ -141,21 +100,19 @@ export default function AnalyticsPage() {
         }
 
         // Process summary
-        if (summaryRes.ok) {
-          const data = await summaryRes.json();
-          setSummary(data.data || null);
+        if (summaryResult.status === "fulfilled") {
+          setSummary(summaryResult.value.data || null);
         }
 
         // Process logs for RPE data
-        if (logsRes.ok) {
-          const data = await logsRes.json();
-          const logs = data.data || [];
+        if (logsResult.status === "fulfilled") {
+          const logs = logsResult.value.data || [];
           const rpePoints: RpeDataPoint[] = logs
             .filter(
-              (log: { completedAt?: string; overallRpe?: number }) =>
-                log.completedAt && log.overallRpe
+              (log): log is WorkoutLog & { completedAt: string; overallRpe: number } =>
+                !!log.completedAt && !!log.overallRpe
             )
-            .map((log: { completedAt: string; overallRpe: number }) => ({
+            .map((log) => ({
               date: log.completedAt,
               rpe: log.overallRpe,
             }))
@@ -164,31 +121,30 @@ export default function AnalyticsPage() {
         }
 
         // Process personal records
-        if (prsRes.ok) {
-          const data = await prsRes.json();
-          setPersonalRecords(data.data?.records || []);
+        if (prsResult.status === "fulfilled") {
+          setPersonalRecords(prsResult.value.data?.records || []);
         }
 
         // Process exercises for strength progress selector
-        if (exercisesRes.ok) {
-          const data = await exercisesRes.json();
-          setExercises(data.data || []);
+        if (exercisesResult.status === "fulfilled") {
+          setExercises(exercisesResult.value.data || []);
         }
       } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return; // Component unmounted, ignore
-        }
+        if (cancelled) return;
         console.error("Failed to fetch analytics:", error);
+        toast.error("Failed to load analytics");
       } finally {
-        if (!controller.signal.aborted) {
+        if (!cancelled) {
           setIsLoading(false);
         }
       }
     }
 
     fetchAllAnalytics();
-    return () => controller.abort();
-  }, [appUser?.id, getToken]);
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser?.id, api]);
 
   if (isUserLoading || isLoading) {
     return (
@@ -248,7 +204,7 @@ export default function AnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {summary.averageDuration ? `${summary.averageDuration}m` : "—"}
+                  {summary.averageDuration ? `${summary.averageDuration}m` : "\u2014"}
                 </div>
                 <p className="text-xs text-muted-foreground">per workout</p>
               </CardContent>
@@ -261,7 +217,7 @@ export default function AnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {summary.averageRpe?.toFixed(1) || "—"}
+                  {summary.averageRpe?.toFixed(1) || "\u2014"}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   training intensity
@@ -285,9 +241,7 @@ export default function AnalyticsPage() {
 
         {/* Strength Progress */}
         <StrengthProgress
-          userId={appUser?.id || ""}
           exercises={exercises}
-          getToken={getToken}
         />
 
         {/* All Time Stats */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,13 +34,7 @@ export function ExerciseAlternativesDialog({
   const [substitutes, setSubstitutes] = useState<ScoredSubstitute[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open && exerciseId) {
-      fetchSubstitutes();
-    }
-  }, [open, exerciseId]);
-
-  const fetchSubstitutes = async () => {
+  const fetchSubstitutes = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -51,7 +45,13 @@ export function ExerciseAlternativesDialog({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [api, exerciseId]);
+
+  useEffect(() => {
+    if (open && exerciseId) {
+      fetchSubstitutes();
+    }
+  }, [open, exerciseId, fetchSubstitutes]);
 
   const getScoreBadgeVariant = (score: number) => {
     if (score >= 0.8) return "bg-green-500/10 text-green-400";

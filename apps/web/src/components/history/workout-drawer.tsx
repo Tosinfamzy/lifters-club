@@ -21,35 +21,14 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface LoggedSet {
-  id: string;
-  exerciseId: string;
-  setNumber: number;
-  weight: number;
-  reps: number;
-  rpe: number | null;
-  notes: string | null;
-}
-
-interface WorkoutLogWithSets {
-  id: string;
-  workoutId: string;
-  userId: string;
-  startedAt: string;
-  completedAt?: string;
-  overallRpe?: number;
-  notes?: string;
-  sets: LoggedSet[];
-}
+import { toast } from "sonner";
+import { type LoggedSet, type WorkoutLogWithSets } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 
 interface WorkoutDrawerProps {
   log: WorkoutLogWithSets | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  getToken: () => Promise<string | null>;
   onUpdate?: () => void;
 }
 
@@ -64,9 +43,9 @@ export function WorkoutDrawer({
   log,
   open,
   onOpenChange,
-  getToken,
   onUpdate,
 }: WorkoutDrawerProps) {
+  const api = useApi();
   const [editingSet, setEditingSet] = useState<EditingSet | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -112,29 +91,18 @@ export function WorkoutDrawer({
 
     setSaving(true);
     try {
-      const token = await getToken();
-      const response = await fetch(
-        `${API_URL}/api/logs/${log.id}/sets/${editingSet.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            weight: editingSet.weight,
-            reps: editingSet.reps,
-            rpe: editingSet.rpe,
-          }),
-        }
-      );
+      await api.updateSet(log.id, editingSet.id, {
+        weight: editingSet.weight,
+        reps: editingSet.reps,
+        rpe: editingSet.rpe,
+      });
 
-      if (response.ok) {
-        setEditingSet(null);
-        onUpdate?.();
-      }
+      setEditingSet(null);
+      toast.success("Set updated");
+      onUpdate?.();
     } catch (error) {
       console.error("Failed to update set:", error);
+      toast.error("Failed to update set");
     } finally {
       setSaving(false);
     }
@@ -144,19 +112,12 @@ export function WorkoutDrawer({
     if (!confirm("Are you sure you want to delete this set?")) return;
 
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/logs/${log.id}/sets/${setId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        onUpdate?.();
-      }
+      await api.deleteSet(log.id, setId);
+      toast.success("Set deleted");
+      onUpdate?.();
     } catch (error) {
       console.error("Failed to delete set:", error);
+      toast.error("Failed to delete set");
     }
   };
 

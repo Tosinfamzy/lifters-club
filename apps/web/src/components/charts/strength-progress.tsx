@@ -12,63 +12,34 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ExerciseProgressChart } from "./exercise-progress-chart";
 import { Loader2 } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface Exercise {
-  id: string;
-  name: string;
-}
-
-interface ProgressSession {
-  date: string;
-  bestWeight: number;
-  bestVolume: number;
-  totalSets: number;
-  avgRpe: number | null;
-}
+import { type Exercise, type ExerciseProgressSession } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
+import { useAppUser } from "@/providers/user-provider";
 
 interface StrengthProgressProps {
-  userId: string;
   exercises: Exercise[];
-  getToken?: () => Promise<string | null>;
 }
 
 export function StrengthProgress({
-  userId,
   exercises,
-  getToken,
 }: StrengthProgressProps) {
+  const api = useApi();
+  const { appUser } = useAppUser();
   const [selectedExercise, setSelectedExercise] = useState<string>("");
   const [metric, setMetric] = useState<"weight" | "volume">("weight");
-  const [sessions, setSessions] = useState<ProgressSession[]>([]);
+  const [sessions, setSessions] = useState<ExerciseProgressSession[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const userId = appUser?.id;
+
   useEffect(() => {
-    if (!selectedExercise) return;
+    if (!selectedExercise || !userId) return;
 
     async function fetchProgress() {
       setIsLoading(true);
       try {
-        const headers: Record<string, string> = {};
-        if (getToken) {
-          const token = await getToken();
-          if (token) {
-            headers.Authorization = `Bearer ${token}`;
-          }
-        }
-
-        const response = await fetch(
-          `${API_URL}/api/analytics/exercise/${selectedExercise}/progress?userId=${userId}&limit=20`,
-          { headers }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          setSessions(data.data?.sessions || []);
-        } else {
-          setSessions([]);
-        }
+        const response = await api.getExerciseProgress(selectedExercise, userId!);
+        setSessions(response.data?.sessions || []);
       } catch {
         setSessions([]);
       } finally {
@@ -77,7 +48,7 @@ export function StrengthProgress({
     }
 
     fetchProgress();
-  }, [selectedExercise, userId, getToken]);
+  }, [selectedExercise, userId, api]);
 
   const selectedExerciseName =
     exercises.find((e) => e.id === selectedExercise)?.name || "Exercise";

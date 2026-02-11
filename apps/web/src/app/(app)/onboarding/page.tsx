@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
   Card,
@@ -15,8 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dumbbell, Loader2, Target, TrendingUp, Zap, Check, Scale, Calculator, Rocket } from "lucide-react";
 import type { CalibrationPath, CalibrationExercise } from "@gymapp/types";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { useApi } from "@/lib/use-api";
+import { useAppUser } from "@/providers/user-provider";
+import { toast } from "sonner";
 
 type TrainingLevel = "beginner" | "intermediate" | "advanced";
 type PrimaryGoal = "strength" | "hypertrophy" | "conditioning";
@@ -106,7 +107,8 @@ interface BaselineInput {
 
 export default function OnboardingPage() {
   const { user, isLoaded } = useUser();
-  const { getToken } = useAuth();
+  const api = useApi();
+  const { refetch } = useAppUser();
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [trainingLevel, setTrainingLevel] = useState<TrainingLevel | null>(null);
@@ -129,34 +131,22 @@ export default function OnboardingPage() {
 
     setIsLoadingPlan(true);
     try {
-      const token = await getToken();
-      const equipmentStr = equipment.join(",");
-      const response = await fetch(
-        `${API_URL}/api/users/${userId}/calibration-plan?equipment=${equipmentStr}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const result = await api.getCalibrationPlan(userId, equipment);
+      setCalibrationPlan(result.data.plan);
 
-      if (response.ok) {
-        const { data } = await response.json();
-        setCalibrationPlan(data.plan);
-
-        // Initialize baseline inputs from plan exercises
-        if (data.plan?.exercises) {
-          setBaselines(
-            data.plan.exercises.map((ex: CalibrationExercise) => ({
-              exerciseId: ex.exerciseId,
-              exerciseName: ex.exerciseName,
-              weight: "",
-              reps: "8",
-            }))
-          );
-        }
+      // Initialize baseline inputs from plan exercises
+      if (result.data.plan?.exercises) {
+        setBaselines(
+          result.data.plan.exercises.map((ex: CalibrationExercise) => ({
+            exerciseId: ex.exerciseId,
+            exerciseName: ex.exerciseName,
+            weight: "",
+            reps: "8",
+          }))
+        );
       }
     } catch (err) {
+      toast.error("Failed to fetch calibration plan");
       console.error("Failed to fetch calibration plan:", err);
     } finally {
       setIsLoadingPlan(false);
@@ -198,34 +188,20 @@ export default function OnboardingPage() {
 
     try {
       const userId = `user-${user.id.slice(0, 8)}`;
-      const token = await getToken();
 
       // Step 1: Create user profile
-      const response = await fetch(`${API_URL}/api/users`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      try {
+        await api.createUser({
           id: userId,
           clerkId: user.id,
           email: user.primaryEmailAddress?.emailAddress || "",
           trainingLevel,
           primaryGoal,
-          preferences: {
-            weightUnit: "lbs",
-            weekStartsOn: "monday",
-            equipment: selectedEquipment,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        // If user already exists, continue to save baselines
-        if (response.status !== 409) {
-          throw new Error(data.error || "Failed to create profile");
+        });
+      } catch (err) {
+        // If user already exists (409), continue to save baselines
+        if (!(err instanceof Error && err.message.includes("already exists"))) {
+          throw err;
         }
       }
 
@@ -241,40 +217,29 @@ export default function OnboardingPage() {
           }));
 
         if (validBaselines.length > 0) {
-          const baselinesResponse = await fetch(
-            `${API_URL}/api/users/${userId}/baselines`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ baselines: validBaselines }),
-            }
-          );
-
-          if (!baselinesResponse.ok) {
+          try {
+            await api.saveUserBaselines(userId, validBaselines);
+          } catch {
             console.error("Failed to save baselines, continuing anyway");
           }
         }
       }
 
       // Step 3: Mark onboarding as complete
-      await fetch(`${API_URL}/api/users/${userId}/onboarding`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          onboardingComplete: true,
-          baselineComplete: baselineMethod === "known_maxes" || baselineMethod === "conservative_start",
-        }),
+      await api.updateOnboardingStatus(userId, {
+        onboardingComplete: true,
+        baselineComplete: baselineMethod === "known_maxes" || baselineMethod === "conservative_start",
       });
 
+      // Refetch user profile so the provider knows onboarding is complete
+      await refetch();
+
+      toast.success("Welcome to Lifters Club!");
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      const message = err instanceof Error ? err.message : "Something went wrong";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }

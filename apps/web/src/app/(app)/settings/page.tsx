@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import {
   Card,
   CardContent,
@@ -20,7 +19,9 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Dumbbell, Target, Ruler, Loader2, CheckCircle, Bell, Mail } from "lucide-react";
+import { toast } from "sonner";
 import { useAppUser } from "@/providers/user-provider";
+import { useApi } from "@/lib/use-api";
 
 interface NotificationPreferences {
   emailWorkoutReminders: boolean;
@@ -29,11 +30,9 @@ interface NotificationPreferences {
   pushEnabled: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
 export default function SettingsPage() {
   const { appUser, refetch } = useAppUser();
-  const { getToken } = useAuth();
+  const api = useApi();
 
   const [trainingLevel, setTrainingLevel] = useState<string>(
     appUser?.trainingLevel || "intermediate"
@@ -81,31 +80,23 @@ export default function SettingsPage() {
     setSaveSuccess(false);
 
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/users/${appUser.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      await api.updateUser(appUser.id, {
+        trainingLevel,
+        primaryGoal,
+        preferences: {
+          ...appUser.preferences,
+          weightUnit,
+          notifications,
         },
-        body: JSON.stringify({
-          trainingLevel,
-          primaryGoal,
-          preferences: {
-            ...appUser.preferences,
-            weightUnit,
-            notifications,
-          },
-        }),
       });
 
-      if (response.ok) {
-        setSaveSuccess(true);
-        await refetch();
-        setTimeout(() => setSaveSuccess(false), 3000);
-      }
+      setSaveSuccess(true);
+      toast.success("Settings saved");
+      await refetch();
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error("Failed to save settings:", error);
+      toast.error("Failed to save settings");
     } finally {
       setIsSaving(false);
     }

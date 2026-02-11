@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useAuth } from "@clerk/nextjs";
 import { DashboardLayout } from "@/components/layout";
 import {
   Card,
@@ -25,79 +24,78 @@ import {
   TrendingUp,
   Calendar,
 } from "lucide-react";
-import type { Exercise, ScoredSubstitute } from "@/lib/api";
+import { type Exercise, type ScoredSubstitute, type ExerciseProgressSession } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 import { useAppUser } from "@/providers/user-provider";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface ExerciseHistory {
-  date: string;
-  bestWeight: number;
-  bestReps: number;
-  totalSets: number;
-  avgRpe: number | null;
-}
+import { toast } from "sonner";
 
 export default function ExerciseDetailPage() {
   const params = useParams();
   const exerciseId = params.id as string;
-  const { getToken } = useAuth();
+  const api = useApi();
   const { appUser } = useAppUser();
 
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [substitutes, setSubstitutes] = useState<ScoredSubstitute[]>([]);
-  const [history, setHistory] = useState<ExerciseHistory[]>([]);
+  const [history, setHistory] = useState<ExerciseProgressSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchData() {
       setIsLoading(true);
       setError(null);
 
       try {
-        // Fetch exercise details
-        const exerciseRes = await fetch(`${API_URL}/api/exercises/${exerciseId}`);
-        if (!exerciseRes.ok) {
+        // Fetch exercise details and substitutes (public endpoints)
+        const [exerciseResult, subsResult] = await Promise.allSettled([
+          api.getExercise(exerciseId),
+          api.getExerciseSubstitutes(exerciseId, { limit: 5 }),
+        ]);
+
+        if (cancelled) return;
+
+        if (exerciseResult.status === "fulfilled") {
+          setExercise(exerciseResult.value.data);
+        } else {
           throw new Error("Exercise not found");
         }
-        const exerciseData = await exerciseRes.json();
-        setExercise(exerciseData.data);
 
-        // Fetch substitutes
-        const subsRes = await fetch(
-          `${API_URL}/api/exercises/${exerciseId}/substitutes?limit=5`
-        );
-        if (subsRes.ok) {
-          const subsData = await subsRes.json();
-          setSubstitutes(subsData.data?.substitutes || []);
+        if (subsResult.status === "fulfilled") {
+          setSubstitutes(subsResult.value.data?.substitutes || []);
         }
 
         // Fetch personal history if logged in
         if (appUser?.id) {
-          const token = await getToken();
-          const historyRes = await fetch(
-            `${API_URL}/api/analytics/exercise/${exerciseId}/progress?userId=${appUser.id}&limit=10`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
+          try {
+            const historyResult = await api.getExerciseProgress(exerciseId, appUser.id, 10);
+            if (!cancelled) {
+              setHistory(historyResult.data?.sessions || []);
             }
-          );
-          if (historyRes.ok) {
-            const historyData = await historyRes.json();
-            setHistory(historyData.data?.sessions || []);
+          } catch {
+            // History fetch failed, continue without it
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load exercise");
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Failed to load exercise";
+          setError(message);
+          toast.error(message);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     if (exerciseId) {
       fetchData();
     }
-  }, [exerciseId, appUser?.id, getToken]);
+    return () => { cancelled = true; };
+  }, [exerciseId, appUser?.id, api]);
 
   if (isLoading) {
     return (
@@ -310,7 +308,7 @@ export default function ExerciseDetailPage() {
                         <span className="font-medium">{session.bestWeight}</span> lbs
                       </span>
                       <span>
-                        <span className="font-medium">{session.bestReps}</span> reps
+                        <span className="font-medium">{session.bestVolume}</span> vol
                       </span>
                       <span>
                         <span className="font-medium">{session.totalSets}</span> sets

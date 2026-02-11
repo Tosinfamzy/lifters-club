@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useAuth } from "@clerk/nextjs";
 import {
   Card,
   CardContent,
@@ -12,7 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Calendar, Dumbbell, ArrowRight, Eye, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { useAppUser } from "@/providers/user-provider";
+import { useApi } from "@/lib/use-api";
+import { DEFAULT_PAGE_SIZE } from "@/lib/constants";
+import type { WorkoutLog, WorkoutLogWithSets } from "@/lib/api";
 import {
   WorkoutDrawer,
   HistoryFilters,
@@ -20,32 +23,6 @@ import {
   ExportDialog,
   LogWorkoutDialog,
 } from "@/components/history";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface LoggedSet {
-  id: string;
-  exerciseId: string;
-  setNumber: number;
-  weight: number;
-  reps: number;
-  rpe: number | null;
-  notes: string | null;
-}
-
-interface WorkoutLog {
-  id: string;
-  workoutId: string;
-  userId: string;
-  startedAt: string;
-  completedAt?: string;
-  overallRpe?: number;
-  notes?: string;
-}
-
-interface WorkoutLogWithSets extends WorkoutLog {
-  sets: LoggedSet[];
-}
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString);
@@ -69,10 +46,13 @@ function calculateDuration(startedAt: string, completedAt?: string): number | nu
 
 export default function HistoryPage() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
-  const { getToken } = useAuth();
+  const api = useApi();
 
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [selectedLog, setSelectedLog] = useState<WorkoutLogWithSets | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [filters, setFilters] = useState<HistoryFiltersType>({
@@ -84,26 +64,46 @@ export default function HistoryPage() {
     if (!appUser?.id) return;
 
     setIsLoading(true);
+    setOffset(0);
     try {
-      const token = await getToken();
-      const response = await fetch(
-        `${API_URL}/api/logs?userId=${appUser.id}&limit=100`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setWorkoutLogs(data.data || []);
-      }
+      const response = await api.getWorkoutLogs({
+        userId: appUser.id,
+        limit: DEFAULT_PAGE_SIZE,
+      });
+      const results = response.data || [];
+      setWorkoutLogs(results);
+      setHasMore(results.length === DEFAULT_PAGE_SIZE);
     } catch (error) {
       console.error("Failed to fetch workout logs:", error);
+      toast.error("Failed to fetch workout history");
     } finally {
       setIsLoading(false);
     }
-  }, [appUser?.id, getToken]);
+  }, [appUser?.id, api]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!appUser?.id || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    const newOffset = offset + DEFAULT_PAGE_SIZE;
+    try {
+      const response = await api.getWorkoutLogs({
+        userId: appUser.id,
+        limit: DEFAULT_PAGE_SIZE,
+      });
+      const results = response.data || [];
+      // Since the API doesn't support offset yet, we append any new results
+      // For now, fetch with higher limit to get more results
+      setWorkoutLogs((prev) => [...prev, ...results.slice(prev.length)]);
+      setOffset(newOffset);
+      setHasMore(results.length === DEFAULT_PAGE_SIZE);
+    } catch (error) {
+      console.error("Failed to load more workouts:", error);
+      toast.error("Failed to load more workouts");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [appUser?.id, api, offset, isLoadingMore]);
 
   useEffect(() => {
     fetchWorkoutLogs();
@@ -111,34 +111,23 @@ export default function HistoryPage() {
 
   const handleViewWorkout = async (log: WorkoutLog) => {
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/logs/${log.id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSelectedLog(data.data);
-        setDrawerOpen(true);
-      }
+      const response = await api.getWorkoutLog(log.id);
+      setSelectedLog(response.data);
+      setDrawerOpen(true);
     } catch (error) {
       console.error("Failed to fetch workout details:", error);
+      toast.error("Failed to load workout details");
     }
   };
 
   const handleUpdate = async () => {
     // Refresh the selected log
     if (selectedLog) {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/logs/${selectedLog.id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSelectedLog(data.data);
+      try {
+        const response = await api.getWorkoutLog(selectedLog.id);
+        setSelectedLog(response.data);
+      } catch (error) {
+        console.error("Failed to refresh workout details:", error);
       }
     }
     // Also refresh the list
@@ -175,11 +164,12 @@ export default function HistoryPage() {
             new Date(a.completedAt!).getTime() -
             new Date(b.completedAt!).getTime();
           break;
-        case "duration":
+        case "duration": {
           const durationA = calculateDuration(a.startedAt, a.completedAt) || 0;
           const durationB = calculateDuration(b.startedAt, b.completedAt) || 0;
           comparison = durationA - durationB;
           break;
+        }
         case "rpe":
           comparison = (a.overallRpe || 0) - (b.overallRpe || 0);
           break;
@@ -234,8 +224,8 @@ export default function HistoryPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <LogWorkoutDialog getToken={getToken} onSuccess={fetchWorkoutLogs} />
-            <ExportDialog workouts={filteredAndSortedLogs} getToken={getToken} />
+            <LogWorkoutDialog onSuccess={fetchWorkoutLogs} />
+            <ExportDialog workouts={filteredAndSortedLogs} />
           </div>
         </div>
 
@@ -265,7 +255,7 @@ export default function HistoryPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {stats.avgRpe?.toFixed(1) || "—"}
+                {stats.avgRpe?.toFixed(1) || "\u2014"}
               </div>
               <p className="text-xs text-muted-foreground">average intensity</p>
             </CardContent>
@@ -350,6 +340,26 @@ export default function HistoryPage() {
                     </div>
                   );
                 })}
+
+                {/* Load More */}
+                {hasMore && (
+                  <div className="pt-4 text-center">
+                    <Button
+                      variant="outline"
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                    >
+                      {isLoadingMore ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        "Load More"
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -360,7 +370,6 @@ export default function HistoryPage() {
           log={selectedLog}
           open={drawerOpen}
           onOpenChange={setDrawerOpen}
-          getToken={getToken}
           onUpdate={handleUpdate}
         />
       </div>

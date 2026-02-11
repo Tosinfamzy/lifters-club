@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
 import {
   Card,
   CardContent,
@@ -20,35 +19,14 @@ import {
   Loader2,
   Trophy,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useAppUser } from "@/providers/user-provider";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface WeeklySummaryData {
-  weekStart: string;
-  weekEnd: string;
-  workoutCount: number;
-  totalVolume: number;
-  totalSets: number;
-  averageRpe: number | null;
-  averageDuration: number | null;
-  exerciseBreakdown: {
-    exerciseId: string;
-    totalVolume: number;
-    totalSets: number;
-    maxWeight: number;
-  }[];
-  dayBreakdown: {
-    day: string;
-    workouts: number;
-    trained: boolean;
-  }[];
-  highlights: string[];
-}
+import { type WeeklySummaryData } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 
 export function WeeklySummary() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
-  const { getToken } = useAuth();
+  const api = useApi();
 
   const [summary, setSummary] = useState<WeeklySummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,25 +37,15 @@ export function WeeklySummary() {
 
     setIsLoading(true);
     try {
-      const token = await getToken();
-      const response = await fetch(
-        `${API_URL}/api/analytics/weekly-summary?userId=${appUser.id}&weekOffset=${weekOffset}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setSummary(data.data);
-      }
+      const response = await api.getWeeklySummary(appUser.id, weekOffset);
+      setSummary(response.data);
     } catch (error) {
       console.error("Failed to fetch weekly summary:", error);
+      toast.error("Failed to load weekly summary");
     } finally {
       setIsLoading(false);
     }
-  }, [appUser?.id, getToken, weekOffset]);
+  }, [appUser?.id, api, weekOffset]);
 
   useEffect(() => {
     fetchWeeklySummary();
@@ -138,7 +106,7 @@ export function WeeklySummary() {
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-muted-foreground min-w-[100px] text-center">
+            <span className="text-sm text-muted-foreground min-w-25 text-center">
               {getWeekLabel()}
             </span>
             <Button

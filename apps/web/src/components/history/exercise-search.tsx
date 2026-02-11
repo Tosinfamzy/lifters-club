@@ -3,10 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2, Check } from "lucide-react";
-import type { Exercise } from "@/lib/api";
+import { API_BASE_URL, type Exercise } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface ExerciseSearchProps {
   onSelect: (exercise: Exercise) => void;
@@ -55,7 +53,7 @@ export function ExerciseSearch({
       setIsLoading(true);
       try {
         const response = await fetch(
-          `${API_URL}/api/exercises/search/${encodeURIComponent(search)}`,
+          `${API_BASE_URL}/api/exercises/search/${encodeURIComponent(search)}`,
           { signal: controller.signal }
         );
         if (response.ok) {

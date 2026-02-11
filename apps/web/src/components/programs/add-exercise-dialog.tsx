@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -54,13 +54,7 @@ export function AddExerciseDialog({
   const [maxReps, setMaxReps] = useState(12);
   const [restSeconds, setRestSeconds] = useState(90);
 
-  useEffect(() => {
-    if (open) {
-      fetchExercises();
-    }
-  }, [open]);
-
-  const fetchExercises = async () => {
+  const fetchExercises = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await api.getExercises({ limit: 100 });
@@ -70,7 +64,13 @@ export function AddExerciseDialog({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [api]);
+
+  useEffect(() => {
+    if (open) {
+      fetchExercises();
+    }
+  }, [open, fetchExercises]);
 
   const handleAdd = () => {
     if (!selectedExerciseId) return;

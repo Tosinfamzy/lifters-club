@@ -15,68 +15,25 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { Download, Loader2, FileSpreadsheet, FileJson } from "lucide-react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface LoggedSet {
-  id: string;
-  exerciseId: string;
-  setNumber: number;
-  weight: number;
-  reps: number;
-  rpe: number | null;
-  notes: string | null;
-}
-
-interface WorkoutLog {
-  id: string;
-  workoutId: string;
-  userId: string;
-  startedAt: string;
-  completedAt?: string;
-  overallRpe?: number;
-  notes?: string;
-}
-
-interface WorkoutLogWithSets extends WorkoutLog {
-  sets: LoggedSet[];
-}
+import { toast } from "sonner";
+import { type WorkoutLog, type WorkoutLogWithSets } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 
 interface ExportDialogProps {
   workouts: WorkoutLog[];
-  getToken: () => Promise<string | null>;
 }
 
 type ExportType = "summary" | "detailed";
 type ExportFormat = "csv" | "json";
 
-export function ExportDialog({ workouts, getToken }: ExportDialogProps) {
+export function ExportDialog({ workouts }: ExportDialogProps) {
+  const api = useApi();
   const [exportType, setExportType] = useState<ExportType>("summary");
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [open, setOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState("");
-
-  const fetchWorkoutDetails = async (
-    logId: string,
-    token: string
-  ): Promise<WorkoutLogWithSets | null> => {
-    try {
-      const response = await fetch(`${API_URL}/api/logs/${logId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return data.data;
-      }
-    } catch (error) {
-      console.error(`Failed to fetch workout ${logId}:`, error);
-    }
-    return null;
-  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -89,11 +46,6 @@ export function ExportDialog({ workouts, getToken }: ExportDialogProps) {
 
       if (exportType === "detailed") {
         // Fetch detailed data for each workout
-        const token = await getToken();
-        if (!token) {
-          throw new Error("Authentication required");
-        }
-
         const detailedWorkouts: WorkoutLogWithSets[] = [];
         for (let i = 0; i < workouts.length; i++) {
           const workout = workouts[i];
@@ -102,9 +54,9 @@ export function ExportDialog({ workouts, getToken }: ExportDialogProps) {
           setProgressText(`Fetching workout ${i + 1} of ${workouts.length}...`);
           setProgress(((i + 1) / workouts.length) * 100);
 
-          const details = await fetchWorkoutDetails(workout.id, token);
-          if (details) {
-            detailedWorkouts.push(details);
+          const response = await api.getWorkoutLog(workout.id);
+          if (response.data) {
+            detailedWorkouts.push(response.data);
           }
         }
 
@@ -146,6 +98,7 @@ export function ExportDialog({ workouts, getToken }: ExportDialogProps) {
       setOpen(false);
     } catch (error) {
       console.error("Export failed:", error);
+      toast.error("Export failed");
     } finally {
       setExporting(false);
       setProgress(0);

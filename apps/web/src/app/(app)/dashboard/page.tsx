@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -23,6 +23,7 @@ import {
   Clock,
 } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
 import {
@@ -65,9 +66,7 @@ export default function DashboardPage() {
   const [isRecentLoading, setIsRecentLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(true);
 
-  const isMountedRef = useRef(true);
-
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async (cancelled: { current: boolean }) => {
     if (!appUser?.id) {
       setIsLoading(false);
       setIsTodayLoading(false);
@@ -93,8 +92,10 @@ export default function DashboardPage() {
         api.getRecentWorkouts(appUser.id, 5),
       ]);
 
+      if (cancelled.current) return;
+
       // Handle training blocks
-      if (blocksResult.status === "fulfilled" && isMountedRef.current) {
+      if (blocksResult.status === "fulfilled") {
         const blocks = blocksResult.value.data || [];
         if (blocks.length > 0) {
           const block = blocks[0] ?? null;
@@ -108,13 +109,13 @@ export default function DashboardPage() {
                 api.getWorkouts({ trainingBlockId: block.id }),
               ]);
 
-              if (isMountedRef.current) {
-                if (blockDetails.data.program) {
-                  setBlockProgram(blockDetails.data.program);
-                }
-                if (workoutsResult.data) {
-                  setBlockWorkouts(workoutsResult.data);
-                }
+              if (cancelled.current) return;
+
+              if (blockDetails.data.program) {
+                setBlockProgram(blockDetails.data.program);
+              }
+              if (workoutsResult.data) {
+                setBlockWorkouts(workoutsResult.data);
               }
             } catch {
               // Continue without block details
@@ -124,27 +125,29 @@ export default function DashboardPage() {
         setApiConnected(true);
       }
 
+      if (cancelled.current) return;
+
       // Handle decisions
-      if (decisionsResult.status === "fulfilled" && isMountedRef.current) {
+      if (decisionsResult.status === "fulfilled") {
         setDecisions(decisionsResult.value.data || []);
       }
 
       // Handle today's workout
-      if (todayResult.status === "fulfilled" && isMountedRef.current) {
+      if (todayResult.status === "fulfilled") {
         setTodaysWorkout(todayResult.value.data || null);
       }
-      if (isMountedRef.current) setIsTodayLoading(false);
+      setIsTodayLoading(false);
 
       // Handle recent workouts
-      if (recentResult.status === "fulfilled" && isMountedRef.current) {
+      if (recentResult.status === "fulfilled") {
         setRecentWorkouts(recentResult.value.data || []);
       }
-      if (isMountedRef.current) setIsRecentLoading(false);
+      setIsRecentLoading(false);
 
       // Fetch summary using the API client
       try {
         const summaryResponse = await api.getAnalyticsSummary(appUser.id);
-        if (isMountedRef.current) {
+        if (!cancelled.current) {
           setSummary(summaryResponse.data || null);
         }
       } catch {
@@ -152,9 +155,12 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
-      if (isMountedRef.current) setApiConnected(false);
+      if (!cancelled.current) {
+        setApiConnected(false);
+        toast.error("Failed to load dashboard data");
+      }
     } finally {
-      if (isMountedRef.current) {
+      if (!cancelled.current) {
         setIsLoading(false);
         setIsTodayLoading(false);
         setIsRecentLoading(false);
@@ -163,11 +169,16 @@ export default function DashboardPage() {
   }, [appUser?.id, api]);
 
   useEffect(() => {
-    isMountedRef.current = true;
-    fetchDashboardData();
+    const cancelled = { current: false };
+    fetchDashboardData(cancelled);
     return () => {
-      isMountedRef.current = false;
+      cancelled.current = true;
     };
+  }, [fetchDashboardData]);
+
+  // Wrapper for external callers (e.g., onWeekGenerated) that don't manage cancellation
+  const refreshDashboard = useCallback(() => {
+    fetchDashboardData({ current: false });
   }, [fetchDashboardData]);
 
   const formatRelativeDate = (dateString: string) => {
@@ -451,7 +462,7 @@ export default function DashboardPage() {
           block={trainingBlock}
           program={blockProgram}
           workouts={blockWorkouts}
-          onWeekGenerated={fetchDashboardData}
+          onWeekGenerated={refreshDashboard}
         />
       ) : trainingBlock ? (
         <Card>

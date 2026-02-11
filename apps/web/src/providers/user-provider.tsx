@@ -2,8 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useUser, useAuth } from "@clerk/nextjs";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { API_BASE_URL } from "@/lib/api";
 
 interface AppUser {
   id: string;
@@ -23,6 +22,7 @@ interface AppUser {
 interface UserContextValue {
   appUser: AppUser | null;
   isLoading: boolean;
+  needsOnboarding: boolean;
   refetch: () => Promise<void>;
 }
 
@@ -33,6 +33,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const { getToken } = useAuth();
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
 
   const fetchUser = useCallback(async () => {
@@ -51,7 +52,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const response = await fetch(`${API_URL}/api/users/me`, {
+      const response = await fetch(`${API_BASE_URL}/api/users/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -60,31 +61,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setAppUser(data.data);
+        setNeedsOnboarding(false);
       } else if (response.status === 404) {
-        // User doesn't exist in our database — auto-create with defaults
-        const createResponse = await fetch(`${API_URL}/api/users`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            id: `user-${user.id.slice(0, 8)}`,
-            clerkId: user.id,
-            email: user.primaryEmailAddress?.emailAddress || "",
-            trainingLevel: "intermediate",
-            primaryGoal: "hypertrophy",
-            preferences: {},
-          }),
-        });
-
-        if (createResponse.ok) {
-          const createData = await createResponse.json();
-          setAppUser(createData.data);
-        } else {
-          console.error("Failed to auto-create user");
-          setAppUser(null);
-        }
+        // User doesn't exist in our database — redirect to onboarding
+        setNeedsOnboarding(true);
+        setAppUser(null);
       }
     } catch {
       // API might be down, don't block the user
@@ -108,7 +89,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <UserContext.Provider value={{ appUser, isLoading, refetch }}>
+    <UserContext.Provider value={{ appUser, isLoading, needsOnboarding, refetch }}>
       {children}
     </UserContext.Provider>
   );

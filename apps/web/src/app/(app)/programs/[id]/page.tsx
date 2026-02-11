@@ -32,8 +32,8 @@ import Link from "next/link";
 import { ExerciseEditor } from "@/components/programs/exercise-editor";
 import { DeleteProgramDialog } from "@/components/programs/delete-program-dialog";
 import { AddExerciseDialog } from "@/components/programs/add-exercise-dialog";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { toast } from "sonner";
+import type { Program, Exercise } from "@/lib/api";
 
 interface PlannedExercise {
   exerciseId: string;
@@ -41,33 +41,6 @@ interface PlannedExercise {
   repRange: [number, number];
   restSeconds: number;
   notes?: string;
-}
-
-interface SessionTemplate {
-  dayNumber: number;
-  name: string;
-  focus: string[];
-  exercises: PlannedExercise[];
-}
-
-interface ProgramTemplate {
-  weeks: number;
-  sessions: SessionTemplate[];
-}
-
-interface Program {
-  id: string;
-  name: string;
-  description?: string;
-  daysPerWeek: number;
-  goal: "strength" | "hypertrophy" | "conditioning";
-  level: "beginner" | "intermediate" | "advanced";
-  template: ProgramTemplate;
-}
-
-interface Exercise {
-  id: string;
-  name: string;
 }
 
 export default function ProgramDetailPage() {
@@ -91,27 +64,25 @@ export default function ProgramDetailPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Fetch program and exercises in parallel
-      const [programRes, exercisesRes] = await Promise.all([
-        fetch(`${API_URL}/api/programs/${programId}`),
-        fetch(`${API_URL}/api/exercises?limit=100`),
+      const [programResult, exercisesResult] = await Promise.allSettled([
+        api.getProgram(programId),
+        api.getExercises({ limit: 100 }),
       ]);
 
-      if (programRes.ok) {
-        const programData = await programRes.json();
-        setProgram(programData.data);
+      if (programResult.status === "fulfilled") {
+        setProgram(programResult.value.data);
       }
 
-      if (exercisesRes.ok) {
-        const exercisesData = await exercisesRes.json();
-        setExercises(exercisesData.data || []);
+      if (exercisesResult.status === "fulfilled") {
+        setExercises(exercisesResult.value.data || []);
       }
     } catch (error) {
+      toast.error("Failed to load program");
       console.error("Failed to fetch program:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [programId]);
+  }, [programId, api]);
 
   useEffect(() => {
     fetchData();
@@ -167,8 +138,10 @@ export default function ProgramDetailPage() {
       await api.updateProgram(program.id, { template: program.template });
       setHasChanges(false);
       setSaveSuccess(true);
+      toast.success("Program saved");
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
+      toast.error("Failed to save program");
       console.error("Failed to save program:", error);
     } finally {
       setIsSaving(false);

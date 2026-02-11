@@ -1,7 +1,9 @@
 import { z } from "zod";
+import type { MovementPattern } from "@gymapp/types";
+import type { CalibrationPath } from "@gymapp/types";
 
 // Server-side (Docker): use internal service name; Client-side (browser): use public URL
-const API_BASE_URL =
+export const API_BASE_URL =
   typeof window === "undefined"
     ? process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
     : process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -119,10 +121,13 @@ class ApiClient {
   }
 
   /**
-   * Set the auth token for subsequent requests
+   * Create a scoped client that uses the given token for requests.
+   * Does not mutate the original instance — safe for concurrent use.
    */
-  setToken(token: string | null) {
-    this.token = token;
+  withToken(token: string | null): ApiClient {
+    const client = new ApiClient(this.baseUrl);
+    client.token = token;
+    return client;
   }
 
   private async request<T>(
@@ -421,6 +426,88 @@ class ApiClient {
     });
   }
 
+  // User profile management
+  async updateUser(
+    userId: string,
+    data: {
+      trainingLevel?: string;
+      primaryGoal?: string;
+      preferences?: Record<string, unknown>;
+    }
+  ) {
+    return this.request<ApiResponse<User>>(`/api/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Workout log details
+  async getWorkoutLog(logId: string) {
+    return this.request<ApiResponse<WorkoutLogWithSets>>(`/api/logs/${logId}`);
+  }
+
+  async logRetrospectiveWorkout(data: {
+    date: string;
+    overallRpe?: number;
+    notes?: string;
+    exercises: {
+      exerciseId: string;
+      sets: { weight: number; reps: number; rpe?: number }[];
+    }[];
+  }) {
+    return this.request<ApiResponse<WorkoutLog>>("/api/logs/retrospective", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Set management
+  async updateSet(
+    logId: string,
+    setId: string,
+    data: { weight?: number; reps?: number; rpe?: number | null }
+  ) {
+    return this.request<ApiResponse<LoggedSet>>(`/api/logs/${logId}/sets/${setId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSet(logId: string, setId: string) {
+    return this.request<{ message: string }>(`/api/logs/${logId}/sets/${setId}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Analytics
+  async getVolumeAnalytics(userId: string, weeks = 12) {
+    return this.request<ApiResponse<{ weeks: VolumeWeekData[] }>>(
+      `/api/analytics/volume?userId=${userId}&weeks=${weeks}`
+    );
+  }
+
+  async getPersonalRecords(userId: string) {
+    return this.request<ApiResponse<{ records: PersonalRecord[] }>>(
+      `/api/analytics/personal-records?userId=${userId}`
+    );
+  }
+
+  async getExerciseProgress(
+    exerciseId: string,
+    userId: string,
+    limit = 20
+  ) {
+    return this.request<ApiResponse<{ sessions: ExerciseProgressSession[] }>>(
+      `/api/analytics/exercise/${exerciseId}/progress?userId=${userId}&limit=${limit}`
+    );
+  }
+
+  async getWeeklySummary(userId: string, weekOffset = 0) {
+    return this.request<ApiResponse<WeeklySummaryData>>(
+      `/api/analytics/weekly-summary?userId=${userId}&weekOffset=${weekOffset}`
+    );
+  }
+
   async getAnalyticsSummary(userId: string) {
     const response = await this.request<
       ApiResponse<{
@@ -599,15 +686,15 @@ export interface UserBaseline {
 }
 
 export interface CalibrationExercise {
-  pattern: string;
+  pattern: MovementPattern;
   exerciseId: string;
   exerciseName: string;
 }
 
 export interface CalibrationPlanResponse {
-  path: "barbell" | "dumbbell" | "bodyweight" | "skip";
+  path: CalibrationPath;
   plan: {
-    path: string;
+    path: CalibrationPath;
     exercises: CalibrationExercise[];
     instructions: string;
   } | null;
@@ -688,6 +775,64 @@ export interface DecisionOutcomeRecord {
   actualValue?: Record<string, unknown>;
   evaluatedAt?: string;
   createdAt: string;
+}
+
+export interface LoggedSet {
+  id: string;
+  exerciseId: string;
+  setNumber: number;
+  weight: number;
+  reps: number;
+  rpe: number | null;
+  notes: string | null;
+}
+
+export interface WorkoutLogWithSets extends WorkoutLog {
+  sets: LoggedSet[];
+}
+
+export interface VolumeWeekData {
+  weekStart: string;
+  totalVolume: number;
+  workoutCount: number;
+  setCount: number;
+}
+
+export interface PersonalRecord {
+  exerciseId: string;
+  exerciseName?: string;
+  weightPR: { weight: number; reps: number; date: string } | null;
+  volumePR: { weight: number; reps: number; volume: number; date: string } | null;
+}
+
+export interface ExerciseProgressSession {
+  date: string;
+  bestWeight: number;
+  bestVolume: number;
+  totalSets: number;
+  avgRpe: number | null;
+}
+
+export interface WeeklySummaryData {
+  weekStart: string;
+  weekEnd: string;
+  workoutCount: number;
+  totalVolume: number;
+  totalSets: number;
+  averageRpe: number | null;
+  averageDuration: number | null;
+  exerciseBreakdown: {
+    exerciseId: string;
+    totalVolume: number;
+    totalSets: number;
+    maxWeight: number;
+  }[];
+  dayBreakdown: {
+    day: string;
+    workouts: number;
+    trained: boolean;
+  }[];
+  highlights: string[];
 }
 
 export const api = new ApiClient(API_BASE_URL);

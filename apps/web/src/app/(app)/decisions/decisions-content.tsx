@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -48,47 +48,34 @@ export function DecisionsContent() {
   const [selectedDecision, setSelectedDecision] = useState<Decision | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const isMountedRef = useRef(true);
+  const fetchDecisions = useCallback(async () => {
+    if (!appUser?.id) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params: { userId: string; type?: string; limit?: number } = {
+        userId: appUser.id,
+        limit: 50,
+      };
+
+      if (selectedType !== "all") {
+        params.type = selectedType;
+      }
+
+      const response = await api.getDecisionHistory(params);
+      setDecisions(response.data || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load decisions");
+    } finally {
+      setLoading(false);
+    }
+  }, [appUser?.id, selectedType, api]);
 
   useEffect(() => {
-    isMountedRef.current = true;
-
-    async function fetchDecisions() {
-      if (!appUser?.id) return;
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const params: { userId: string; type?: string; limit?: number } = {
-          userId: appUser.id,
-          limit: 50,
-        };
-
-        if (selectedType !== "all") {
-          params.type = selectedType;
-        }
-
-        const response = await api.getDecisionHistory(params);
-        if (isMountedRef.current) {
-          setDecisions(response.data || []);
-        }
-      } catch (err) {
-        if (isMountedRef.current) {
-          setError(err instanceof Error ? err.message : "Failed to load decisions");
-        }
-      } finally {
-        if (isMountedRef.current) {
-          setLoading(false);
-        }
-      }
-    }
-
     fetchDecisions();
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, [appUser?.id, selectedType]);
+  }, [fetchDecisions]);
 
   const handleSelectDecision = (decision: Decision) => {
     setSelectedDecision(decision);

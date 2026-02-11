@@ -13,11 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Loader2, Dumbbell } from "lucide-react";
+import { toast } from "sonner";
 import { ExerciseSearch } from "./exercise-search";
 import { SetInput } from "./set-input";
-import type { Exercise } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { type Exercise } from "@/lib/api";
+import { useApi } from "@/lib/use-api";
 
 interface ExerciseEntry {
   id: string;
@@ -30,11 +30,11 @@ interface ExerciseEntry {
 }
 
 interface LogWorkoutDialogProps {
-  getToken: () => Promise<string | null>;
   onSuccess: () => void;
 }
 
-export function LogWorkoutDialog({ getToken, onSuccess }: LogWorkoutDialogProps) {
+export function LogWorkoutDialog({ onSuccess }: LogWorkoutDialogProps) {
+  const api = useApi();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,8 +154,6 @@ export function LogWorkoutDialog({ getToken, onSuccess }: LogWorkoutDialogProps)
     setIsSubmitting(true);
 
     try {
-      const token = await getToken();
-
       // Build the request body
       if (!date) {
         setError("Please select a date");
@@ -183,26 +181,17 @@ export function LogWorkoutDialog({ getToken, onSuccess }: LogWorkoutDialogProps)
           })),
       };
 
-      const response = await fetch(`${API_URL}/api/logs/retrospective`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to log workout`);
-      }
+      await api.logRetrospectiveWorkout(body);
 
       // Success
+      toast.success("Workout logged successfully");
       resetForm();
       setOpen(false);
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to log workout");
+      const message = err instanceof Error ? err.message : "Failed to log workout";
+      setError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
