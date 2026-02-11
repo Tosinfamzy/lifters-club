@@ -64,7 +64,7 @@ export default function ProfileScreen() {
         <View style={styles.statItem}>
           <Dumbbell size={24} color="#3B82F6" />
           <Text style={styles.statValue}>
-            {appUser ? goalLabel[appUser.goal] : "—"}
+            {appUser ? goalLabel[appUser.primaryGoal] : "—"}
           </Text>
           <Text style={styles.statLabel}>Goal</Text>
         </View>

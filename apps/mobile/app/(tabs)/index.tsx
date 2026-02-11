@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -8,9 +8,9 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
-import { Play, Calendar, Target, Dumbbell, BookOpen, History, TrendingUp, Sparkles } from "lucide-react-native";
+import { Play, Target, Dumbbell, BookOpen, History, TrendingUp, Sparkles, Check, Eye } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
@@ -49,11 +49,21 @@ export default function TodayScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Use ref to store latest values without causing re-renders
+  const appUserRef = useRef(appUser);
+  const getTokenRef = useRef(getToken);
+  appUserRef.current = appUser;
+  getTokenRef.current = getToken;
+
   const fetchTodaysWorkout = useCallback(async () => {
-    if (!appUser) return;
+    const currentUser = appUserRef.current;
+    if (!currentUser) {
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
 
       // Fetch today's workout and stats in parallel
       const [workoutRes, statsRes] = await Promise.all([
@@ -67,7 +77,8 @@ export default function TodayScreen() {
 
       if (workoutRes.ok) {
         const data = await workoutRes.json();
-        setWorkout(data.data);
+        // API returns { programWorkout, standaloneWorkouts, decisions }
+        setWorkout(data.data?.programWorkout ?? null);
       } else {
         setWorkout(null);
       }
@@ -81,13 +92,14 @@ export default function TodayScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [appUser, getToken]);
+  }, []); // No dependencies - uses refs
 
-  useEffect(() => {
-    if (appUser) {
+  // Fetch when tab comes into focus (handles both initial load and tab switches)
+  useFocusEffect(
+    useCallback(() => {
       fetchTodaysWorkout();
-    }
-  }, [appUser, fetchTodaysWorkout]);
+    }, [fetchTodaysWorkout])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -263,9 +275,21 @@ export default function TodayScreen() {
               Week {workout.weekNumber} • Day {workout.dayNumber}
             </Text>
           </View>
-          <View style={styles.statusBadge}>
+          <View style={[
+            styles.statusBadge,
+            workout.status === "completed" && styles.statusBadgeCompleted,
+            workout.status === "in_progress" && styles.statusBadgeInProgress,
+            workout.status === "skipped" && styles.statusBadgeSkipped,
+          ]}>
+            {workout.status === "completed" && <Check size={12} color="#FFFFFF" />}
             <Text style={styles.statusText}>
-              {workout.status === "pending" ? "Ready" : workout.status}
+              {workout.status === "scheduled" || workout.status === "pending"
+                ? "Ready"
+                : workout.status === "completed"
+                ? "Done"
+                : workout.status === "in_progress"
+                ? "In Progress"
+                : workout.status}
             </Text>
           </View>
         </View>
@@ -273,12 +297,12 @@ export default function TodayScreen() {
           <View style={styles.stat}>
             <Target size={16} color="#94A3B8" />
             <Text style={styles.statText}>
-              {workout.plannedExercises.length} exercises
+              {workout.plannedExercises?.length ?? 0} exercises
             </Text>
           </View>
           <View style={styles.stat}>
             <Text style={styles.statText}>
-              {workout.plannedExercises.reduce((sum, ex) => sum + ex.sets, 0)} total sets
+              {(workout.plannedExercises ?? []).reduce((sum, ex) => sum + ex.sets, 0)} total sets
             </Text>
           </View>
         </View>
@@ -286,7 +310,7 @@ export default function TodayScreen() {
 
       {/* Exercise List */}
       <Text style={styles.sectionTitle}>Exercises</Text>
-      {workout.plannedExercises.map((exercise, index) => (
+      {(workout.plannedExercises ?? []).map((exercise, index) => (
         <View key={index} style={styles.exerciseCard}>
           <View style={styles.exerciseNumber}>
             <Text style={styles.exerciseNumberText}>{index + 1}</Text>
@@ -303,10 +327,27 @@ export default function TodayScreen() {
         </View>
       ))}
 
-      {/* Start Button */}
-      <TouchableOpacity style={styles.startButton} onPress={handleStartWorkout}>
-        <Play size={24} color="#FFFFFF" fill="#FFFFFF" />
-        <Text style={styles.startButtonText}>Start Workout</Text>
+      {/* Start/View Button */}
+      <TouchableOpacity
+        style={[
+          styles.startButton,
+          workout.status === "completed" && styles.viewButton,
+        ]}
+        onPress={handleStartWorkout}
+      >
+        {workout.status === "completed" ? (
+          <>
+            <Eye size={24} color="#FFFFFF" />
+            <Text style={styles.startButtonText}>View Workout</Text>
+          </>
+        ) : (
+          <>
+            <Play size={24} color="#FFFFFF" fill="#FFFFFF" />
+            <Text style={styles.startButtonText}>
+              {workout.status === "in_progress" ? "Continue Workout" : "Start Workout"}
+            </Text>
+          </>
+        )}
       </TouchableOpacity>
 
       <View style={styles.bottomPadding} />
@@ -476,6 +517,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  statusBadgeCompleted: {
+    backgroundColor: "#10B981",
+  },
+  statusBadgeInProgress: {
+    backgroundColor: "#F59E0B",
+  },
+  statusBadgeSkipped: {
+    backgroundColor: "#64748B",
   },
   statusText: {
     color: "#FFFFFF",
@@ -550,6 +603,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     marginTop: 12,
+  },
+  viewButton: {
+    backgroundColor: "#10B981",
   },
   startButtonText: {
     color: "#FFFFFF",

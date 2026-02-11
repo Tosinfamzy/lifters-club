@@ -141,16 +141,21 @@ workoutRoutes.post(
     // Generate workouts for the first week based on program template
     const programData = program[0]!;
     const template = programData.template as { sessions: Array<{ dayNumber: number; exercises: Record<string, unknown>[] }> };
-    const startDate = new Date(data.startDate);
+
+    // Parse date as local time by adding T00:00:00 (without Z suffix)
+    // This ensures "2024-02-09" is treated as local midnight, not UTC midnight
+    const startDate = new Date(data.startDate + "T00:00:00");
 
     const workoutsToCreate = template.sessions.map((session) => {
       const workoutDate = new Date(startDate);
       workoutDate.setDate(workoutDate.getDate() + session.dayNumber - 1);
+      // Use local date format for consistency
+      const scheduledDate = `${workoutDate.getFullYear()}-${String(workoutDate.getMonth() + 1).padStart(2, "0")}-${String(workoutDate.getDate()).padStart(2, "0")}`;
 
       return {
         id: `${data.id}-w1-d${session.dayNumber}`,
         trainingBlockId: data.id,
-        scheduledDate: workoutDate.toISOString().split("T")[0]!,
+        scheduledDate,
         weekNumber: 1,
         dayNumber: session.dayNumber,
         plannedExercises: session.exercises,
@@ -300,7 +305,12 @@ workoutRoutes.get(
       return c.json({ error: "User not found" }, 404);
     }
 
-    const today = new Date().toISOString().split("T")[0]!;
+    // Use local date to match client behavior (toISOString uses UTC which can cause date mismatches)
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId: user.id, today }, "Fetching today's workout");
 
     // Find user's active training block and today's program workout
     const activeBlock = await db

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@clerk/clerk-expo";
 import { offlineStorage } from "../lib/offline/storage";
 import {
@@ -86,10 +86,17 @@ export function useWorkoutOffline(workoutId: string) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Use refs to avoid recreating callbacks on every render
+  const getTokenRef = useRef(getToken);
+  const isOnlineRef = useRef(isOnline);
+  const hasLoadedRef = useRef(false);
+  getTokenRef.current = getToken;
+  isOnlineRef.current = isOnline;
+
   // Fetch workout data from API and cache it
   const fetchAndCache = useCallback(async () => {
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return;
 
       const response = await fetch(`${API_URL}/api/workouts/${workoutId}`, {
@@ -98,51 +105,62 @@ export function useWorkoutOffline(workoutId: string) {
 
       if (!response.ok) throw new Error("Failed to fetch workout");
 
-      const data = await response.json();
+      const json = await response.json();
+      // API returns { data: workout } - the workout is directly in data
+      const workoutData = json.data;
 
       const cachedData: CachedWorkoutData = {
-        workout: data.workout,
-        workoutLog: data.workoutLog,
-        loggedSets: data.loggedSets || [],
+        workout: workoutData,
+        workoutLog: undefined, // Workout log is created when starting the workout
+        loggedSets: [],
         cachedAt: new Date().toISOString(),
       };
 
       await offlineStorage.setCachedWorkout(cachedData);
 
-      setWorkout(data.workout);
-      setWorkoutLog(data.workoutLog || null);
-      setLoggedSets(data.loggedSets || []);
+      setWorkout(workoutData);
+      setWorkoutLog(null);
+      setLoggedSets([]);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch workout");
     }
-  }, [workoutId, getToken]);
+  }, [workoutId]); // Uses refs for getToken
 
   // Load from cache or fetch
   const loadWorkout = useCallback(async () => {
+    if (hasLoadedRef.current) return; // Prevent re-loading
+    hasLoadedRef.current = true;
+
     setIsLoading(true);
 
     // Try cache first
     const cached = await offlineStorage.getCachedWorkout<CachedWorkoutData>();
-    if (cached && cached.workout.id === workoutId) {
+    if (cached?.workout?.id === workoutId) {
       setWorkout(cached.workout);
       setWorkoutLog(cached.workoutLog || null);
-      setLoggedSets(cached.loggedSets);
+      setLoggedSets(cached.loggedSets || []);
     }
 
     // If online, fetch fresh data
-    if (isOnline) {
+    if (isOnlineRef.current) {
       await fetchAndCache();
-    } else if (!cached || cached.workout.id !== workoutId) {
+    } else if (!cached?.workout?.id || cached.workout.id !== workoutId) {
       setError("No cached data available offline");
     }
 
     setIsLoading(false);
-  }, [workoutId, isOnline, fetchAndCache]);
+  }, [workoutId, fetchAndCache]); // Uses refs for isOnline
 
   // Start workout (create workout log)
   const startWorkout = useCallback(
     async (userId: string): Promise<WorkoutLog | null> => {
+      // Guard: don't create a new log if one already exists for this workout
+      if (workoutLog) {
+        console.log("Workout log already exists, returning existing:", workoutLog.id);
+        return workoutLog;
+      }
+
       const newLog: QueuedWorkoutLog = {
         id: generateId(),
         workoutId,
@@ -165,23 +183,26 @@ export function useWorkoutOffline(workoutId: string) {
         });
       }
 
-      if (isOnline) {
+      if (isOnlineRef.current) {
         try {
-          const token = await getToken();
-          const response = await fetch(`${API_URL}/api/workout-logs`, {
+          const token = await getTokenRef.current();
+          const response = await fetch(`${API_URL}/api/logs`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({
+              id: newLog.id,
               workoutId,
+              userId,
               startedAt: newLog.startedAt,
             }),
           });
 
           if (response.ok) {
-            const serverLog = await response.json();
+            const json = await response.json();
+            const serverLog = json.data;
             setWorkoutLog(serverLog);
 
             // Update cache with server ID
@@ -204,7 +225,7 @@ export function useWorkoutOffline(workoutId: string) {
       await offlineQueue.enqueue(createWorkoutLogOperation(newLog));
       return optimisticLog;
     },
-    [workoutId, isOnline, getToken]
+    [workoutId, workoutLog] // Uses refs for isOnline/getToken
   );
 
   // Log a set
@@ -247,11 +268,11 @@ export function useWorkoutOffline(workoutId: string) {
         });
       }
 
-      if (isOnline && !workoutLog.id.startsWith("offline-")) {
+      if (isOnlineRef.current && !workoutLog.id.startsWith("offline-")) {
         try {
-          const token = await getToken();
+          const token = await getTokenRef.current();
           const response = await fetch(
-            `${API_URL}/api/workout-logs/${workoutLog.id}/sets`,
+            `${API_URL}/api/logs/${workoutLog.id}/sets`,
             {
               method: "POST",
               headers: {
@@ -270,7 +291,8 @@ export function useWorkoutOffline(workoutId: string) {
           );
 
           if (response.ok) {
-            const serverSet = await response.json();
+            const json = await response.json();
+            const serverSet = json.data;
 
             // Replace optimistic set with server response
             setLoggedSets((prev) =>
@@ -288,7 +310,7 @@ export function useWorkoutOffline(workoutId: string) {
       await offlineQueue.enqueue(createLoggedSetOperation(newSet));
       return optimisticSet;
     },
-    [workoutLog, isOnline, getToken]
+    [workoutLog] // Uses refs for isOnline/getToken
   );
 
   // Complete workout
@@ -312,10 +334,10 @@ export function useWorkoutOffline(workoutId: string) {
         });
       }
 
-      if (isOnline && !workoutLog.id.startsWith("offline-")) {
+      if (isOnlineRef.current && !workoutLog.id.startsWith("offline-")) {
         try {
-          const token = await getToken();
-          await fetch(`${API_URL}/api/workout-logs/${workoutLog.id}`, {
+          const token = await getTokenRef.current();
+          await fetch(`${API_URL}/api/logs/${workoutLog.id}/complete`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -339,7 +361,7 @@ export function useWorkoutOffline(workoutId: string) {
         })
       );
     },
-    [workoutLog, isOnline, getToken]
+    [workoutLog] // Uses refs for isOnline/getToken
   );
 
   // Get logged sets for a specific exercise
@@ -350,10 +372,11 @@ export function useWorkoutOffline(workoutId: string) {
     [loggedSets]
   );
 
-  // Load on mount
+  // Load on mount only
   useEffect(() => {
     loadWorkout();
-  }, [loadWorkout]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workoutId]); // Only reload when workoutId changes, not on callback recreation
 
   return {
     workout,

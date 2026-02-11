@@ -28,6 +28,7 @@ import {
 } from "@gymapp/engine";
 import type { DecisionType } from "@gymapp/types";
 import { logger as globalLogger } from "../lib/logger";
+import { MS_PER_WEEK } from "../constants";
 
 interface PlannedExercise {
   exerciseId: string;
@@ -567,7 +568,7 @@ async function calculateWeeklyMetrics(
     if (log.overallRpe === null) continue;
 
     const weekNum = Math.floor(
-      (Date.now() - log.startedAt.getTime()) / (7 * 24 * 60 * 60 * 1000)
+      (Date.now() - log.startedAt.getTime()) / MS_PER_WEEK
     );
     const bucket = weekBuckets.get(weekNum) ?? [];
     bucket.push(log.overallRpe);

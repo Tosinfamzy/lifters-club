@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { verifyToken } from "@clerk/backend";
 import { logger } from "../lib/logger";
+import { config } from "../config";
 import type { Env } from "../types";
 
 /**
@@ -28,7 +29,7 @@ export async function authMiddleware(c: Context<Env>, next: Next) {
 
   try {
     const payload = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY,
+      secretKey: config.CLERK_SECRET_KEY,
     });
 
     // Set user info in context for downstream handlers
@@ -57,7 +58,7 @@ export async function optionalAuthMiddleware(c: Context<Env>, next: Next) {
     if (token) {
       try {
         const payload = await verifyToken(token, {
-          secretKey: process.env.CLERK_SECRET_KEY,
+          secretKey: config.CLERK_SECRET_KEY,
         });
 
         c.set("userId", payload.sub);

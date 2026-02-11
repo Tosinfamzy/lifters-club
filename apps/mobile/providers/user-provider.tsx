@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, ReactNode } from "react";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useRouter, useSegments } from "expo-router";
 
@@ -16,7 +16,7 @@ interface AppUser {
   clerkId: string;
   email: string;
   trainingLevel: "beginner" | "intermediate" | "advanced";
-  goal: "strength" | "hypertrophy" | "conditioning";
+  primaryGoal: "strength" | "hypertrophy" | "conditioning";
   createdAt: string;
   activeTrainingBlock?: TrainingBlock | null;
 }
@@ -45,14 +45,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
 
+  // Use refs to avoid recreating fetchUser callback
+  const getTokenRef = useRef(getToken);
+  const userIdRef = useRef(user?.id);
+  getTokenRef.current = getToken;
+  userIdRef.current = user?.id;
+
   const fetchUser = useCallback(async () => {
-    if (!user?.id) {
+    if (!userIdRef.current) {
       setIsLoading(false);
       return;
     }
 
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       const response = await fetch(`${API_URL}/api/users/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -61,7 +67,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json();
-        setAppUser(data.data);
+        // Only update if data actually changed (compare by ID)
+        setAppUser((prev) => {
+          if (prev?.id === data.data?.id &&
+              prev?.activeTrainingBlock?.id === data.data?.activeTrainingBlock?.id) {
+            return prev; // Return same reference if no change
+          }
+          return data.data;
+        });
       } else if (response.status === 404) {
         setAppUser(null);
       }
@@ -70,14 +83,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id, getToken]);
+  }, []); // Empty deps - uses refs
 
+  // Only fetch once when auth is ready
+  const hasFetched = useRef(false);
   useEffect(() => {
-    if (authLoaded && isSignedIn && user) {
+    if (authLoaded && isSignedIn && user && !hasFetched.current) {
+      hasFetched.current = true;
       fetchUser();
     } else if (authLoaded && !isSignedIn) {
       setAppUser(null);
       setIsLoading(false);
+      hasFetched.current = false;
     }
   }, [authLoaded, isSignedIn, user, fetchUser]);
 
@@ -96,8 +113,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }, [authLoaded, isSignedIn, appUser, isLoading, segments, router]);
 
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(
+    () => ({ appUser, isLoading, refetch: fetchUser }),
+    [appUser, isLoading, fetchUser]
+  );
+
   return (
-    <UserContext.Provider value={{ appUser, isLoading, refetch: fetchUser }}>
+    <UserContext.Provider value={contextValue}>
       {children}
     </UserContext.Provider>
   );

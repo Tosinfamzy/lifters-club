@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -55,12 +55,17 @@ export default function ProgramsScreen() {
   const [filter, setFilter] = useState<"all" | "recommended">("recommended");
   const [refreshing, setRefreshing] = useState(false);
 
+  // Use refs to avoid recreating callback on every render
+  const appUserRef = useRef(appUser);
+  appUserRef.current = appUser;
+
   const fetchPrograms = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (filter === "recommended" && appUser) {
-        params.append("goal", appUser.goal);
-        params.append("level", appUser.trainingLevel);
+      const currentUser = appUserRef.current;
+      if (filter === "recommended" && currentUser) {
+        params.append("goal", currentUser.primaryGoal);
+        params.append("level", currentUser.trainingLevel);
       }
 
       const response = await fetch(`${API_URL}/api/programs?${params}`);
@@ -73,7 +78,7 @@ export default function ProgramsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [filter, appUser]);
+  }, [filter]); // Only depends on filter, not appUser
 
   useEffect(() => {
     fetchPrograms();
@@ -133,8 +138,14 @@ export default function ProgramsScreen() {
       }
 
       // Create new training block
-      const today = new Date().toISOString().split("T")[0];
-      const blockId = `${appUser.id}-${program.id}-${Date.now()}`;
+      // Use local date to avoid timezone issues (toISOString uses UTC)
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      // Sanitize and shorten ID to stay under 64 char limit
+      // Format: user-{short_id}-{program_short}-{timestamp}
+      const userShort = appUser.id.slice(-8).toLowerCase().replace(/[^a-z0-9]/g, "");
+      const programShort = program.id.slice(0, 20).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const blockId = `user-${userShort}-${programShort}-${Date.now()}`;
 
       const response = await fetch(`${API_URL}/api/workouts/training-blocks`, {
         method: "POST",

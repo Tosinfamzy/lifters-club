@@ -55,7 +55,7 @@ export default function OnboardingScreen() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           clerkId: user.id,
           email: user.emailAddresses[0]?.emailAddress,
           trainingLevel,

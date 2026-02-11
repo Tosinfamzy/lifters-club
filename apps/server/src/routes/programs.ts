@@ -5,6 +5,7 @@ import { db } from "@gymapp/db";
 import { programs } from "@gymapp/db/schema";
 import { eq, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { buildPatchData } from "../lib/patch-utils";
 
 const programRoutes = new Hono();
 
@@ -79,14 +80,10 @@ programRoutes.get(
       conditions.push(eq(programs.daysPerWeek, query.daysPerWeek));
     }
 
-    let queryBuilder = db.select().from(programs);
-
-    // Apply conditions using AND (not chaining .where() which overwrites)
-    if (conditions.length > 0) {
-      queryBuilder = queryBuilder.where(and(...conditions)) as typeof queryBuilder;
-    }
-
-    const results = await queryBuilder
+    const results = await db
+      .select()
+      .from(programs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .limit(query.limit)
       .offset(query.offset)
       .orderBy(programs.name);
@@ -167,13 +164,7 @@ programRoutes.patch(
       return c.json({ error: "Program not found" }, 404);
     }
 
-    const updateData: Record<string, unknown> = {};
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.daysPerWeek !== undefined) updateData.daysPerWeek = data.daysPerWeek;
-    if (data.goal !== undefined) updateData.goal = data.goal;
-    if (data.level !== undefined) updateData.level = data.level;
-    if (data.template !== undefined) updateData.template = data.template;
+    const updateData = buildPatchData(data, { includeUpdatedAt: false });
 
     const result = await db
       .update(programs)

@@ -6,6 +6,14 @@ import { workoutLogs, loggedSets } from "@gymapp/db/schema";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import type { Env } from "../types";
 import { getAuthenticatedUserFromContext } from "../middleware/authorize";
+import {
+  MS_PER_DAY,
+  MS_PER_WEEK,
+  VOLUME_HIGHLIGHT_THRESHOLD,
+  SETS_HIGHLIGHT_THRESHOLD,
+  OPTIMAL_RPE_MIN,
+  OPTIMAL_RPE_MAX,
+} from "../constants";
 
 const analyticsRoutes = new Hono<Env>();
 
@@ -58,9 +66,10 @@ analyticsRoutes.get(
     const sessionMap = new Map<string, {
       date: Date;
       bestWeight: number;
-      bestVolume: number; // weight * reps
+      bestVolume: number;
       totalSets: number;
-      avgRpe: number | null;
+      rpeSum: number;
+      rpeCount: number;
     }>();
 
     for (const set of sets) {
@@ -73,14 +82,16 @@ analyticsRoutes.get(
           bestWeight: set.weight,
           bestVolume: volume,
           totalSets: 1,
-          avgRpe: set.rpe,
+          rpeSum: set.rpe ?? 0,
+          rpeCount: set.rpe !== null ? 1 : 0,
         });
       } else {
         existing.bestWeight = Math.max(existing.bestWeight, set.weight);
         existing.bestVolume = Math.max(existing.bestVolume, volume);
         existing.totalSets += 1;
-        if (set.rpe !== null && existing.avgRpe !== null) {
-          existing.avgRpe = (existing.avgRpe * (existing.totalSets - 1) + set.rpe) / existing.totalSets;
+        if (set.rpe !== null) {
+          existing.rpeSum += set.rpe;
+          existing.rpeCount += 1;
         }
       }
     }
@@ -98,7 +109,7 @@ analyticsRoutes.get(
           bestWeight: s.bestWeight,
           bestVolume: s.bestVolume,
           totalSets: s.totalSets,
-          avgRpe: s.avgRpe ? Number(s.avgRpe.toFixed(1)) : null,
+          avgRpe: s.rpeCount > 0 ? Number((s.rpeSum / s.rpeCount).toFixed(1)) : null,
         })),
       },
     });
@@ -177,6 +188,12 @@ analyticsRoutes.get(
       setCount: number;
     }>();
 
+    // Pre-build set count map to avoid O(n*m) filtering
+    const setCountByLog = new Map<string, number>();
+    for (const set of sets) {
+      setCountByLog.set(set.workoutLogId, (setCountByLog.get(set.workoutLogId) ?? 0) + 1);
+    }
+
     for (const log of logs) {
       const date = new Date(log.date);
       const weekStart = new Date(date);
@@ -186,7 +203,7 @@ analyticsRoutes.get(
 
       const existing = weeklyData.get(weekKey);
       const volume = volumeByLog.get(log.logId) || 0;
-      const logSets = sets.filter(s => s.workoutLogId === log.logId).length;
+      const logSets = setCountByLog.get(log.logId) ?? 0;
 
       if (!existing) {
         weeklyData.set(weekKey, {
@@ -238,74 +255,68 @@ analyticsRoutes.get(
 
     const userId = authResult.user.id;
 
-    // Get all sets for this user
-    const sets = await db
-      .select({
-        exerciseId: loggedSets.exerciseId,
-        weight: loggedSets.weight,
-        reps: loggedSets.reps,
-        date: workoutLogs.startedAt,
-      })
-      .from(loggedSets)
-      .innerJoin(workoutLogs, eq(loggedSets.workoutLogId, workoutLogs.id))
-      .where(eq(workoutLogs.userId, userId));
+    // Compute weight PRs and volume PRs per exercise using SQL
+    const weightPRs = await db.execute<{
+      exercise_id: string;
+      max_weight: number;
+      max_weight_reps: number;
+      max_weight_date: Date;
+    }>(sql`
+      SELECT DISTINCT ON (ls.exercise_id)
+        ls.exercise_id,
+        ls.weight AS max_weight,
+        ls.reps AS max_weight_reps,
+        wl.started_at AS max_weight_date
+      FROM training.logged_sets ls
+      INNER JOIN training.workout_logs wl ON ls.workout_log_id = wl.id
+      WHERE wl.user_id = ${userId}
+      ORDER BY ls.exercise_id, ls.weight DESC, ls.reps DESC
+    `);
 
-    // Find PR for each exercise (heaviest weight lifted)
-    const prMap = new Map<string, {
-      exerciseId: string;
-      maxWeight: number;
-      maxWeightReps: number;
-      maxWeightDate: Date;
-      maxVolume: number;
-      maxVolumeWeight: number;
-      maxVolumeReps: number;
-      maxVolumeDate: Date;
-    }>();
+    const volumePRs = await db.execute<{
+      exercise_id: string;
+      max_volume: number;
+      max_volume_weight: number;
+      max_volume_reps: number;
+      max_volume_date: Date;
+    }>(sql`
+      SELECT DISTINCT ON (ls.exercise_id)
+        ls.exercise_id,
+        (ls.weight * ls.reps) AS max_volume,
+        ls.weight AS max_volume_weight,
+        ls.reps AS max_volume_reps,
+        wl.started_at AS max_volume_date
+      FROM training.logged_sets ls
+      INNER JOIN training.workout_logs wl ON ls.workout_log_id = wl.id
+      WHERE wl.user_id = ${userId}
+      ORDER BY ls.exercise_id, (ls.weight * ls.reps) DESC
+    `);
 
-    for (const set of sets) {
-      const existing = prMap.get(set.exerciseId);
-      const volume = set.weight * set.reps;
+    // Merge weight and volume PRs
+    const volumeMap = new Map(volumePRs.map(v => [v.exercise_id, v]));
 
-      if (!existing) {
-        prMap.set(set.exerciseId, {
-          exerciseId: set.exerciseId,
-          maxWeight: set.weight,
-          maxWeightReps: set.reps,
-          maxWeightDate: set.date,
-          maxVolume: volume,
-          maxVolumeWeight: set.weight,
-          maxVolumeReps: set.reps,
-          maxVolumeDate: set.date,
-        });
-      } else {
-        if (set.weight > existing.maxWeight) {
-          existing.maxWeight = set.weight;
-          existing.maxWeightReps = set.reps;
-          existing.maxWeightDate = set.date;
-        }
-        if (volume > existing.maxVolume) {
-          existing.maxVolume = volume;
-          existing.maxVolumeWeight = set.weight;
-          existing.maxVolumeReps = set.reps;
-          existing.maxVolumeDate = set.date;
-        }
-      }
-    }
-
-    const records = Array.from(prMap.values()).map(pr => ({
-      exerciseId: pr.exerciseId,
-      weightPR: {
-        weight: pr.maxWeight,
-        reps: pr.maxWeightReps,
-        date: pr.maxWeightDate.toISOString(),
-      },
-      volumePR: {
-        weight: pr.maxVolumeWeight,
-        reps: pr.maxVolumeReps,
-        volume: pr.maxVolume,
-        date: pr.maxVolumeDate.toISOString(),
-      },
-    }));
+    const records = weightPRs.map(w => {
+      const v = volumeMap.get(w.exercise_id);
+      return {
+        exerciseId: w.exercise_id,
+        weightPR: {
+          weight: Number(w.max_weight),
+          reps: Number(w.max_weight_reps),
+          date: new Date(w.max_weight_date).toISOString(),
+        },
+        volumePR: v ? {
+          weight: Number(v.max_volume_weight),
+          reps: Number(v.max_volume_reps),
+          volume: Number(v.max_volume),
+          date: new Date(v.max_volume_date).toISOString(),
+        } : {
+          weight: Number(w.max_weight),
+          reps: Number(w.max_weight_reps),
+          volume: Number(w.max_weight) * Number(w.max_weight_reps),
+          date: new Date(w.max_weight_date).toISOString(),
+        },
+      };
+    });
 
     return c.json({
       data: {
@@ -335,7 +346,18 @@ analyticsRoutes.get(
 
     const userId = authResult.user.id;
 
-    // Get all completed workout logs
+    // Calculate stats
+    const now = new Date();
+
+    // Efficient aggregate for total count
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(workoutLogs)
+      .where(and(eq(workoutLogs.userId, userId), sql`${workoutLogs.completedAt} IS NOT NULL`));
+    const totalWorkouts = Number(countResult[0]?.count ?? 0);
+
+    // Only fetch recent logs for weekly/monthly counts and streak calculation
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * MS_PER_DAY);
     const logs = await db
       .select({
         id: workoutLogs.id,
@@ -344,15 +366,12 @@ analyticsRoutes.get(
         overallRpe: workoutLogs.overallRpe,
       })
       .from(workoutLogs)
-      .where(eq(workoutLogs.userId, userId))
+      .where(and(eq(workoutLogs.userId, userId), gte(workoutLogs.startedAt, ninetyDaysAgo)))
       .orderBy(desc(workoutLogs.startedAt));
 
     const completedLogs = logs.filter(l => l.completedAt);
-
-    // Calculate stats
-    const now = new Date();
-    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const oneWeekAgo = new Date(now.getTime() - MS_PER_WEEK);
+    const oneMonthAgo = new Date(now.getTime() - 30 * MS_PER_DAY);
 
     const workoutsThisWeek = completedLogs.filter(l =>
       l.completedAt && new Date(l.completedAt) >= oneWeekAgo
@@ -408,7 +427,7 @@ analyticsRoutes.get(
 
     return c.json({
       data: {
-        totalWorkouts: completedLogs.length,
+        totalWorkouts,
         workoutsThisWeek,
         workoutsThisMonth,
         averageRpe: avgRpe ? Number(avgRpe.toFixed(1)) : null,
@@ -573,15 +592,15 @@ analyticsRoutes.get(
       highlights.push(`Completed ${completedLogs.length} workouts this week!`);
     }
 
-    if (totalVolume > 50000) {
+    if (totalVolume > VOLUME_HIGHLIGHT_THRESHOLD) {
       highlights.push(`Moved over ${Math.round(totalVolume / 1000)}k lbs total volume`);
     }
 
-    if (sets.length > 50) {
+    if (sets.length > SETS_HIGHLIGHT_THRESHOLD) {
       highlights.push(`Logged ${sets.length} sets this week`);
     }
 
-    if (averageRpe && averageRpe >= 7 && averageRpe <= 8.5) {
+    if (averageRpe && averageRpe >= OPTIMAL_RPE_MIN && averageRpe <= OPTIMAL_RPE_MAX) {
       highlights.push("Training intensity in optimal range");
     }
 

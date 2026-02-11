@@ -8,6 +8,7 @@ import { rateLimiter } from "./middleware/rate-limit";
 import { securityHeaders, requestId } from "./middleware/security-headers";
 import { requestLogger } from "./middleware/request-logger";
 import { initSentry, captureError, flushSentry } from "./lib/sentry";
+import { closeDb } from "@gymapp/db";
 import { logger } from "./lib/logger";
 import type { Env } from "./types";
 
@@ -131,6 +132,9 @@ async function gracefulShutdown(signal: string) {
 
   // Flush pending Sentry events
   await flushSentry();
+
+  // Close database connection pool
+  await closeDb();
 
   // Give in-flight requests time to complete
   setTimeout(() => {

@@ -9,6 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   Vibration,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
@@ -78,7 +82,7 @@ interface SubstituteExercise {
 }
 
 interface ReadinessResult {
-  readinessScore: number;
+  score: number;
   recommendation: "proceed" | "light_session" | "rest_day";
   volumeModifier: number;
   intensityModifier: number;
@@ -325,8 +329,12 @@ export default function WorkoutScreen() {
     }
   }
 
+  // Track if workout has been initialized to prevent re-initialization loops
+  const hasInitialized = useRef(false);
+
   useEffect(() => {
-    if (appUser && workout && !isWorkoutLoading) {
+    if (appUser && workout && !isWorkoutLoading && !hasInitialized.current) {
+      hasInitialized.current = true;
       initializeWorkout();
       fetchExerciseDecisions();
     }
@@ -473,7 +481,8 @@ export default function WorkoutScreen() {
 
     try {
       const token = await getToken();
-      const res = await fetch(`${API_URL}/api/users/readiness`, {
+      // Use extended endpoint which accepts 1-10 scale (simple endpoint uses 1-5)
+      const res = await fetch(`${API_URL}/api/users/readiness/extended`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -945,7 +954,7 @@ export default function WorkoutScreen() {
 
           <View style={styles.readinessScoreCard}>
             <Text style={[styles.readinessScore, { color: resultColor }]}>
-              {readinessResult.readinessScore}%
+              {readinessResult.score}%
             </Text>
             <Text style={styles.readinessRecommendation}>
               {readinessResult.recommendation === "proceed"
@@ -1072,9 +1081,14 @@ export default function WorkoutScreen() {
   const totalSets = exercises.reduce((sum, ex) => sum + ex.sets.length, 0);
 
   return (
-    <View style={styles.container}>
-      {/* Offline Indicator */}
-      <OfflineIndicator />
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      >
+        {/* Offline Indicator */}
+        <OfflineIndicator />
 
       {/* Rest Timer Overlay */}
       {isResting && (
@@ -1268,7 +1282,11 @@ export default function WorkoutScreen() {
       </ScrollView>
 
       {/* Current Exercise */}
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <View style={styles.exerciseHeader}>
           <View style={styles.exerciseTitleContainer}>
             <View style={styles.exerciseTitleRow}>
@@ -1468,7 +1486,8 @@ export default function WorkoutScreen() {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
-    </View>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 

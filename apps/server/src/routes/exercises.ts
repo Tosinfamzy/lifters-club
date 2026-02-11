@@ -7,6 +7,7 @@ import { eq, ilike, or, sql } from "drizzle-orm";
 import { getTopSubstitutes } from "@gymapp/engine";
 import type { Exercise, EquipmentType, Difficulty } from "@gymapp/types";
 import { logger } from "../lib/logger";
+import { buildPatchData } from "../lib/patch-utils";
 
 const exerciseRoutes = new Hono();
 
@@ -165,49 +166,71 @@ exerciseRoutes.get("/search/:term", async (c) => {
   return c.json({ data: results });
 });
 
-// GET /exercises/by-pattern/:pattern - Get exercises by movement pattern
-exerciseRoutes.get("/by-pattern/:pattern", async (c) => {
-  const pattern = c.req.param("pattern");
-
-  const results = await db
-    .select()
-    .from(exercises)
-    .where(sql`${exercises.movementPatterns} @> ${JSON.stringify([pattern])}`)
-    .orderBy(exercises.name);
-
-  return c.json({ data: results });
+const convenienceQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+
+// GET /exercises/by-pattern/:pattern - Get exercises by movement pattern
+exerciseRoutes.get(
+  "/by-pattern/:pattern",
+  zValidator("query", convenienceQuerySchema),
+  async (c) => {
+    const pattern = c.req.param("pattern");
+    const { limit } = c.req.valid("query");
+
+    const results = await db
+      .select()
+      .from(exercises)
+      .where(sql`${exercises.movementPatterns} @> ${JSON.stringify([pattern])}`)
+      .limit(limit)
+      .orderBy(exercises.name);
+
+    return c.json({ data: results });
+  }
+);
 
 // GET /exercises/by-muscle/:muscle - Get exercises by target muscle
-exerciseRoutes.get("/by-muscle/:muscle", async (c) => {
-  const muscle = c.req.param("muscle");
+exerciseRoutes.get(
+  "/by-muscle/:muscle",
+  zValidator("query", convenienceQuerySchema),
+  async (c) => {
+    const muscle = c.req.param("muscle");
+    const { limit } = c.req.valid("query");
 
-  const results = await db
-    .select()
-    .from(exercises)
-    .where(
-      or(
-        sql`${exercises.primaryMuscles} @> ${JSON.stringify([muscle])}`,
-        sql`${exercises.secondaryMuscles} @> ${JSON.stringify([muscle])}`
+    const results = await db
+      .select()
+      .from(exercises)
+      .where(
+        or(
+          sql`${exercises.primaryMuscles} @> ${JSON.stringify([muscle])}`,
+          sql`${exercises.secondaryMuscles} @> ${JSON.stringify([muscle])}`
+        )
       )
-    )
-    .orderBy(exercises.name);
+      .limit(limit)
+      .orderBy(exercises.name);
 
-  return c.json({ data: results });
-});
+    return c.json({ data: results });
+  }
+);
 
 // GET /exercises/by-equipment/:equipment - Get exercises by equipment
-exerciseRoutes.get("/by-equipment/:equipment", async (c) => {
-  const equipment = c.req.param("equipment");
+exerciseRoutes.get(
+  "/by-equipment/:equipment",
+  zValidator("query", convenienceQuerySchema),
+  async (c) => {
+    const equipment = c.req.param("equipment");
+    const { limit } = c.req.valid("query");
 
-  const results = await db
-    .select()
-    .from(exercises)
-    .where(sql`${exercises.equipment} @> ${JSON.stringify([equipment])}`)
-    .orderBy(exercises.name);
+    const results = await db
+      .select()
+      .from(exercises)
+      .where(sql`${exercises.equipment} @> ${JSON.stringify([equipment])}`)
+      .limit(limit)
+      .orderBy(exercises.name);
 
-  return c.json({ data: results });
-});
+    return c.json({ data: results });
+  }
+);
 
 // Schema for substitution query params
 const substitutionQuerySchema = z.object({
@@ -238,8 +261,17 @@ exerciseRoutes.get(
 
     const sourceExercise = sourceResult[0]!;
 
-    // Get all candidate exercises
-    const allExercises = await db.select().from(exercises);
+    // Pre-filter candidates by overlapping movement patterns or primary muscles
+    const allExercises = await db
+      .select()
+      .from(exercises)
+      .where(
+        or(
+          sql`${exercises.movementPatterns} && ${JSON.stringify(sourceExercise.movementPatterns)}::jsonb`,
+          sql`${exercises.primaryMuscles} && ${JSON.stringify(sourceExercise.primaryMuscles)}::jsonb`
+        )
+      )
+      .limit(200);
 
     // Parse equipment filter if provided
     const availableEquipment = query.equipment
@@ -401,18 +433,7 @@ exerciseRoutes.patch(
       return c.json({ error: "Exercise not found" }, 404);
     }
 
-    // Build update object with only provided fields
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.aliases !== undefined) updateData.aliases = data.aliases;
-    if (data.equipment !== undefined) updateData.equipment = data.equipment;
-    if (data.movementPatterns !== undefined) updateData.movementPatterns = data.movementPatterns;
-    if (data.primaryMuscles !== undefined) updateData.primaryMuscles = data.primaryMuscles;
-    if (data.secondaryMuscles !== undefined) updateData.secondaryMuscles = data.secondaryMuscles;
-    if (data.isCompound !== undefined) updateData.isCompound = data.isCompound;
-    if (data.isUnilateral !== undefined) updateData.isUnilateral = data.isUnilateral;
-    if (data.difficulty !== undefined) updateData.difficulty = data.difficulty;
-    if (data.constraints !== undefined) updateData.constraints = data.constraints;
+    const updateData = buildPatchData(data);
 
     // Update the exercise
     const result = await db
