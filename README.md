@@ -1,302 +1,218 @@
 # Lifters Club
 
-A **training decision engine** that transforms workout history into intelligent, justified training decisions. Built as a modern monorepo with React Native mobile app, Hono backend API, and Next.js admin dashboard.
+A training decision engine that turns workout history into justified next-week decisions. Not a workout tracker.
 
-## 🏗️ Monorepo Structure
+The system makes **7 types of training decisions** — load progression, volume adjustment, exercise rotation, deload recommendation, session recovery, missed session handling, and weekly plan generation — each with auditable reasoning stored alongside the result.
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Clients
+        web["Next.js 15 (Web)\nSSR + App Router"]
+        mobile["Expo 54 (Mobile)\nOffline-first"]
+    end
+
+    subgraph "API Layer"
+        api["Hono REST API\nClerk JWT auth\nZod validation\nPino logging"]
+    end
+
+    subgraph "Core"
+        engine["Decision Engine\nPure functions\nZero I/O"]
+    end
+
+    subgraph "Data"
+        db[("PostgreSQL 16\nexercise_lib + training schemas")]
+    end
+
+    web --> api
+    mobile --> api
+    mobile -.->|"offline queue\nAsyncStorage"| mobile
+    api --> engine
+    api --> db
+```
+
+### Package Dependency Graph
+
+```mermaid
+graph LR
+    types["@gymapp/types"]
+    validation["@gymapp/validation"]
+    engine["@gymapp/engine"]
+    db["@gymapp/db"]
+    server["apps/server"]
+    web["apps/web"]
+    mobile["apps/mobile"]
+
+    validation --> types
+    engine --> types
+    db --> types
+    server --> validation
+    server --> engine
+    server --> db
+    web --> validation
+    mobile -.->|"runtime API calls"| server
+    web -.->|"runtime API calls"| server
+```
+
+`@gymapp/types` is the dependency leaf — depended on by everything, depends on nothing.
+
+## Tech Stack
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Monorepo | Turborepo + pnpm | Coordinated builds, caching, single lockfile ([ADR-0001](docs/adr/0001-monorepo-turborepo-pnpm.md)) |
+| Backend | Hono | Ultrafast, TypeScript-first, middleware-based ([ADR-0003](docs/adr/0003-hono-backend.md)) |
+| Web Frontend | Next.js 15 (App Router) | SSR, RSC, file-based routing |
+| Mobile | Expo 54 + React Native | Cross-platform, OTA updates, Expo Router |
+| Database | PostgreSQL 16 + Drizzle ORM | Separate schemas for exercise lib vs training data ([ADR-0002](docs/adr/0002-separate-postgres-schemas.md), [ADR-0004](docs/adr/0004-drizzle-orm.md)) |
+| Validation | Zod | Runtime validation at all system boundaries, type inference |
+| Auth | Clerk | JWT-based, works across web + mobile + server ([ADR-0006](docs/adr/0006-clerk-authentication.md)) |
+| Styling | Tailwind + shadcn/ui (web), NativeWind (mobile) | Utility-first, consistent design system |
+| Testing | Vitest | Jest-compatible, fast, monorepo-aware ([ADR-0007](docs/adr/0007-testing-strategy.md)) |
+| Offline | AsyncStorage + offline queue | Simple mutation queue, auto-sync on reconnect ([ADR-0009](docs/adr/0009-simple-offline-queue.md)) |
+| Observability | Pino (structured logging) + Sentry (error tracking) | JSON logs, request tracing, error capture |
+
+## Monorepo Structure
 
 ```
 lifters-club/
 ├── apps/
-│   ├── mobile/          # 📱 React Native + Expo app
-│   ├── server/          # 🔧 Hono backend API
-│   └── web/             # 💻 Next.js admin dashboard
-│
+│   ├── web/                    # Next.js 15 dashboard (port 3000)
+│   ├── mobile/                 # Expo 54 React Native app (port 8081)
+│   └── server/                 # Hono REST API (port 4000)
 ├── packages/
-│   ├── db/              # 🗄️  Drizzle ORM + PostgreSQL schemas
-│   ├── engine/          # 🧠 Decision engine (progression, volume, rotation)
-│   ├── types/           # 📦 Shared TypeScript types
-│   └── validation/      # ✅ Zod validation schemas
-│
-├── docs/adr/            # 📚 Architecture Decision Records
-└── scripts/             # 🔨 Utility scripts
+│   ├── types/                  # @gymapp/types — domain type definitions (zero runtime)
+│   ├── validation/             # @gymapp/validation — Zod schemas for all boundaries
+│   ├── db/                     # @gymapp/db — Drizzle schema, client, migrations, seeds
+│   └── engine/                 # @gymapp/engine — pure-function decision algorithms
+├── docs/
+│   ├── adr/                    # 9 Architecture Decision Records
+│   └── *.md                    # Structured logging, Docker setup, user relationships
+├── docker-compose.yml          # PostgreSQL + server + web (local dev)
+├── docker-compose.test.yml     # Isolated test database
+├── Makefile                    # Developer workflow shortcuts (run `make help`)
+├── turbo.json                  # Turborepo task pipeline
+└── pnpm-workspace.yaml         # Workspace configuration
 ```
 
-## ✨ Features
+Each app and package has its own README with architecture diagrams, ownership boundaries, extension patterns, and operational details.
 
-### Mobile App
-- 🏋️ **Exercise Substitution Flow** - Find alternative exercises with match scores
-- ⚡ **Offline-First** - Full functionality without internet
-- 📊 **Progress Tracking** - Volume, RPE, and performance charts
-- 🎯 **Smart Decisions** - AI-powered load and volume recommendations
-- ✅ **52 Unit Tests** - 90%+ coverage on core components
-
-### Backend API
-- 🔐 **Clerk Authentication** - Secure user management
-- 📈 **Decision Engine API** - Load progression, volume adjustment, exercise rotation
-- 🎯 **Exercise Library** - 140+ exercises with metadata
-- 💾 **PostgreSQL** - Separate schemas for exercise library and training data
-
-### Shared Packages
-- 📦 **Types** - Type-safe across all apps
-- 🧠 **Engine** - Pure functions for training decisions
-- 🗄️  **Database** - Centralized schema and migrations
-- ✅ **Validation** - Consistent data validation
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
-- pnpm 10+
-- PostgreSQL 16+
-- Docker (optional)
+- pnpm 10+ (`corepack enable && corepack prepare pnpm@10.28.0 --activate`)
+- Docker (for PostgreSQL)
 
-### Installation
+### Setup
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/lifters-club.git
-cd lifters-club
-
-# Install dependencies
+# 1. Clone and install
+git clone <repo-url> && cd lifters-club
 pnpm install
 
-# Set up environment variables
+# 2. Configure environment
 cp .env.example .env
-# Edit .env with your database credentials
+# Fill in: CLERK_SECRET_KEY, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+# (get from https://dashboard.clerk.com)
 
-# Start PostgreSQL (if using Docker)
-docker-compose up -d postgres
+# 3. Start database and seed
+make up-db                     # Start PostgreSQL in Docker
+pnpm db:push                   # Push schema (dev mode, no migrations)
+pnpm db:seed:all               # Seed 140+ exercises + training programs
 
-# Run database migrations
-pnpm db:push
+# 4. Start development servers
+pnpm dev                       # Starts server (:4000) + web (:3000) via Turborepo
 
-# Seed database
-pnpm db:seed:all
+# 5. (Optional) Start mobile
+pnpm mobile                    # Expo dev server (:8081)
+pnpm mobile:ios                # iOS simulator
+pnpm mobile:android            # Android emulator
 ```
 
-### Development
+### Verify
 
-```bash
-# Start all development servers
-pnpm dev
+- API health: http://localhost:4000/health
+- API docs (Swagger): http://localhost:4000/api/docs
+- Web app: http://localhost:3000
 
-# Or start individually:
-pnpm --filter @gymapp/mobile dev      # Mobile on http://localhost:8081
-pnpm --filter @gymapp/server dev      # Server on http://localhost:4000
-pnpm --filter @gymapp/web dev         # Web on http://localhost:3000
-```
+## Key Commands
 
-### Testing
+| Workflow | Command | What it does |
+|----------|---------|-------------|
+| **Dev** | `pnpm dev` | Start all dev servers (Turborepo) |
+| | `make dev-server` | Server only (:4000) |
+| | `make dev-web` | Web only (:3000) |
+| | `make mobile` | Expo dev server |
+| **Build** | `pnpm build` | Build all packages |
+| | `pnpm typecheck` | Type-check everything |
+| | `pnpm lint` | Lint everything |
+| **Test** | `pnpm test` | Run all tests |
+| | `make test-engine` | Engine tests only (90%+ coverage) |
+| | `make test-server` | Server tests only |
+| | `pnpm test:integration` | Spin up test DB, run integration suite, tear down |
+| **Database** | `make up-db` | Start PostgreSQL |
+| | `pnpm db:push` | Push schema changes (dev) |
+| | `pnpm db:generate` | Generate migration SQL |
+| | `pnpm db:migrate` | Run migrations (prod) |
+| | `pnpm db:seed:all` | Seed exercises + programs |
+| | `make studio` | Open Drizzle Studio GUI |
+| | `make db-shell` | PostgreSQL shell |
+| **Docker** | `make up` | Start all containers |
+| | `make down` | Stop all containers |
+| | `make reset` | Full reset: clean + reinstall + seed |
 
-```bash
-# Run all tests
-pnpm test
+Run `make help` for the complete command reference.
 
-# Test specific package
-pnpm --filter @gymapp/mobile test
-pnpm --filter @gymapp/server test
+## Two API Surfaces
 
-# Test with coverage
-pnpm test:coverage
-```
+The server exposes two distinct API surfaces:
 
-### Building
+| Surface | Auth | Purpose |
+|---------|------|---------|
+| **Exercise Library** (`/api/exercises/*`) | Public | Canonical movement database — list, search, filter, substitutions. Designed to be reusable independently. |
+| **Training API** (`/api/users/*`, `/api/workouts/*`, `/api/programs/*`, `/api/decisions/*`, `/api/analytics/*`) | Clerk JWT | User-specific training data — programs, workouts, logs, decisions, analytics, weekly plans. |
 
-```bash
-# Build all packages
-pnpm build
+API documentation is auto-generated via OpenAPI at `/api/docs`.
 
-# Build specific package
-pnpm --filter @gymapp/mobile build
-```
+## Core Design: Functional Core, Imperative Shell
 
-## 📱 Mobile App Setup
-
-### iOS
-
-```bash
-# Install dependencies
-pnpm install
-
-# Start Expo
-pnpm mobile:ios
-```
-
-### Android
-
-```bash
-# Install dependencies
-pnpm install
-
-# Start Expo
-pnpm mobile:android
-```
-
-## 🧪 Testing
-
-- **Mobile**: Jest + React Native Testing Library (52 tests)
-- **Server**: Vitest (integration tests)
-- **Engine**: Vitest (95%+ coverage)
-
-```bash
-# Run all tests
-pnpm test
-
-# Watch mode
-pnpm --filter @gymapp/mobile test:watch
-
-# Coverage report
-pnpm test:coverage
-```
-
-## 📦 Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| **Monorepo** | Turborepo + pnpm workspaces |
-| **Mobile** | React Native + Expo 54 |
-| **Backend** | Hono (TypeScript) |
-| **Web** | Next.js 15 (App Router) |
-| **Database** | PostgreSQL 16 + Drizzle ORM |
-| **Validation** | Zod |
-| **Auth** | Clerk |
-| **Styling** | Tailwind + shadcn/ui |
-| **Testing** | Jest (mobile), Vitest (server/packages) |
-| **Offline** | AsyncStorage + offline queue |
-
-## 🗂️ Project Structure
-
-### Apps
-
-#### Mobile (`apps/mobile/`)
-- React Native + Expo app
-- Offline-first architecture
-- Exercise substitution flow with match scores
-- Workout tracking with RPE and volume
-- Progress charts and analytics
-
-#### Server (`apps/server/`)
-- Hono backend API
-- RESTful endpoints
-- Decision engine integration
-- Database access layer
-
-#### Web (`apps/web/`)
-- Next.js 15 admin dashboard
-- Server-side rendering
-- Tailwind + shadcn/ui
-
-### Packages
-
-#### Database (`packages/db/`)
-- Drizzle ORM setup
-- Schema definitions
-- Migration scripts
-- Seed data
-
-#### Engine (`packages/engine/`)
-- Load progression algorithm
-- Volume adjustment logic
-- Exercise rotation system
-- Pure functions (no I/O)
-
-#### Types (`packages/types/`)
-- Shared TypeScript interfaces
-- Type safety across apps
-- No dependencies
-
-#### Validation (`packages/validation/`)
-- Zod schemas
-- API request/response validation
-- Form validation
-
-## 📚 Documentation
-
-- [Version Control Guide](VERSION_CONTROL_GUIDE.md) - Git workflow and conventions
-- [Monorepo Version Control](MONOREPO_VERSION_CONTROL.md) - Monorepo-specific strategies
-- [Git Quick Start](GIT_QUICKSTART.md) - Fast reference for common Git tasks
-- [Architecture](ARCHITECTURE.md) - System design and decisions
-- [Project Status](PROJECT_STATUS.md) - Current implementation status
-- [Development Standards](CLAUDE.md) - Coding conventions and best practices
-- [Mobile Testing Guide](apps/mobile/TESTING.md) - How to test the mobile app
-- [ADRs](docs/adr/) - Architecture Decision Records
-
-## 🔄 Version Control
-
-This project uses Git with a **single-version monorepo strategy**:
-
-```bash
-# Initialize repository (first time)
-git init && git branch -M main
-
-# Create initial commit
-git add .
-git commit -m "chore: initial monorepo setup"
-
-# Connect to remote
-git remote add origin https://github.com/yourusername/lifters-club.git
-git push -u origin main
-```
-
-### Branch Naming Convention
+The decision engine (`@gymapp/engine`) contains **zero I/O**. Every function is pure:
 
 ```
-feature/<scope>/<name>    # feature/mobile/exercise-timer
-fix/<scope>/<name>        # fix/server/auth-bug
-refactor/<scope>/<name>   # refactor/engine/progression
-docs/<name>               # docs/update-readme
+Server service layer (I/O)     Engine (pure)                   Server service layer (I/O)
+─────────────────────────  →   ─────────────────────────   →   ─────────────────────────
+Fetch workout logs from DB     calculateLoadProgression()      Persist decision + reasoning
+Fetch user preferences         → { increase, 107.5kg,          Return result to client
+Fetch current program              "Hit 10 reps at RPE 7" }
 ```
 
-### Commit Message Format
+Same input always produces the same output. The server's service layer handles all data fetching and persistence. This makes the engine trivially testable and the decision logic auditable.
 
-```
-<type>(<scope>): <description>
+## Documentation
 
-- Bullet point 1
-- Bullet point 2
-```
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System overview, data flows, offline strategy, database design, API surface |
+| [CLAUDE.md](CLAUDE.md) | Coding standards, SOLID principles, TypeScript conventions, testing strategy |
+| [docs/adr/](docs/adr/) | 9 Architecture Decision Records (monorepo, schemas, ORM, auth, offline, testing, code quality) |
+| [apps/web/README.md](apps/web/README.md) | Web app: route map, patterns, auth flow, how to add pages |
+| [apps/mobile/README.md](apps/mobile/README.md) | Mobile app: screen map, offline architecture, hooks, how to add screens |
+| [apps/server/README.md](apps/server/README.md) | API server: middleware stack, route handlers, decision flow, how to add endpoints |
+| [packages/types/README.md](packages/types/README.md) | Type system: module map, conventions, how to add types |
+| [packages/db/README.md](packages/db/README.md) | Database: schema design, commands, migrations, how to modify schema |
+| [packages/engine/README.md](packages/engine/README.md) | Decision engine: 7 decision functions, config pattern, how to add decisions |
+| [packages/validation/README.md](packages/validation/README.md) | Validation: schema map, usage at API + form boundaries |
+| [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) | Docker configuration and container setup |
 
-**See [MONOREPO_VERSION_CONTROL.md](MONOREPO_VERSION_CONTROL.md) for complete guide.**
+## Project Conventions
 
-## 🚀 Deployment
+- **Branch naming:** `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`
+- **Commits:** `type(scope): description` — e.g., `feat(engine): add volume adjustment`
+- **Types:** Strict TypeScript, no `any`, no `!` non-null assertions without justification
+- **Validation:** Zod at all system boundaries, trust internal code
+- **Testing:** Unit-heavy pyramid — 90%+ on engine, 80%+ on server, integration tests for critical flows
 
-### Mobile App
-- iOS: Submit to App Store Connect
-- Android: Submit to Google Play Console
-
-### Backend API
-- Deploy to Railway/Render/Fly.io
-- Environment variables via platform
-- PostgreSQL database connection
-
-### Web Dashboard
-- Deploy to Vercel
-- Automatic deployments from `main` branch
-
-## 🤝 Contributing
-
-1. Create a feature branch: `git checkout -b feature/mobile/your-feature`
-2. Make changes and test: `pnpm test && pnpm typecheck && pnpm lint`
-3. Commit with conventional format: `git commit -m "feat(mobile): your message"`
-4. Push and create PR: `git push -u origin feature/mobile/your-feature`
-
-## 📝 License
-
-[Add your license here]
-
-## 🙏 Acknowledgments
-
-Built with:
-- [Turborepo](https://turbo.build/) - Monorepo build system
-- [pnpm](https://pnpm.io/) - Fast, disk space efficient package manager
-- [Expo](https://expo.dev/) - React Native framework
-- [Hono](https://hono.dev/) - Lightweight web framework
-- [Drizzle ORM](https://orm.drizzle.team/) - TypeScript ORM
-- [Clerk](https://clerk.com/) - Authentication and user management
-
-Co-developed with [Claude Sonnet 4.5](https://www.anthropic.com/claude) by Anthropic.
-
----
-
-**Ready to lift? 🏋️ Start with the [Quick Start](#-quick-start) guide above!**
+See [CLAUDE.md](CLAUDE.md) for the full coding standards reference.
