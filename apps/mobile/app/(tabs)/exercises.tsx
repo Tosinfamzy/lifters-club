@@ -53,7 +53,7 @@ export default function ExercisesScreen() {
   const [offset, setOffset] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({
     difficulty: null,
     muscle: null,

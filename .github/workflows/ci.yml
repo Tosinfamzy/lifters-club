@@ -27,6 +27,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gymapp_test
+      CLERK_SECRET_KEY: sk_test_ci_placeholder
 
     steps:
       - uses: actions/checkout@v4

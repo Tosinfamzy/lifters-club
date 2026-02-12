@@ -20,7 +20,7 @@ interface ExerciseActionsSheetProps {
 
 interface ActionOption {
   action: ExerciseAction;
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<{ size: number; color: string }>;
   label: string;
   description: string;
 }
@@ -28,7 +28,7 @@ interface ActionOption {
 export function ExerciseActionsSheet({
   visible,
   onClose,
-  exerciseId,
+  exerciseId: _exerciseId,
   exerciseName,
   onSelectAction,
 }: ExerciseActionsSheetProps) {

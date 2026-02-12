@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -46,11 +46,7 @@ export default function ExerciseAlternativesScreen() {
     }
   }
 
-  useEffect(() => {
-    loadSubstitutes();
-  }, [exerciseId]);
-
-  const loadSubstitutes = async () => {
+  const loadSubstitutes = useCallback(async () => {
     if (!exerciseId) {
       setError("No exercise ID provided");
       setIsLoading(false);
@@ -85,7 +81,11 @@ export default function ExerciseAlternativesScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [exerciseId, api]);
+
+  useEffect(() => {
+    loadSubstitutes();
+  }, [loadSubstitutes]);
 
   const handleSelectSubstitute = (substituteId: string) => {
     setSelectedSubstitute(substituteId);
