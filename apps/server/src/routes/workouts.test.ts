@@ -812,10 +812,10 @@ describe("Workouts API", () => {
         });
         expect(res.status).toBe(200);
 
-        const body = (await res.json()) as ApiResponse<{ workout: WorkoutData }>;
+        const body = (await res.json()) as ApiResponse<{ programWorkout: WorkoutData; standaloneWorkouts: unknown[]; decisions: unknown[] }>;
         expect(body.data).toBeDefined();
-        expect(body.data!.workout).toBeDefined();
-        expect(body.data!.workout.scheduledDate).toBe(today);
+        expect(body.data!.programWorkout).toBeDefined();
+        expect(body.data!.programWorkout.scheduledDate).toBe(today);
       });
 
       it("should return null if no workout today", async () => {
@@ -841,7 +841,7 @@ describe("Workouts API", () => {
 
         const body = (await res.json()) as ApiResponse<null>;
         expect(body.data).toBeNull();
-        expect(body.message).toBe("No active training block");
+        expect(body.message).toBe("No workout scheduled for today");
       });
     });
 
