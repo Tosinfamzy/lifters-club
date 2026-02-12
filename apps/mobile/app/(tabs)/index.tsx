@@ -9,51 +9,24 @@ import {
   RefreshControl,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
-import { useAuth } from "@clerk/clerk-expo";
 import { Play, Target, Dumbbell, BookOpen, History, TrendingUp, Sparkles, Check, Eye } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface PlannedExercise {
-  exerciseId: string;
-  sets: number;
-  repRange: [number, number];
-  restSeconds: number;
-  notes?: string;
-}
-
-interface Workout {
-  id: string;
-  scheduledDate: string;
-  weekNumber: number;
-  dayNumber: number;
-  plannedExercises: PlannedExercise[];
-  status: string;
-}
-
-interface UserStats {
-  totalWorkouts: number;
-  workoutsThisWeek: number;
-  currentStreak: number;
-  lastWorkout: string | null;
-}
+import { useApi } from "../../hooks/use-api";
+import type { Workout, AnalyticsSummary } from "../../lib/api";
 
 export default function TodayScreen() {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
   const { appUser } = useAppUser();
   const [workout, setWorkout] = useState<Workout | null>(null);
-  const [stats, setStats] = useState<UserStats | null>(null);
+  const [stats, setStats] = useState<AnalyticsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   // Use ref to store latest values without causing re-renders
   const appUserRef = useRef(appUser);
-  const getTokenRef = useRef(getToken);
   appUserRef.current = appUser;
-  getTokenRef.current = getToken;
 
   const fetchTodaysWorkout = useCallback(async () => {
     const currentUser = appUserRef.current;
@@ -63,36 +36,24 @@ export default function TodayScreen() {
     }
 
     try {
-      const token = await getTokenRef.current();
-
       // Fetch today's workout and stats in parallel
       const [workoutRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/workouts/today`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/api/analytics/summary`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        api.getTodaysWorkout(),
+        api.getAnalyticsSummary(),
       ]);
 
-      if (workoutRes.ok) {
-        const data = await workoutRes.json();
-        // API returns { programWorkout, standaloneWorkouts, decisions }
-        setWorkout(data.data?.programWorkout ?? null);
-      } else {
-        setWorkout(null);
-      }
+      // API returns { programWorkout, standaloneWorkouts, decisions }
+      const workoutData = workoutRes.data as Record<string, unknown> | null;
+      setWorkout((workoutData?.programWorkout as Workout) ?? null);
 
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData.data);
-      }
-    } catch {
+      setStats(statsRes.data);
+    } catch (err) {
+      console.error("Failed to fetch today's workout:", err);
       setError("Could not connect to server");
     } finally {
       setIsLoading(false);
     }
-  }, []); // No dependencies - uses refs
+  }, [api]); // No dependencies on appUser - uses refs
 
   // Fetch when tab comes into focus (handles both initial load and tab switches)
   useFocusEffect(
@@ -283,7 +244,7 @@ export default function TodayScreen() {
           ]}>
             {workout.status === "completed" && <Check size={12} color="#FFFFFF" />}
             <Text style={styles.statusText}>
-              {workout.status === "scheduled" || workout.status === "pending"
+              {workout.status === "pending"
                 ? "Ready"
                 : workout.status === "completed"
                 ? "Done"

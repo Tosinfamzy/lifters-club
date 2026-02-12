@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { ExercisePreference, SubstitutionResult } from "../../types";
+import type { ExercisePreference } from "../../types";
+import type { ScoredSubstitute } from "../api";
 
 // Storage keys
 export const STORAGE_KEYS = {
@@ -65,7 +66,7 @@ export const offlineStorage = {
   },
 
   // Cached substitutes (24h TTL)
-  getCachedSubstitutes: async (exerciseId: string): Promise<SubstitutionResult[] | null> => {
+  getCachedSubstitutes: async (exerciseId: string): Promise<ScoredSubstitute[] | null> => {
     const data = await AsyncStorage.getItem(`${STORAGE_KEYS.CACHED_SUBSTITUTES}_${exerciseId}`);
     if (!data) return null;
 
@@ -76,7 +77,7 @@ export const offlineStorage = {
     return age < TTL ? cache.substitutes : null;
   },
 
-  setCachedSubstitutes: async (exerciseId: string, substitutes: SubstitutionResult[]): Promise<void> => {
+  setCachedSubstitutes: async (exerciseId: string, substitutes: ScoredSubstitute[]): Promise<void> => {
     const cache = {
       substitutes,
       cachedAt: new Date().toISOString(),

@@ -9,23 +9,11 @@ import {
   Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuth } from "@clerk/clerk-expo";
 import { ArrowLeft, ArrowRight } from "lucide-react-native";
 import { AlternativeExerciseCard } from "../../components";
 import { offlineStorage } from "../../lib/offline/storage";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface ScoredSubstitute {
-  exercise: {
-    id: string;
-    name: string;
-    equipment: string[];
-    difficulty: "beginner" | "intermediate" | "advanced";
-  };
-  score: number;
-  matchReasons: string[];
-}
+import { useApi } from "../../hooks/use-api";
+import type { ScoredSubstitute } from "../../lib/api";
 
 interface CurrentExerciseData {
   name: string;
@@ -40,7 +28,7 @@ export default function ExerciseAlternativesScreen() {
     currentExercise?: string;
   }>();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
 
   const [substitutes, setSubstitutes] = useState<ScoredSubstitute[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -84,22 +72,8 @@ export default function ExerciseAlternativesScreen() {
       }
 
       // Fetch from API
-      const token = await getToken();
-      const response = await fetch(
-        `${API_URL}/api/exercises/${exerciseId}/substitutes?limit=5`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch substitutes");
-      }
-
-      const data = await response.json();
-      const substitutesData = data.data || [];
+      const data = await api.getExerciseSubstitutes(exerciseId, { limit: 5 });
+      const substitutesData = data.data?.substitutes || [];
 
       // Cache for 24h
       await offlineStorage.setCachedSubstitutes(exerciseId, substitutesData);
@@ -137,7 +111,7 @@ export default function ExerciseAlternativesScreen() {
           originalId: exerciseId,
           substituteId: selectedSubstitute,
           timestamp: new Date().toISOString(),
-          reason: selectedExercise.matchReasons[0] || "User selected",
+          reason: selectedExercise.reasons[0] || "User selected",
         });
       }
 
@@ -246,7 +220,7 @@ export default function ExerciseAlternativesScreen() {
                 key={substitute.exercise.id}
                 exercise={substitute.exercise}
                 matchScore={substitute.score}
-                matchReasons={substitute.matchReasons}
+                matchReasons={substitute.reasons}
                 sets={currentExerciseData?.sets || 3}
                 repRange={currentExerciseData?.repRange || [8, 12]}
                 isOriginal={false}

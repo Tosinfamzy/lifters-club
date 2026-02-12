@@ -16,6 +16,7 @@ import { Link, useRouter } from "expo-router";
 import { Dumbbell } from "lucide-react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
+import { getClerkErrorMessage } from "../../lib/clerk-error";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -47,8 +48,7 @@ export default function SignUpScreen() {
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setPendingVerification(true);
     } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(clerkError.errors?.[0]?.message || "Sign up failed");
+      setError(getClerkErrorMessage(err, "Sign up failed"));
     } finally {
       setIsLoading(false);
     }
@@ -68,8 +68,7 @@ export default function SignUpScreen() {
         router.replace("/onboarding");
       }
     } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(clerkError.errors?.[0]?.message || "Verification failed");
+      setError(getClerkErrorMessage(err, "Verification failed"));
     } finally {
       setIsLoading(false);
     }
@@ -91,8 +90,7 @@ export default function SignUpScreen() {
         router.replace("/onboarding");
       }
     } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(clerkError.errors?.[0]?.message || "Google sign up failed");
+      setError(getClerkErrorMessage(err, "Google sign up failed"));
     } finally {
       setIsGoogleLoading(false);
     }

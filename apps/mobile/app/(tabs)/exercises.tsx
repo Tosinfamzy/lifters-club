@@ -14,17 +14,8 @@ import {
 import { useRouter } from "expo-router";
 import { Search, Dumbbell, ChevronRight, X, Filter } from "lucide-react-native";
 import { debounce } from "../../utils/debounce";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface Exercise {
-  id: string;
-  name: string;
-  equipment: string[];
-  primaryMuscles: string[];
-  difficulty: "beginner" | "intermediate" | "advanced";
-  isCompound: boolean;
-}
+import { useApi } from "../../hooks/use-api";
+import type { Exercise } from "../../lib/api";
 
 const difficultyColors: Record<string, string> = {
   beginner: "#10B981",
@@ -54,6 +45,7 @@ interface Filters {
 
 export default function ExercisesScreen() {
   const router = useRouter();
+  const api = useApi();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -82,42 +74,27 @@ export default function ExercisesScreen() {
 
     try {
       setError(null);
-      const params = new URLSearchParams({
-        limit: "20",
-        offset: String(currentOffset),
+
+      const data = await api.getExercises({
+        limit: 20,
+        offset: currentOffset,
+        search: query.trim() || undefined,
+        difficulty: currentFilters.difficulty || undefined,
+        muscleGroup: currentFilters.muscle || undefined,
+        equipment: currentFilters.equipment || undefined,
       });
 
-      if (query.trim()) {
-        params.append("search", query.trim());
-      }
+      const newExercises = data.data || [];
 
-      if (currentFilters.difficulty) {
-        params.append("difficulty", currentFilters.difficulty);
-      }
-      if (currentFilters.muscle) {
-        params.append("muscleGroup", currentFilters.muscle);
-      }
-      if (currentFilters.equipment) {
-        params.append("equipment", currentFilters.equipment);
-      }
-
-      const response = await fetch(`${API_URL}/api/exercises?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        const newExercises = data.data || [];
-
-        if (reset) {
-          setExercises(newExercises);
-          setOffset(20);
-        } else {
-          setExercises((prev) => [...prev, ...newExercises]);
-          setOffset((prev) => prev + 20);
-        }
-
-        setHasMore(data.pagination?.hasMore ?? false);
+      if (reset) {
+        setExercises(newExercises);
+        setOffset(20);
       } else {
-        throw new Error(`Server error: ${response.status}`);
+        setExercises((prev) => [...prev, ...newExercises]);
+        setOffset((prev) => prev + 20);
       }
+
+      setHasMore(data.pagination?.hasMore ?? false);
     } catch (err) {
       console.error("Failed to load exercises:", err);
       setError("Unable to load exercises");
@@ -132,7 +109,7 @@ export default function ExercisesScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     fetchExercises("", true);

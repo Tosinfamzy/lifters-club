@@ -8,53 +8,23 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { Calendar, Clock, Dumbbell, TrendingUp, BarChart3 } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 import { VolumeChart } from "../../components";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface WorkoutLog {
-  id: string;
-  workoutId: string;
-  startedAt: string;
-  completedAt?: string;
-  overallRpe?: number;
-  notes?: string;
-  weekNumber?: number;
-  dayNumber?: number;
-  exerciseCount?: number;
-}
-
-interface WeekData {
-  weekStart: string;
-  totalVolume: number;
-  workoutCount: number;
-  setCount: number;
-}
-
-interface SummaryData {
-  totalWorkouts: number;
-  workoutsThisWeek: number;
-  workoutsThisMonth: number;
-  averageRpe: number | null;
-  averageDuration: number | null;
-  currentStreak: number;
-  lastWorkout: string | null;
-}
+import { useApi } from "../../hooks/use-api";
+import type { WorkoutLog, VolumeWeekData, AnalyticsSummary } from "../../lib/api";
 
 type ViewMode = "history" | "analytics";
 
 export default function HistoryScreen() {
-  const { getToken } = useAuth();
+  const api = useApi();
   const { appUser } = useAppUser();
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>("history");
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
-  const [volumeData, setVolumeData] = useState<WeekData[]>([]);
-  const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [volumeData, setVolumeData] = useState<VolumeWeekData[]>([]);
+  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -62,55 +32,35 @@ export default function HistoryScreen() {
     if (!appUser) return;
 
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/logs?limit=20`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setLogs(data.data || []);
-      }
-    } catch {
-      // Silently fail
+      const data = await api.getWorkoutLogs({ limit: 20 });
+      setLogs(data.data || []);
+    } catch (err) {
+      console.error("Failed to fetch history:", err);
     }
-  }, [appUser, getToken]);
+  }, [appUser, api]);
 
   const fetchAnalytics = useCallback(async () => {
     if (!appUser) return;
 
     try {
-      const token = await getToken();
       const [volumeResult, summaryResult] = await Promise.allSettled([
-        fetch(`${API_URL}/api/analytics/volume?weeks=8`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }),
-        fetch(`${API_URL}/api/analytics/summary`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }),
+        api.getVolumeAnalytics(8),
+        api.getAnalyticsSummary(),
       ]);
 
       // Handle volume data - don't let one failure affect the other
-      if (volumeResult.status === "fulfilled" && volumeResult.value.ok) {
-        const data = await volumeResult.value.json();
-        setVolumeData(data.data?.weeks || []);
+      if (volumeResult.status === "fulfilled") {
+        setVolumeData(volumeResult.value.data?.weeks || []);
       }
 
       // Handle summary data independently
-      if (summaryResult.status === "fulfilled" && summaryResult.value.ok) {
-        const data = await summaryResult.value.json();
-        setSummary(data.data || null);
+      if (summaryResult.status === "fulfilled") {
+        setSummary(summaryResult.value.data || null);
       }
-    } catch {
-      // Silently fail for other unexpected errors
+    } catch (err) {
+      console.error("Failed to fetch analytics:", err);
     }
-  }, [appUser, getToken]);
+  }, [appUser, api]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

@@ -6,12 +6,12 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { useUser, useAuth } from "@clerk/clerk-expo";
+import { useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { Dumbbell, Target, Zap, Award, ChevronRight } from "lucide-react-native";
 import { useAppUser } from "../providers/user-provider";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
+import { useApi } from "../hooks/use-api";
+import { ApiRequestError } from "../lib/api";
 
 type TrainingLevel = "beginner" | "intermediate" | "advanced";
 type Goal = "strength" | "hypertrophy" | "conditioning";
@@ -30,9 +30,9 @@ const goals: { value: Goal; label: string; description: string; icon: typeof Tar
 
 export default function OnboardingScreen() {
   const { user } = useUser();
-  const { getToken } = useAuth();
   const router = useRouter();
   const { refetch } = useAppUser();
+  const api = useApi();
 
   const [step, setStep] = useState(1);
   const [trainingLevel, setTrainingLevel] = useState<TrainingLevel | null>(null);
@@ -47,34 +47,32 @@ export default function OnboardingScreen() {
     setError("");
 
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/users`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-          clerkId: user.id,
-          email: user.emailAddresses[0]?.emailAddress,
-          trainingLevel,
-          primaryGoal: goal,
-        }),
+      await api.createUser({
+        id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        clerkId: user.id,
+        email: user.emailAddresses[0]?.emailAddress,
+        trainingLevel,
+        primaryGoal: goal,
       });
 
-      if (response.ok || response.status === 409) {
-        // 409 = user already exists, which is fine - just proceed
-        await refetch();
-        router.replace("/(tabs)");
-      } else if (response.status === 429) {
-        setError("Too many requests. Please wait a moment and try again.");
+      await refetch();
+      router.replace("/(tabs)");
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        if (err.status === 409) {
+          // 409 = user already exists, which is fine - just proceed
+          await refetch();
+          router.replace("/(tabs)");
+          return;
+        } else if (err.status === 429) {
+          setError("Too many requests. Please wait a moment and try again.");
+          return;
+        }
+        setError(err.message || "Failed to create profile");
       } else {
-        const data = await response.json();
-        setError(data.error || "Failed to create profile");
+        console.error("Failed to create user:", err);
+        setError("Failed to connect to server");
       }
-    } catch {
-      setError("Failed to connect to server");
     } finally {
       setIsLoading(false);
     }

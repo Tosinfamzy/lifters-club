@@ -10,55 +10,8 @@ import {
   QueuedWorkoutLog,
 } from "../lib/offline/queue";
 import { useOffline } from "../providers/offline-provider";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-// Types
-export interface Exercise {
-  id: string;
-  name: string;
-  equipment: string[];
-  primaryMuscles: string[];
-}
-
-export interface PlannedExercise {
-  exerciseId: string;
-  exercise?: Exercise;
-  sets: number;
-  repRange: [number, number];
-  restSeconds: number;
-}
-
-export interface Workout {
-  id: string;
-  trainingBlockId: string;
-  scheduledDate: string;
-  weekNumber: number;
-  dayNumber: number;
-  plannedExercises: PlannedExercise[];
-  status: "scheduled" | "in_progress" | "completed" | "skipped";
-}
-
-export interface WorkoutLog {
-  id: string;
-  workoutId: string;
-  userId: string;
-  startedAt: string;
-  completedAt?: string;
-  overallRpe?: number;
-  notes?: string;
-}
-
-export interface LoggedSet {
-  id: string;
-  workoutLogId: string;
-  exerciseId: string;
-  setNumber: number;
-  weight: number;
-  reps: number;
-  rpe?: number;
-  notes?: string;
-}
+import { api } from "../lib/api";
+import type { Workout, WorkoutLog, LoggedSet } from "../lib/api";
 
 interface CachedWorkoutData {
   workout: Workout;
@@ -99,15 +52,8 @@ export function useWorkoutOffline(workoutId: string) {
       const token = await getTokenRef.current();
       if (!token) return;
 
-      const response = await fetch(`${API_URL}/api/workouts/${workoutId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch workout");
-
-      const json = await response.json();
-      // API returns { data: workout } - the workout is directly in data
-      const workoutData = json.data;
+      const response = await api.withToken(token).getWorkout(workoutId);
+      const workoutData = response.data;
 
       const cachedData: CachedWorkoutData = {
         workout: workoutData,
@@ -171,6 +117,8 @@ export function useWorkoutOffline(workoutId: string) {
       // Optimistic update
       const optimisticLog: WorkoutLog = {
         ...newLog,
+        createdAt: newLog.startedAt,
+        updatedAt: newLog.startedAt,
       };
       setWorkoutLog(optimisticLog);
 
@@ -186,38 +134,27 @@ export function useWorkoutOffline(workoutId: string) {
       if (isOnlineRef.current) {
         try {
           const token = await getTokenRef.current();
-          const response = await fetch(`${API_URL}/api/logs`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              id: newLog.id,
-              workoutId,
-              userId,
-              startedAt: newLog.startedAt,
-            }),
+          const response = await api.withToken(token).createWorkoutLog({
+            workoutId,
+            userId,
+            startedAt: newLog.startedAt,
           });
 
-          if (response.ok) {
-            const json = await response.json();
-            const serverLog = json.data;
-            setWorkoutLog(serverLog);
+          const serverLog = response.data;
+          setWorkoutLog(serverLog);
 
-            // Update cache with server ID
-            const latestCached = await offlineStorage.getCachedWorkout<CachedWorkoutData>();
-            if (latestCached) {
-              await offlineStorage.setCachedWorkout({
-                ...latestCached,
-                workoutLog: serverLog,
-              });
-            }
-
-            return serverLog;
+          // Update cache with server ID
+          const latestCached = await offlineStorage.getCachedWorkout<CachedWorkoutData>();
+          if (latestCached) {
+            await offlineStorage.setCachedWorkout({
+              ...latestCached,
+              workoutLog: serverLog,
+            });
           }
+
+          return serverLog;
         } catch {
-          // Fall through to queue
+          // Falls through to offline queue
         }
       }
 
@@ -256,7 +193,11 @@ export function useWorkoutOffline(workoutId: string) {
       };
 
       // Optimistic update
-      const optimisticSet: LoggedSet = { ...newSet };
+      const optimisticSet: LoggedSet = {
+        ...newSet,
+        rpe: newSet.rpe ?? null,
+        notes: newSet.notes ?? null,
+      };
       setLoggedSets((prev) => [...prev, optimisticSet]);
 
       // Update cache
@@ -271,38 +212,21 @@ export function useWorkoutOffline(workoutId: string) {
       if (isOnlineRef.current && !workoutLog.id.startsWith("offline-")) {
         try {
           const token = await getTokenRef.current();
-          const response = await fetch(
-            `${API_URL}/api/logs/${workoutLog.id}/sets`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                exerciseId,
-                setNumber,
-                weight,
-                reps,
-                rpe,
-                notes,
-              }),
-            }
+          const response = await api.withToken(token).createLoggedSet(
+            workoutLog.id,
+            { exerciseId, setNumber, weight, reps, rpe, notes }
           );
 
-          if (response.ok) {
-            const json = await response.json();
-            const serverSet = json.data;
+          const serverSet = response.data;
 
-            // Replace optimistic set with server response
-            setLoggedSets((prev) =>
-              prev.map((s) => (s.id === optimisticSet.id ? serverSet : s))
-            );
+          // Replace optimistic set with server response
+          setLoggedSets((prev) =>
+            prev.map((s) => (s.id === optimisticSet.id ? serverSet : s))
+          );
 
-            return serverSet;
-          }
+          return serverSet;
         } catch {
-          // Fall through to queue
+          // Falls through to offline queue
         }
       }
 
@@ -337,17 +261,13 @@ export function useWorkoutOffline(workoutId: string) {
       if (isOnlineRef.current && !workoutLog.id.startsWith("offline-")) {
         try {
           const token = await getTokenRef.current();
-          await fetch(`${API_URL}/api/logs/${workoutLog.id}/complete`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ completedAt, overallRpe, notes }),
+          await api.withToken(token).completeWorkoutLog(workoutLog.id, {
+            overallRpe,
+            notes,
           });
           return;
         } catch {
-          // Fall through to queue
+          // Falls through to offline queue
         }
       }
 

@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { offlineStorage, STORAGE_KEYS } from "../storage";
+import type { ScoredSubstitute } from "../../api";
 
 describe("offlineStorage", () => {
   beforeEach(() => {
@@ -92,9 +93,9 @@ describe("offlineStorage", () => {
             name: "Incline Bench Press",
             equipment: ["barbell"],
             difficulty: "intermediate" as const,
-          },
+          } as ScoredSubstitute["exercise"],
           score: 94,
-          matchReasons: ["Same pattern"],
+          reasons: ["Same pattern"],
         },
       ];
 
@@ -109,9 +110,9 @@ describe("offlineStorage", () => {
     it("retrieves cached substitutes within TTL", async () => {
       const cachedData = {
         substitutes: [{
-          exercise: { id: "test", name: "Test Exercise", equipment: ["dumbbell"], difficulty: "beginner" as const },
+          exercise: { id: "test", name: "Test Exercise", equipment: ["dumbbell"], difficulty: "beginner" as const } as ScoredSubstitute["exercise"],
           score: 85,
-          matchReasons: ["Similar pattern"],
+          reasons: ["Similar pattern"],
         }],
         cachedAt: new Date().toISOString(),
         exerciseId: "bench-press",
@@ -134,7 +135,7 @@ describe("offlineStorage", () => {
         substitutes: [{
           exercise: { id: "test", name: "Test Exercise", equipment: ["dumbbell"], difficulty: "beginner" as const },
           score: 85,
-          matchReasons: ["Similar pattern"],
+          reasons: ["Similar pattern"],
         }],
         cachedAt: yesterday.toISOString(),
         exerciseId: "bench-press",
@@ -159,9 +160,9 @@ describe("offlineStorage", () => {
 
     it("includes timestamp and exerciseId in cached data", async () => {
       const substitutes = [{
-        exercise: { id: "test", name: "Test Exercise", equipment: ["dumbbell"], difficulty: "beginner" as const },
+        exercise: { id: "test", name: "Test Exercise", equipment: ["dumbbell"], difficulty: "beginner" as const } as ScoredSubstitute["exercise"],
         score: 85,
-        matchReasons: ["Similar pattern"],
+        reasons: ["Similar pattern"],
       }];
 
       await offlineStorage.setCachedSubstitutes("bench-press", substitutes);

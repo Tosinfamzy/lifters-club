@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/clerk-expo";
 import { offlineQueue, QueueItem, idMappingStore } from "../lib/offline/queue";
 import { offlineStorage } from "../lib/offline/storage";
 import { fetchWithTimeout, FetchTimeoutError } from "../lib/fetch-with-timeout";
+import { API_URL } from "../lib/constants";
 
 const SYNC_LOCK_KEY = "@lifters/sync_lock";
 const SYNC_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute stale lock detection
@@ -18,8 +19,6 @@ interface OfflineContextType {
 }
 
 const OfflineContext = createContext<OfflineContextType | null>(null);
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
 
 export function OfflineProvider({ children }: { children: ReactNode }) {
   const { getToken } = useAuth();

@@ -8,14 +8,12 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Vibration,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuth } from "@clerk/clerk-expo";
 import {
   Check,
   Plus,
@@ -24,28 +22,21 @@ import {
   Timer,
   TrendingUp,
   X,
-  RefreshCw,
   MoreHorizontal,
 } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
-import { useWorkoutOffline, type LoggedSet as ApiLoggedSet } from "../../hooks";
+import { useWorkoutOffline } from "../../hooks";
+import { useApi } from "../../hooks/use-api";
+import { useRestTimer } from "../../hooks/use-rest-timer";
+import { useReadinessCheck } from "../../hooks/use-readiness-check";
+import { useExerciseDecisions } from "../../hooks/use-exercise-decisions";
+import { useWorkoutCompletion } from "../../hooks/use-workout-completion";
 import { OfflineIndicator } from "../../components/OfflineIndicator";
 import { ExerciseActionsSheet } from "../../components/ExerciseActionsSheet";
 import { DecisionBadge } from "../../components/workout/DecisionBadge";
 import { DecisionExplanationModal } from "../../components/workout/DecisionExplanationModal";
-import { offlineQueue, createDecisionOutcomeOperation } from "../../lib/offline/queue";
-import type { DecisionType, OverrideReason } from "@gymapp/types";
 
 type ExerciseAction = "info" | "alternatives" | "skip" | "mark_done";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface PlannedExercise {
-  exerciseId: string;
-  sets: number;
-  repRange: [number, number];
-  restSeconds: number;
-}
 
 interface LoggedSet {
   id?: string;
@@ -70,41 +61,11 @@ interface ExerciseProgress {
   };
 }
 
-interface SubstituteExercise {
-  exercise: {
-    id: string;
-    name: string;
-    equipment: string[];
-    difficulty: string;
-  };
-  score: number;
-  matchReasons: string[];
-}
-
-interface ReadinessResult {
-  score: number;
-  recommendation: "proceed" | "light_session" | "rest_day";
-  volumeModifier: number;
-  intensityModifier: number;
-  adjustments: string[];
-  reason: string;
-}
-
 interface LoadRecommendation {
   exerciseId: string;
   action: "increase" | "maintain" | "decrease";
   newWeight: number;
   reason: string;
-}
-
-interface ExerciseDecision {
-  id: string; // decision ID
-  exerciseId: string;
-  type: DecisionType;
-  summary: string;
-  reasoning: string;
-  confidence: "low" | "medium" | "high";
-  recommendedValue: Record<string, unknown>;
 }
 
 export default function WorkoutScreen() {
@@ -116,7 +77,7 @@ export default function WorkoutScreen() {
       originalExerciseId?: string;
     }>();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
   const { appUser } = useAppUser();
 
   // Offline-first workout data
@@ -131,53 +92,33 @@ export default function WorkoutScreen() {
     completeWorkout: completeWorkoutAction,
   } = useWorkoutOffline(id || "");
 
+  // Core workout state (kept in main component)
   const [isLoading, setIsLoading] = useState(true);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [exercises, setExercises] = useState<ExerciseProgress[]>([]);
   const [workoutLogId, setWorkoutLogId] = useState<string | null>(null);
-
-  // Rest timer state
-  const [restTimeRemaining, setRestTimeRemaining] = useState(0);
-  const [isResting, setIsResting] = useState(false);
-  const [targetRestTime, setTargetRestTime] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Ref to track current online state (fixes stale closure issue in callbacks)
-  const isOnlineRef = useRef(isOnline);
-  useEffect(() => {
-    isOnlineRef.current = isOnline;
-  }, [isOnline]);
-
-  // Exercise actions state
   const [showExerciseActions, setShowExerciseActions] = useState(false);
 
-  // UNDO workout completion state
-  const [recentlyCompleted, setRecentlyCompleted] = useState<{
-    workoutLogId: string;
-    completedAt: Date;
-  } | null>(null);
-  const [undoTimeout, setUndoTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
-  const [countdownSeconds, setCountdownSeconds] = useState(10);
-
-  // Readiness check-in state
-  const [showReadinessCheck, setShowReadinessCheck] = useState(true);
-  const [readinessResult, setReadinessResult] = useState<ReadinessResult | null>(null);
-
-  // Load progression recommendations state
+  // Load progression recommendations (kept — tightly coupled to set completion)
   const [loadRecommendations, setLoadRecommendations] = useState<Map<string, LoadRecommendation>>(new Map());
   const [showRecommendation, setShowRecommendation] = useState<string | null>(null);
 
-  // Inline exercise decisions state
-  const [exerciseDecisions, setExerciseDecisions] = useState<Map<string, ExerciseDecision>>(new Map());
-  const [selectedDecision, setSelectedDecision] = useState<ExerciseDecision | null>(null);
-  const [showDecisionModal, setShowDecisionModal] = useState(false);
-  const [readinessInputs, setReadinessInputs] = useState({
-    sleepQuality: 7,
-    muscleSoreness: 3,
-    stressLevel: 4,
-    energyLevel: 7,
-  });
-  const [isSubmittingReadiness, setIsSubmittingReadiness] = useState(false);
+  // Extracted hooks
+  const { restTimeRemaining, isResting, targetRestTime, startRest, skipRest, addTime } =
+    useRestTimer();
+
+  const {
+    showReadinessCheck, readinessResult, readinessInputs, isSubmittingReadiness,
+    setReadinessInputs, submitReadinessCheck, skipReadiness,
+  } = useReadinessCheck(appUser?.id, id || "");
+
+  const {
+    exerciseDecisions, selectedDecision, showDecisionModal, setShowDecisionModal,
+    fetchExerciseDecisions, openDecisionModal, handleAcceptDecision, handleOverrideDecision,
+  } = useExerciseDecisions(workout, isOnline);
+
+  const { recentlyCompleted, countdownSeconds, finishWorkout, undoCompletion } =
+    useWorkoutCompletion(completeWorkoutAction, router);
 
   // Initialize workout data from cached/fetched workout
   const initializeWorkout = useCallback(async () => {
@@ -254,81 +195,6 @@ export default function WorkoutScreen() {
     }
   }, [workout, appUser, existingLog, savedSets, startWorkoutLog]);
 
-  // Fetch exercise decisions from the API
-  const fetchExerciseDecisions = useCallback(async () => {
-    if (!appUser || !workout || !isOnline) return;
-
-    try {
-      const token = await getToken();
-      const exerciseIds = (workout.plannedExercises as PlannedExercise[])
-        .map((ex) => ex.exerciseId)
-        .filter(Boolean);
-
-      if (exerciseIds.length === 0) return;
-
-      // Fetch decisions for each exercise from recent decisions
-      const res = await fetch(`${API_URL}/api/decisions/history?limit=50`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const decisionsMap = new Map<string, ExerciseDecision>();
-
-        for (const decision of data.data || []) {
-          const input = decision.input as { exerciseId?: string };
-          if (input.exerciseId && exerciseIds.includes(input.exerciseId)) {
-            // Only keep the most recent decision per exercise
-            if (!decisionsMap.has(input.exerciseId)) {
-              const output = decision.output as Record<string, unknown>;
-              decisionsMap.set(input.exerciseId, {
-                exerciseId: input.exerciseId,
-                id: decision.id,
-                type: decision.type as DecisionType,
-                summary: generateDecisionSummary(decision.type, output),
-                reasoning: decision.reasoning,
-                confidence: (output.confidence as "low" | "medium" | "high") ?? "medium",
-                recommendedValue: output,
-              });
-            }
-          }
-        }
-
-        setExerciseDecisions(decisionsMap);
-      }
-    } catch (error) {
-      console.error("Failed to fetch exercise decisions:", error);
-    }
-  }, [appUser, workout, isOnline, getToken]);
-
-  // Helper to generate summary from decision output
-  function generateDecisionSummary(type: string, output: Record<string, unknown>): string {
-    switch (type) {
-      case "load_progression": {
-        const action = output.action as string;
-        const newWeight = output.newWeight as number;
-        if (action === "increase") return `↑ ${newWeight}lbs`;
-        if (action === "decrease") return `↓ ${newWeight}lbs`;
-        return `${newWeight}lbs`;
-      }
-      case "volume_adjustment": {
-        const action = output.action as string;
-        const newSetCount = output.newSetCount as number;
-        if (action === "add_set") return `+1 set (${newSetCount})`;
-        if (action === "reduce_set") return `${newSetCount} sets`;
-        return `${newSetCount} sets`;
-      }
-      case "exercise_rotation":
-        return "Swap suggested";
-      case "deload_recommendation":
-        return (output.recommended as boolean) ? "Deload" : "Continue";
-      default:
-        return "Adjustment";
-    }
-  }
-
   // Track if workout has been initialized to prevent re-initialization loops
   const hasInitialized = useRef(false);
 
@@ -340,14 +206,7 @@ export default function WorkoutScreen() {
     }
   }, [appUser, workout, isWorkoutLoading, initializeWorkout, fetchExerciseDecisions]);
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, []);
+  // Timer cleanup handled by useRestTimer hook
 
   // Handle exercise substitution from alternative exercises screen
   useEffect(() => {
@@ -388,133 +247,12 @@ export default function WorkoutScreen() {
     }
   }, [substitutedExerciseId, substitutedExerciseName, originalExerciseId, exercises, router]);
 
-  // Record decision outcome (accept or override)
-  const recordDecisionOutcome = useCallback(
-    async (
-      decisionId: string,
-      outcome: "followed" | "overridden",
-      overrideReason?: OverrideReason
-    ) => {
-      // Use ref for current online state to avoid stale closure
-      if (!isOnlineRef.current) {
-        try {
-          await offlineQueue.enqueue(
-            createDecisionOutcomeOperation({
-              decisionId,
-              outcome,
-              overrideReason,
-            })
-          );
-        } catch (error) {
-          console.error("Failed to queue decision outcome:", error);
-        }
-        return;
-      }
+  // Decision recording, acceptance, override handled by useExerciseDecisions hook
 
-      try {
-        const token = await getToken();
-        await fetch(`${API_URL}/api/decisions/${decisionId}/outcome`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            outcome,
-            overrideReason,
-          }),
-        });
-      } catch (error) {
-        console.error("Failed to record decision outcome:", error);
-        // Queue for retry if online request fails
-        try {
-          await offlineQueue.enqueue(
-            createDecisionOutcomeOperation({
-              decisionId,
-              outcome,
-              overrideReason,
-            })
-          );
-        } catch (queueError) {
-          console.error("Failed to queue decision outcome for retry:", queueError);
-        }
-      }
-    },
-    [getToken] // Using isOnlineRef instead of isOnline to avoid stale closure
-  );
+  // Readiness check handled by useReadinessCheck hook
 
-  // Handle accepting a decision
-  const handleAcceptDecision = useCallback(() => {
-    if (selectedDecision) {
-      recordDecisionOutcome(selectedDecision.id, "followed");
-      setShowDecisionModal(false);
-      setSelectedDecision(null);
-    }
-  }, [selectedDecision, recordDecisionOutcome]);
-
-  // Handle overriding a decision
-  const handleOverrideDecision = useCallback(
-    (reason: OverrideReason) => {
-      if (selectedDecision) {
-        recordDecisionOutcome(selectedDecision.id, "overridden", reason);
-        setShowDecisionModal(false);
-        setSelectedDecision(null);
-      }
-    },
-    [selectedDecision, recordDecisionOutcome]
-  );
-
-  // Open decision modal
-  const openDecisionModal = useCallback((exerciseId: string) => {
-    const decision = exerciseDecisions.get(exerciseId);
-    if (decision) {
-      setSelectedDecision(decision);
-      setShowDecisionModal(true);
-    }
-  }, [exerciseDecisions]);
-
-  // Readiness check still uses API (server-side decision engine)
-  const submitReadinessCheck = async () => {
-    if (!appUser) return;
-
-    setIsSubmittingReadiness(true);
-
-    try {
-      const token = await getToken();
-      // Use extended endpoint which accepts 1-10 scale (simple endpoint uses 1-5)
-      const res = await fetch(`${API_URL}/api/users/readiness/extended`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId: appUser.id,
-          workoutId: id,
-          ...readinessInputs,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setReadinessResult(data.data);
-      }
-    } catch {
-      // Continue without readiness data when offline
-      setShowReadinessCheck(false);
-    } finally {
-      setIsSubmittingReadiness(false);
-    }
-  };
-
-  const proceedWithWorkout = () => {
-    setShowReadinessCheck(false);
-  };
-
-  // Load recommendations still use API (server-side decision engine)
+  // Fetch load progression recommendation from decision engine
   const fetchLoadRecommendation = async (exercise: ExerciseProgress) => {
-    if (!appUser) return;
-
     const completedSets = exercise.sets.filter((s) => s.completed && s.weight && s.reps);
     if (completedSets.length === 0) return;
 
@@ -527,41 +265,29 @@ export default function WorkoutScreen() {
     const avgWeight = recentSets.reduce((sum, s) => sum + s.weight, 0) / recentSets.length;
 
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/decisions/load-progression`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId: appUser.id,
-          exerciseId: exercise.exerciseId,
-          recentSets,
-          currentWeight: avgWeight,
-          targetRepRange: exercise.repRange,
-        }),
+      const response = await api.getLoadProgression({
+        exerciseId: exercise.exerciseId,
+        recentSets,
+        currentWeight: avgWeight,
+        targetRepRange: exercise.repRange,
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const recommendation: LoadRecommendation = {
-          exerciseId: exercise.exerciseId,
-          action: data.data.action,
-          newWeight: data.data.newWeight,
-          reason: data.data.reason,
-        };
+      const recommendation: LoadRecommendation = {
+        exerciseId: exercise.exerciseId,
+        action: response.data.action,
+        newWeight: response.data.recommendedWeight,
+        reason: response.data.reason,
+      };
 
-        setLoadRecommendations((prev) => {
-          const updated = new Map(prev);
-          updated.set(exercise.exerciseId, recommendation);
-          return updated;
-        });
+      setLoadRecommendations((prev) => {
+        const updated = new Map(prev);
+        updated.set(exercise.exerciseId, recommendation);
+        return updated;
+      });
 
-        setShowRecommendation(exercise.exerciseId);
-      }
-    } catch {
-      // Continue without recommendation when offline
+      setShowRecommendation(exercise.exerciseId);
+    } catch (error) {
+      console.error("Failed to fetch load recommendation:", error);
     }
   };
 
@@ -692,41 +418,7 @@ export default function WorkoutScreen() {
     });
   };
 
-  const startRestTimer = useCallback((seconds: number) => {
-    setTargetRestTime(seconds);
-    setRestTimeRemaining(seconds);
-    setIsResting(true);
-
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-
-    timerRef.current = setInterval(() => {
-      setRestTimeRemaining((prev) => {
-        if (prev <= 1) {
-          if (timerRef.current) {
-            clearInterval(timerRef.current);
-          }
-          setIsResting(false);
-          Vibration.vibrate([0, 200, 100, 200]);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, []);
-
-  const skipRest = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    setIsResting(false);
-    setRestTimeRemaining(0);
-  };
-
-  const addRestTime = (seconds: number) => {
-    setRestTimeRemaining((prev) => prev + seconds);
-  };
+  // Rest timer functions provided by useRestTimer hook
 
   // Complete set - queues for sync when offline
   const completeSetAction = async (exerciseIndex: number, setIndex: number) => {
@@ -791,75 +483,12 @@ export default function WorkoutScreen() {
     const hasMoreExercises = exerciseIndex < exercises.length - 1;
 
     if (hasMoreSetsInExercise || hasMoreExercises) {
-      startRestTimer(exercise.restSeconds);
+      startRest(exercise.restSeconds);
     }
   };
 
-  const finishWorkout = async () => {
-    if (!workoutLogId) {
-      router.back();
-      return;
-    }
-
-    // Calculate overall RPE as average
-    const completedSetsWithRpe = exercises.flatMap((ex) =>
-      ex.sets.filter((s) => s.completed && s.rpe)
-    );
-    const avgRpe =
-      completedSetsWithRpe.length > 0
-        ? completedSetsWithRpe.reduce((sum, s) => sum + parseFloat(s.rpe), 0) /
-          completedSetsWithRpe.length
-        : undefined;
-
-    try {
-      // Complete the workout (works offline - queues for sync)
-      await completeWorkoutAction(
-        avgRpe ? Math.round(avgRpe * 10) / 10 : undefined
-      );
-
-      // Store completion temporarily for UNDO
-      setRecentlyCompleted({
-        workoutLogId: workoutLogId,
-        completedAt: new Date(),
-      });
-
-      // Set 10-second countdown
-      setCountdownSeconds(10);
-      const timeout = setTimeout(() => {
-        setRecentlyCompleted(null);
-        router.back();
-      }, 10000);
-      setUndoTimeout(timeout);
-
-      // Countdown timer
-      const countdownInterval = setInterval(() => {
-        setCountdownSeconds((prev) => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      // Haptic feedback
-      Vibration.vibrate([0, 50, 100, 50]);
-    } catch (error) {
-      console.error("Failed to complete workout:", error);
-      router.back();
-    }
-  };
-
-  // UNDO workout completion
-  const undoCompletion = useCallback(async () => {
-    if (!recentlyCompleted || !undoTimeout) return;
-
-    clearTimeout(undoTimeout);
-    setUndoTimeout(null);
-    setRecentlyCompleted(null);
-
-    Alert.alert("Workout Uncompleted", "You can continue logging sets.");
-  }, [recentlyCompleted, undoTimeout]);
+  // Workout completion and undo handled by useWorkoutCompletion hook
+  const handleFinishWorkout = () => finishWorkout(workoutLogId, exercises);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -976,7 +605,7 @@ export default function WorkoutScreen() {
 
           <TouchableOpacity
             style={[styles.readinessProceedButton, { backgroundColor: resultColor }]}
-            onPress={proceedWithWorkout}
+            onPress={skipReadiness}
           >
             <Text style={styles.readinessProceedText}>
               {readinessResult.recommendation === "rest_day"
@@ -1063,7 +692,7 @@ export default function WorkoutScreen() {
 
         <TouchableOpacity
           style={styles.readinessSkipButton}
-          onPress={proceedWithWorkout}
+          onPress={skipReadiness}
         >
           <Text style={styles.readinessSkipText}>Skip Check-in</Text>
         </TouchableOpacity>
@@ -1110,7 +739,7 @@ export default function WorkoutScreen() {
             <View style={styles.restActions}>
               <TouchableOpacity
                 style={styles.restActionButton}
-                onPress={() => addRestTime(30)}
+                onPress={() => addTime(30)}
               >
                 <Plus size={16} color="#F8FAFC" />
                 <Text style={styles.restActionText}>30s</Text>
@@ -1143,10 +772,7 @@ export default function WorkoutScreen() {
           decision={selectedDecision}
           onAccept={handleAcceptDecision}
           onOverride={handleOverrideDecision}
-          onClose={() => {
-            setShowDecisionModal(false);
-            setSelectedDecision(null);
-          }}
+          onClose={() => setShowDecisionModal(false)}
         />
       )}
 
@@ -1477,7 +1103,7 @@ export default function WorkoutScreen() {
           ) : (
             <TouchableOpacity
               style={[styles.nextButton, styles.finishButton]}
-              onPress={finishWorkout}
+              onPress={handleFinishWorkout}
             >
               <Text style={styles.nextButtonText}>Finish Workout</Text>
             </TouchableOpacity>

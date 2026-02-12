@@ -15,6 +15,7 @@ import { Link, useRouter } from "expo-router";
 import { Dumbbell } from "lucide-react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
+import { getClerkErrorMessage } from "../../lib/clerk-error";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -46,8 +47,7 @@ export default function SignInScreen() {
         router.replace("/(tabs)");
       }
     } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(clerkError.errors?.[0]?.message || "Sign in failed");
+      setError(getClerkErrorMessage(err, "Sign in failed"));
     } finally {
       setIsLoading(false);
     }
@@ -68,8 +68,7 @@ export default function SignInScreen() {
         router.replace("/(tabs)");
       }
     } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(clerkError.errors?.[0]?.message || "Google sign in failed");
+      setError(getClerkErrorMessage(err, "Google sign in failed"));
     } finally {
       setIsGoogleLoading(false);
     }

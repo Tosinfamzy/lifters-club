@@ -9,7 +9,6 @@ import {
   RefreshControl,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuth } from "@clerk/clerk-expo";
 import {
   ArrowLeft,
   Clock,
@@ -18,28 +17,8 @@ import {
   Dumbbell,
   TrendingUp,
 } from "lucide-react-native";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface LoggedSet {
-  id: string;
-  exerciseId: string;
-  setNumber: number;
-  weight: number;
-  reps: number;
-  rpe?: number;
-  notes?: string;
-}
-
-interface WorkoutLogDetail {
-  id: string;
-  workoutId: string;
-  startedAt: string;
-  completedAt?: string;
-  overallRpe?: number;
-  notes?: string;
-  sets: LoggedSet[];
-}
+import { useApi } from "../../hooks/use-api";
+import type { LoggedSet, WorkoutLogWithSets } from "../../lib/api";
 
 interface GroupedExercise {
   exerciseId: string;
@@ -49,9 +28,9 @@ interface GroupedExercise {
 export default function WorkoutDetailScreen() {
   const { logId } = useLocalSearchParams<{ logId: string }>();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
 
-  const [logDetail, setLogDetail] = useState<WorkoutLogDetail | null>(null);
+  const [logDetail, setLogDetail] = useState<WorkoutLogWithSets | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,26 +39,16 @@ export default function WorkoutDetailScreen() {
     if (!logId) return;
 
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/logs/${logId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setLogDetail(data.data);
-        setError(null);
-      } else {
-        setError("Workout not found");
-      }
-    } catch {
+      const data = await api.getWorkoutLog(logId);
+      setLogDetail(data.data);
+      setError(null);
+    } catch (err) {
+      console.error("Failed to load workout details:", err);
       setError("Failed to load workout details");
     } finally {
       setIsLoading(false);
     }
-  }, [logId, getToken]);
+  }, [logId, api]);
 
   useEffect(() => {
     fetchLogDetail();

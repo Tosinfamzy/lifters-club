@@ -8,12 +8,10 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { ArrowLeft, Check, Target, Dumbbell, Zap, Award } from "lucide-react-native";
 import { useAppUser } from "../providers/user-provider";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
+import { useApi } from "../hooks/use-api";
 
 type TrainingLevel = "beginner" | "intermediate" | "advanced";
 type Goal = "strength" | "hypertrophy" | "conditioning";
@@ -31,18 +29,18 @@ const goals: { value: Goal; label: string; description: string; icon: typeof Tar
 ];
 
 export default function EditProfileScreen() {
-  const { getToken } = useAuth();
+  const api = useApi();
   const router = useRouter();
   const { appUser, refetch } = useAppUser();
 
   const [trainingLevel, setTrainingLevel] = useState<TrainingLevel>(
     appUser?.trainingLevel || "intermediate"
   );
-  const [goal, setGoal] = useState<Goal>(appUser?.goal || "hypertrophy");
+  const [goal, setGoal] = useState<Goal>(appUser?.primaryGoal || "hypertrophy");
   const [isSaving, setIsSaving] = useState(false);
 
   const hasChanges =
-    trainingLevel !== appUser?.trainingLevel || goal !== appUser?.goal;
+    trainingLevel !== appUser?.trainingLevel || goal !== appUser?.primaryGoal;
 
   const handleSave = async () => {
     if (!appUser || !hasChanges) return;
@@ -50,29 +48,17 @@ export default function EditProfileScreen() {
     setIsSaving(true);
 
     try {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/api/users/${appUser.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          trainingLevel,
-          primaryGoal: goal,
-        }),
+      await api.updateUser(appUser.id, {
+        trainingLevel,
+        primaryGoal: goal,
       });
 
-      if (response.ok) {
-        await refetch();
-        Alert.alert("Success", "Profile updated successfully", [
-          { text: "OK", onPress: () => router.back() },
-        ]);
-      } else {
-        const data = await response.json();
-        Alert.alert("Error", data.error || "Failed to update profile");
-      }
-    } catch {
+      await refetch();
+      Alert.alert("Success", "Profile updated successfully", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    } catch (err) {
+      console.error("Failed to update profile:", err);
       Alert.alert("Error", "Failed to connect to server");
     } finally {
       setIsSaving(false);

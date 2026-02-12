@@ -9,24 +9,10 @@ import {
   Alert,
   RefreshControl,
 } from "react-native";
-import { useAuth } from "@clerk/clerk-expo";
 import { Calendar, Target, Dumbbell, Play, Check } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface Program {
-  id: string;
-  name: string;
-  description?: string;
-  daysPerWeek: number;
-  goal: "strength" | "hypertrophy" | "conditioning";
-  level: "beginner" | "intermediate" | "advanced";
-  template: {
-    weeks: number;
-    sessions: unknown[];
-  };
-}
+import { useApi } from "../../hooks/use-api";
+import type { Program } from "../../lib/api";
 
 const goalLabels: Record<string, string> = {
   strength: "Strength",
@@ -47,7 +33,7 @@ const goalColors: Record<string, string> = {
 };
 
 export default function ProgramsScreen() {
-  const { getToken } = useAuth();
+  const api = useApi();
   const { appUser, refetch } = useAppUser();
   const [programs, setPrograms] = useState<Program[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,24 +47,21 @@ export default function ProgramsScreen() {
 
   const fetchPrograms = useCallback(async () => {
     try {
-      const params = new URLSearchParams();
       const currentUser = appUserRef.current;
+      const params: { goal?: string; level?: string } = {};
       if (filter === "recommended" && currentUser) {
-        params.append("goal", currentUser.primaryGoal);
-        params.append("level", currentUser.trainingLevel);
+        params.goal = currentUser.primaryGoal;
+        params.level = currentUser.trainingLevel;
       }
 
-      const response = await fetch(`${API_URL}/api/programs?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        setPrograms(data.data || []);
-      }
-    } catch {
-      // Silently fail
+      const data = await api.getPrograms(params);
+      setPrograms(data.data || []);
+    } catch (err) {
+      console.error("Failed to fetch programs:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [filter]); // Only depends on filter, not appUser
+  }, [filter, api]); // Only depends on filter and api, not appUser
 
   useEffect(() => {
     fetchPrograms();
@@ -120,21 +103,9 @@ export default function ProgramsScreen() {
     setIsStarting(program.id);
 
     try {
-      const token = await getToken();
-
       // If pausing existing, update the current block
       if (pauseExisting && appUser.activeTrainingBlock) {
-        await fetch(
-          `${API_URL}/api/workouts/training-blocks/${appUser.activeTrainingBlock.id}`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ status: "paused" }),
-          }
-        );
+        await api.pauseTrainingBlock(appUser.activeTrainingBlock.id);
       }
 
       // Create new training block
@@ -147,31 +118,20 @@ export default function ProgramsScreen() {
       const programShort = program.id.slice(0, 20).toLowerCase().replace(/[^a-z0-9-]/g, "-");
       const blockId = `user-${userShort}-${programShort}-${Date.now()}`;
 
-      const response = await fetch(`${API_URL}/api/workouts/training-blocks`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          id: blockId,
-          userId: appUser.id,
-          programId: program.id,
-          startDate: today,
-        }),
+      await api.createTrainingBlock({
+        id: blockId,
+        userId: appUser.id,
+        programId: program.id,
+        startDate: today,
       });
 
-      if (response.ok) {
-        Alert.alert(
-          "Program Started",
-          `You've started ${program.name}. Your first workout is ready!`
-        );
-        await refetch();
-      } else {
-        const data = await response.json();
-        Alert.alert("Error", data.error || "Failed to start program");
-      }
-    } catch {
+      Alert.alert(
+        "Program Started",
+        `You've started ${program.name}. Your first workout is ready!`
+      );
+      await refetch();
+    } catch (err) {
+      console.error("Failed to start program:", err);
       Alert.alert("Error", "Failed to connect to server");
     } finally {
       setIsStarting(null);

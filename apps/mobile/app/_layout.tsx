@@ -4,6 +4,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator } from "react-native";
 import { tokenCache } from "../lib/clerk";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { OfflineProvider } from "../providers/offline-provider";
 import { UserProvider } from "../providers/user-provider";
 
@@ -101,8 +102,10 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <OfflineProvider>
           <UserProvider>
-            <StatusBar style="light" />
-            <InitialLayout />
+            <ErrorBoundary>
+              <StatusBar style="light" />
+              <InitialLayout />
+            </ErrorBoundary>
           </UserProvider>
         </OfflineProvider>
       </QueryClientProvider>

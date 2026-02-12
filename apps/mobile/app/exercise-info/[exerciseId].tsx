@@ -9,7 +9,6 @@ import {
   RefreshControl,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuth } from "@clerk/clerk-expo";
 import {
   ArrowLeft,
   Dumbbell,
@@ -20,32 +19,8 @@ import {
   AlertCircle,
 } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
-
-interface Exercise {
-  id: string;
-  name: string;
-  aliases: string[];
-  equipment: string[];
-  movementPatterns: string[];
-  primaryMuscles: string[];
-  secondaryMuscles: string[];
-  isCompound: boolean;
-  isUnilateral: boolean;
-  difficulty: "beginner" | "intermediate" | "advanced";
-  constraints?: string[];
-}
-
-interface ProgressSession {
-  date: string;
-  sets: Array<{
-    setNumber: number;
-    weight: number;
-    reps: number;
-    rpe?: number;
-  }>;
-}
+import { useApi } from "../../hooks/use-api";
+import type { Exercise, ExerciseProgressSession } from "../../lib/api";
 
 const difficultyColors: Record<string, string> = {
   beginner: "#10B981",
@@ -62,11 +37,11 @@ const difficultyLabels: Record<string, string> = {
 export default function ExerciseInfoScreen() {
   const { exerciseId } = useLocalSearchParams<{ exerciseId: string }>();
   const router = useRouter();
-  const { getToken } = useAuth();
+  const api = useApi();
   const { appUser } = useAppUser();
 
   const [exercise, setExercise] = useState<Exercise | null>(null);
-  const [progress, setProgress] = useState<ProgressSession[]>([]);
+  const [progress, setProgress] = useState<ExerciseProgressSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,40 +50,25 @@ export default function ExerciseInfoScreen() {
     if (!exerciseId) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/exercises/${exerciseId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setExercise(data.data);
-      } else {
-        setError("Exercise not found");
-      }
-    } catch {
-      setError("Failed to load exercise");
+      const data = await api.getExercise(exerciseId);
+      setExercise(data.data);
+    } catch (err) {
+      console.error("Failed to load exercise:", err);
+      setError("Exercise not found");
     }
-  }, [exerciseId]);
+  }, [exerciseId, api]);
 
   const fetchProgress = useCallback(async () => {
     if (!exerciseId || !appUser) return;
 
     try {
-      const token = await getToken();
-      const response = await fetch(
-        `${API_URL}/api/analytics/exercise/${exerciseId}/progress?userId=${appUser.id}&limit=10`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setProgress(data.data || []);
-      }
-    } catch {
+      const data = await api.getExerciseProgress(exerciseId, appUser.id, 10);
+      setProgress(data.data?.sessions || []);
+    } catch (err) {
       // Progress is optional, don't fail
+      console.error("Failed to load exercise progress:", err);
     }
-  }, [exerciseId, appUser, getToken]);
+  }, [exerciseId, appUser, api]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -136,18 +96,16 @@ export default function ExerciseInfoScreen() {
       .join(" ");
   };
 
-  const calculateBestSet = (): { weight: number; reps: number } | null => {
+  const calculateBestWeight = (): number | null => {
     if (progress.length === 0) return null;
 
-    let best = { weight: 0, reps: 0 };
+    let best = 0;
     for (const session of progress) {
-      for (const set of session.sets) {
-        if (set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps)) {
-          best = { weight: set.weight, reps: set.reps };
-        }
+      if (session.bestWeight > best) {
+        best = session.bestWeight;
       }
     }
-    return best.weight > 0 ? best : null;
+    return best > 0 ? best : null;
   };
 
   if (isLoading) {
@@ -186,7 +144,7 @@ export default function ExerciseInfoScreen() {
     );
   }
 
-  const bestSet = calculateBestSet();
+  const bestWeight = calculateBestWeight();
 
   return (
     <View style={styles.container}>
@@ -234,13 +192,13 @@ export default function ExerciseInfoScreen() {
             <Text style={styles.statValue}>{exercise.isCompound ? "Compound" : "Isolation"}</Text>
             <Text style={styles.statLabel}>Type</Text>
           </View>
-          {bestSet && (
+          {bestWeight && (
             <View style={styles.statCard}>
               <View style={styles.statIcon}>
                 <TrendingUp size={16} color="#10B981" />
               </View>
-              <Text style={styles.statValue}>{bestSet.weight}lbs</Text>
-              <Text style={styles.statLabel}>Best x{bestSet.reps}</Text>
+              <Text style={styles.statValue}>{bestWeight}lbs</Text>
+              <Text style={styles.statLabel}>Best</Text>
             </View>
           )}
         </View>
@@ -309,12 +267,17 @@ export default function ExerciseInfoScreen() {
                   </Text>
                 </View>
                 <View style={styles.historySets}>
-                  {session.sets.map((set, setIndex) => (
-                    <Text key={setIndex} style={styles.historySet}>
-                      {set.weight}lbs x {set.reps}
-                      {set.rpe ? ` @${set.rpe}` : ""}
+                  <Text style={styles.historySet}>
+                    Best: {session.bestWeight}lbs
+                  </Text>
+                  <Text style={styles.historySet}>
+                    {session.totalSets} sets
+                  </Text>
+                  {session.avgRpe != null && (
+                    <Text style={styles.historySet}>
+                      RPE {session.avgRpe.toFixed(1)}
                     </Text>
-                  ))}
+                  )}
                 </View>
               </View>
             ))}
