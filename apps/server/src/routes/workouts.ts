@@ -472,7 +472,7 @@ function generateDecisionSummary(type: string, output: Record<string, unknown>):
       }
       return "Keep current exercise";
     }
-    case "deload_check": {
+    case "deload_recommendation": {
       const recommended = output.recommended as boolean;
       return recommended ? "Deload recommended" : "Continue as planned";
     }

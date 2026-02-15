@@ -158,16 +158,15 @@ export interface User {
   updatedAt: string;
 }
 
-// Decision types
+// Decision types (matches @gymapp/types DecisionType)
 export type DecisionType =
   | "load_progression"
   | "volume_adjustment"
-  | "deload_check"
+  | "deload_recommendation"
   | "exercise_rotation"
   | "session_recovery"
   | "missed_session"
-  | "weekly_plan"
-  | "performance_trend";
+  | "weekly_plan_update";
 
 export type DecisionOutcome = "followed" | "overridden" | "ignored";
 

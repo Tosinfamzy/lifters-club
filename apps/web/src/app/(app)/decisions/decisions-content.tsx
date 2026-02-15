@@ -30,12 +30,11 @@ const DECISION_TYPE_OPTIONS: { value: DecisionType | "all"; label: string; icon:
   { value: "all", label: "All Decisions", icon: Brain },
   { value: "load_progression", label: "Load", icon: TrendingUp },
   { value: "volume_adjustment", label: "Volume", icon: BarChart3 },
-  { value: "deload_check", label: "Deload", icon: Battery },
+  { value: "deload_recommendation", label: "Deload", icon: Battery },
   { value: "exercise_rotation", label: "Rotation", icon: RotateCcw },
   { value: "session_recovery", label: "Recovery", icon: Activity },
   { value: "missed_session", label: "Missed", icon: Calendar },
-  { value: "weekly_plan", label: "Weekly Plan", icon: Calendar },
-  { value: "performance_trend", label: "Trend", icon: TrendingUp },
+  { value: "weekly_plan_update", label: "Weekly Plan", icon: Calendar },
 ];
 
 export function DecisionsContent() {

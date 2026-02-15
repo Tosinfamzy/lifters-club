@@ -1,4 +1,4 @@
-.PHONY: help up up-db down restart logs logs-db logs-server logs-web db-shell migrate migrate-prod seed seed-programs seed-all build clean dev \
+.PHONY: help up up-db down restart logs logs-db logs-server logs-web db-shell migrate migrate-prod seed seed-programs seed-training seed-all build clean dev \
 	dev-server dev-web dev-mobile test test-watch test-server test-engine \
 	lint typecheck api-docs status install mobile mobile-ios mobile-android studio reset
 
@@ -27,6 +27,7 @@ help:
 	@echo "  make migrate-prod - Run migrations against production (Railway)"
 	@echo "  make seed         - Seed exercises (local)"
 	@echo "  make seed-programs - Seed training programs (local)"
+	@echo "  make seed-training - Seed training data for dev user (local)"
 	@echo "  make seed-all     - Seed everything (local)"
 	@echo "  make seed-prod    - Seed exercises (production, needs DATABASE_URL)"
 	@echo "  make seed-all-prod - Seed everything (production, needs DATABASE_URL)"
@@ -128,6 +129,10 @@ seed:
 # Seed training programs (local)
 seed-programs:
 	pnpm --filter @gymapp/db db:seed:programs
+
+# Seed training data for dev user (local)
+seed-training:
+	pnpm --filter @gymapp/db db:seed:training
 
 # Seed everything (local)
 seed-all:

@@ -12,12 +12,11 @@ export const API_BASE_URL =
 const decisionTypes = [
   "load_progression",
   "volume_adjustment",
-  "deload_check",
+  "deload_recommendation",
   "exercise_rotation",
   "session_recovery",
   "missed_session",
-  "weekly_plan",
-  "performance_trend",
+  "weekly_plan_update",
 ] as const;
 
 const overrideReasons = [
@@ -704,22 +703,20 @@ export interface CalibrationPlanResponse {
 export type DecisionType =
   | "load_progression"
   | "volume_adjustment"
-  | "deload_check"
+  | "deload_recommendation"
   | "exercise_rotation"
   | "session_recovery"
   | "missed_session"
-  | "weekly_plan"
-  | "performance_trend";
+  | "weekly_plan_update";
 
 export const DECISION_TYPE_LABELS: Record<DecisionType, string> = {
   load_progression: "Load Progression",
   volume_adjustment: "Volume Adjustment",
-  deload_check: "Deload Check",
+  deload_recommendation: "Deload Check",
   exercise_rotation: "Exercise Rotation",
   session_recovery: "Session Recovery",
   missed_session: "Missed Session",
-  weekly_plan: "Weekly Plan",
-  performance_trend: "Performance Trend",
+  weekly_plan_update: "Weekly Plan",
 };
 
 export interface ExerciseDecision {

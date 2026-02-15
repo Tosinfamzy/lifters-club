@@ -292,7 +292,7 @@ export async function generateNextWeek(
       id: `dec_${nanoid(12)}`,
       userId,
       workoutId: null,
-      type: "deload_check" as DecisionType,
+      type: "deload_recommendation" as DecisionType,
       input: {
         weekNumber: nextWeek,
         recentWeeklyRpe: planInput.recentWeeklyRpe,

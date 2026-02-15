@@ -32,24 +32,22 @@ interface DecisionCardProps {
 const TYPE_ICONS: Record<DecisionType, React.ElementType> = {
   load_progression: TrendingUp,
   volume_adjustment: BarChart3,
-  deload_check: Battery,
+  deload_recommendation: Battery,
   exercise_rotation: RotateCcw,
   session_recovery: Activity,
   missed_session: Calendar,
-  weekly_plan: Calendar,
-  performance_trend: TrendingUp,
+  weekly_plan_update: Calendar,
 };
 
 // Colors for decision types
 const TYPE_COLORS: Record<DecisionType, string> = {
   load_progression: "bg-green-500/10 text-green-500 border-green-500/20",
   volume_adjustment: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  deload_check: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+  deload_recommendation: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
   exercise_rotation: "bg-purple-500/10 text-purple-500 border-purple-500/20",
   session_recovery: "bg-orange-500/10 text-orange-500 border-orange-500/20",
   missed_session: "bg-red-500/10 text-red-500 border-red-500/20",
-  weekly_plan: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
-  performance_trend: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  weekly_plan_update: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
 };
 
 function formatRelativeTime(dateString: string): string {
@@ -86,9 +84,9 @@ function getDecisionSummary(decision: Decision): string {
       if (action === "reduce_set") return `Reduce sets (${newSetCount} total)`;
       return "Maintain volume";
     }
-    case "deload_check": {
-      const recommended = output.recommended as boolean;
-      return recommended ? "Deload recommended" : "Continue training";
+    case "deload_recommendation": {
+      const shouldDeload = output.shouldDeload as boolean;
+      return shouldDeload ? "Deload recommended" : "Continue training";
     }
     case "exercise_rotation": {
       const action = output.action as string;
@@ -104,13 +102,9 @@ function getDecisionSummary(decision: Decision): string {
       const action = output.action as string;
       return action.replace(/_/g, " ");
     }
-    case "weekly_plan": {
+    case "weekly_plan_update": {
       const summary = output.summary as string;
       return summary?.slice(0, 50) + "..." || "Weekly plan generated";
-    }
-    case "performance_trend": {
-      const trend = output.trend as string;
-      return `Trend: ${trend}`;
     }
     default:
       return "Decision made";

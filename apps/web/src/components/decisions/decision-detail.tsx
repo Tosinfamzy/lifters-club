@@ -49,12 +49,11 @@ interface DecisionDetailProps {
 const TYPE_ICONS: Record<DecisionType, React.ElementType> = {
   load_progression: TrendingUp,
   volume_adjustment: BarChart3,
-  deload_check: Battery,
+  deload_recommendation: Battery,
   exercise_rotation: RotateCcw,
   session_recovery: Activity,
   missed_session: Calendar,
-  weekly_plan: Calendar,
-  performance_trend: TrendingUp,
+  weekly_plan_update: Calendar,
 };
 
 function formatDateTime(dateString: string): string {

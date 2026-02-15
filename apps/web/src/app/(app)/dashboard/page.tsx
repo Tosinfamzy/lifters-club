@@ -220,7 +220,7 @@ export default function DashboardPage() {
       case "session_recovery":
         return "Recovery Adjustment";
       case "deload":
-      case "deload_check":
+      case "deload_recommendation":
         return "Deload Recommendation";
       case "rotation":
       case "exercise_rotation":

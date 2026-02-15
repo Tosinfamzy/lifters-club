@@ -566,7 +566,7 @@ decisionRoutes.post(
     const result = calculateDeloadNeed(input);
 
     await persistDecision(
-      "deload_check",
+      "deload_recommendation",
       input as Record<string, unknown>,
       result as unknown as Record<string, unknown>,
       result.reason,
@@ -752,7 +752,7 @@ decisionRoutes.post(
 
     if (persist) {
       await persistDecision(
-        "weekly_plan",
+        "weekly_plan_update",
         data as unknown as Record<string, unknown>,
         result as unknown as Record<string, unknown>,
         result.summary,
@@ -778,22 +778,8 @@ decisionRoutes.post(
   "/performance-trend",
   zValidator("json", performanceTrendSchema),
   async (c) => {
-    const { userId, exerciseId, ...data } = c.req.valid("json");
-
-    // Verify userId matches authenticated user if provided
-    const verifiedUserId = verifyRequestUserId(c, userId);
-
+    const data = c.req.valid("json");
     const result = calculatePerformanceTrend(data.recentWeights, data.recentReps);
-
-    if (userId) {
-      await persistDecision(
-        "performance_trend",
-        { ...data, exerciseId } as Record<string, unknown>,
-        { trend: result },
-        `Performance trend: ${result}`,
-        verifiedUserId
-      );
-    }
 
     return c.json({ data: { trend: result } });
   }

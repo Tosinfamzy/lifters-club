@@ -262,15 +262,18 @@ exerciseRoutes.get(
     const sourceExercise = sourceResult[0]!;
 
     // Pre-filter candidates by overlapping movement patterns or primary muscles
+    // Use @> containment checks OR'd together (PostgreSQL doesn't support && on JSONB)
+    const movementConditions = (sourceExercise.movementPatterns as string[]).map(
+      (pattern) => sql`${exercises.movementPatterns} @> ${JSON.stringify([pattern])}`
+    );
+    const muscleConditions = (sourceExercise.primaryMuscles as string[]).map(
+      (muscle) => sql`${exercises.primaryMuscles} @> ${JSON.stringify([muscle])}`
+    );
+
     const allExercises = await db
       .select()
       .from(exercises)
-      .where(
-        or(
-          sql`${exercises.movementPatterns} && ${JSON.stringify(sourceExercise.movementPatterns)}::jsonb`,
-          sql`${exercises.primaryMuscles} && ${JSON.stringify(sourceExercise.primaryMuscles)}::jsonb`
-        )
-      )
+      .where(or(...movementConditions, ...muscleConditions))
       .limit(200);
 
     // Parse equipment filter if provided

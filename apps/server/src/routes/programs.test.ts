@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { Hono } from "hono";
 import { openapi } from "../openapi";
 import { db } from "@gymapp/db";
-import { programs } from "@gymapp/db/schema";
+import { programs, trainingBlocks, workouts } from "@gymapp/db/schema";
 import { like } from "drizzle-orm";
 
 // Create a test app with the OpenAPI routes
@@ -127,8 +127,10 @@ const testProgram2 = {
   },
 };
 
-// Helper to clean up test programs
+// Helper to clean up test programs (FK-safe order: workouts -> training_blocks -> programs)
 async function cleanupTestPrograms() {
+  await db.delete(workouts).where(like(workouts.trainingBlockId, "test-%"));
+  await db.delete(trainingBlocks).where(like(trainingBlocks.programId, "test-program-%"));
   await db.delete(programs).where(like(programs.id, "test-program-%"));
 }
 
