@@ -26,12 +26,68 @@ const db = drizzle(client);
 
 const USER_ID = "user-user_38i";
 const BLOCK_ID = "user-user-38i-progressive-ppl-from-hell-1770667221052";
+const PROGRAM_ID = "progressive-ppl-from-hell";
 
 // Week 1 starts Feb 9, 2026
 const WEEK_DATES: Record<number, string[]> = {
   1: ["2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12", "2026-02-13"],
   2: ["2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20"],
   3: ["2026-02-23", "2026-02-24", "2026-02-25", "2026-02-26", "2026-02-27"],
+};
+
+// ============ PLANNED EXERCISES JSONB (exact copy from the program template) ============
+// These are embedded so the seed script can bootstrap week 1 workouts on a fresh DB
+
+const PLANNED_EXERCISES: Record<number, Record<string, unknown>[]> = {
+  1: [
+    { exerciseId: "dumbbell-bench-press", sets: 5, repRange: [10, 15], restSeconds: 90, notes: "Flat Dumbbell Press - 15, 10 reps + Drop Set (10, drop 10lbs x2)" },
+    { exerciseId: "incline-barbell-press", sets: 5, repRange: [8, 12], restSeconds: 90, notes: "12, 10 reps + Rest-Pause (8, 3-5 breaths, to failure)" },
+    { exerciseId: "smith-incline-press", sets: 5, repRange: [6, 10], restSeconds: 90, notes: "Smith High Incline - 10, 8 reps + Drop Set (6, 90%, 80%)" },
+    { exerciseId: "machine-fly", sets: 3, repRange: [10, 15], restSeconds: 60, notes: "Machine Flys - 15, 12, 10 reps" },
+    { exerciseId: "decline-bench-press", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "20 reps - pump set" },
+    { exerciseId: "dip", sets: 1, repRange: [8, 20], restSeconds: 60, notes: "Dips to failure" },
+    { exerciseId: "cable-fly", sets: 1, repRange: [10, 10], restSeconds: 60, notes: "Cable Fly - 10 reps finisher" },
+  ],
+  2: [
+    { exerciseId: "lat-pulldown", sets: 7, repRange: [10, 15], restSeconds: 60, notes: "Wide Grip Lat Pulldowns - 15 + Drop Set 1 (10, up pin x2) + Drop Set 2 (10, up pin x2)" },
+    { exerciseId: "neutral-grip-pulldown", sets: 7, repRange: [10, 15], restSeconds: 60, notes: "V-Bar Lat Pulldowns - 15 + Drop Set 1 (10, up pin x2) + Drop Set 2 (10, up pin x2)" },
+    { exerciseId: "cable-pullover", sets: 4, repRange: [15, 15], restSeconds: 60, notes: "Cable Pullovers - 15 + Drop Set (15, up pin x2)" },
+    { exerciseId: "cable-row", sets: 5, repRange: [8, 15], restSeconds: 90, notes: "Seated Row V-Bar - 15, 10 + Drop Set (8, up pin x2)" },
+    { exerciseId: "incline-dumbbell-row", sets: 4, repRange: [8, 15], restSeconds: 90, notes: "Incline Dumbbell High Elbow Row - 10, 8, 8, 15" },
+    { exerciseId: "seated-row-high-elbow", sets: 1, repRange: [10, 10], restSeconds: 60, notes: "Seated Row High Elbow - 10 reps" },
+    { exerciseId: "smith-bent-over-row", sets: 5, repRange: [8, 12], restSeconds: 90, notes: "Smith Bent Over Rows - 12, 10 + Rest-Pause (8, 3-5 breaths, N/A)" },
+    { exerciseId: "barbell-shrug", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Smith Shrug Wide Grip - 20 reps" },
+    { exerciseId: "hyper-extension", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Hyper Extensions (Flexion + Extension) - 20 reps" },
+  ],
+  3: [
+    { exerciseId: "incline-lateral-raise", sets: 4, repRange: [10, 20], restSeconds: 60, notes: "Incline Dumbbell Side Lateral - 10, 10, 20, 20" },
+    { exerciseId: "cable-lateral-raise", sets: 1, repRange: [15, 15], restSeconds: 60, notes: "Cable Side Laterals Single Arm - 15 per side" },
+    { exerciseId: "machine-lateral-raise", sets: 4, repRange: [20, 20], restSeconds: 45, notes: "Machine Side Laterals - 20 + Drop Set (20, up pin x3)" },
+    { exerciseId: "dumbbell-shoulder-press", sets: 6, repRange: [10, 15], restSeconds: 60, notes: "Seated DB Press (Slightly Supinated) - 15, 12, 10 + Rest-Pause (10, 3-5 breaths x2) @ 65°" },
+    { exerciseId: "rear-delt-barbell-raise", sets: 4, repRange: [10, 20], restSeconds: 60, notes: "Rear Delt Behind The Back Barbell Raise - 20, 20, 10, 10" },
+    { exerciseId: "single-arm-dumbbell-rear-delt-raise", sets: 1, repRange: [10, 10], restSeconds: 60, notes: "Single Arm Dumbbell Rear Delt Raise - 10 per side" },
+    { exerciseId: "lying-cable-rear-delt-row", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Lying Rear Delt Cable Row - 20 reps" },
+    { exerciseId: "barbell-shrug", sets: 1, repRange: [30, 30], restSeconds: 60, notes: "Barbell Shrugs Wide Grip - 30 reps" },
+  ],
+  4: [
+    { exerciseId: "cable-tricep-extension", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Straight Bar Extensions - 20 reps" },
+    { exerciseId: "cable-curl", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Cable Straight Bar Curl - 20 reps" },
+    { exerciseId: "overhead-dumbbell-extension", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Single Arm Overhead Dumbbell Extension - 20 per side" },
+    { exerciseId: "preacher-curl", sets: 2, repRange: [10, 15], restSeconds: 60, notes: "Dumbbell Preacher Curl (FLAT SIDE) - 15, 10 per side" },
+    { exerciseId: "reverse-grip-curl", sets: 1, repRange: [10, 10], restSeconds: 60, notes: "EZ Bar Reverse Grip Curls - 10 reps" },
+    { exerciseId: "close-grip-bench-press", sets: 1, repRange: [20, 20], restSeconds: 60, notes: "Close Grip Press - 20 reps" },
+    { exerciseId: "cable-ez-bar-curl", sets: 3, repRange: [30, 30], restSeconds: 30, notes: "SUPERSET with Cable French Press - Cable EZ Bar Curl 30 reps x 3 rounds" },
+    { exerciseId: "cable-french-press", sets: 3, repRange: [30, 30], restSeconds: 60, notes: "SUPERSET with Cable EZ Bar Curl - Cable French Press 30 reps x 3 rounds" },
+  ],
+  5: [
+    { exerciseId: "leg-extension", sets: 9, repRange: [10, 20], restSeconds: 45, notes: "Leg Extensions - 20, 20, 20, 10, 10 + Drop Set (10, up pin x3)" },
+    { exerciseId: "dumbbell-split-squat", sets: 1, repRange: [15, 15], restSeconds: 90, notes: "Dumbbell Quad Split Squat - 15 per side" },
+    { exerciseId: "hack-squat", sets: 3, repRange: [10, 30], restSeconds: 120, notes: "Hack Squat Toes Low (QUAD) - 10, 20, 30 pyramid" },
+    { exerciseId: "seated-leg-curl", sets: 4, repRange: [10, 20], restSeconds: 60, notes: "Seated Leg Curl - 10, 10, 20, 20" },
+    { exerciseId: "smith-reverse-lunge", sets: 3, repRange: [10, 15], restSeconds: 90, notes: "Smith Reverse Lunges - 15, 15, 10 per side" },
+    { exerciseId: "leg-press", sets: 4, repRange: [15, 20], restSeconds: 90, notes: "Leg Press Wide - 20 + Drop Set (15, drop 2 plates x2)" },
+    { exerciseId: "monster-walk", sets: 1, repRange: [50, 50], restSeconds: 60, notes: "Monster Walk - 50 reps finisher" },
+  ],
 };
 
 function wid(week: number, day: number) {
@@ -208,6 +264,63 @@ function getReadinessRecommendation(score: number): string {
 
 // ============ SEED FUNCTIONS ============
 
+async function ensureTrainingBlockAndWeek1() {
+  console.log("Checking for training block and week 1 workouts...");
+
+  // Check if training block exists
+  const existingBlock = await db
+    .select()
+    .from(trainingBlocks)
+    .where(eq(trainingBlocks.id, BLOCK_ID))
+    .limit(1);
+
+  if (existingBlock.length === 0) {
+    console.log("  Training block not found — creating it...");
+    await db.insert(trainingBlocks).values({
+      id: BLOCK_ID,
+      userId: USER_ID,
+      programId: PROGRAM_ID,
+      startDate: WEEK_DATES[1]![0]!,
+      currentWeek: 1,
+      status: "active",
+    });
+    console.log("  Created training block");
+  } else {
+    console.log("  Training block already exists");
+  }
+
+  // Check if week 1 workouts exist
+  const existingWeek1 = await db
+    .select()
+    .from(workouts)
+    .where(
+      and(
+        eq(workouts.trainingBlockId, BLOCK_ID),
+        eq(workouts.weekNumber, 1)
+      )
+    );
+
+  if (existingWeek1.length === 0) {
+    console.log("  Week 1 workouts not found — creating them...");
+    const week1Workouts: (typeof workouts.$inferInsert)[] = [];
+    for (let day = 1; day <= 5; day++) {
+      week1Workouts.push({
+        id: wid(1, day),
+        trainingBlockId: BLOCK_ID,
+        scheduledDate: WEEK_DATES[1]![day - 1]!,
+        weekNumber: 1,
+        dayNumber: day,
+        plannedExercises: PLANNED_EXERCISES[day]!,
+        status: "pending",
+      });
+    }
+    await db.insert(workouts).values(week1Workouts);
+    console.log(`  Created ${week1Workouts.length} week 1 workouts`);
+  } else {
+    console.log(`  Week 1 workouts already exist (${existingWeek1.length} found)`);
+  }
+}
+
 async function cleanSeedData() {
   console.log("Cleaning existing seed data...");
 
@@ -231,23 +344,12 @@ async function cleanSeedData() {
 async function generateWeek2And3Workouts() {
   console.log("Generating week 2 and 3 workouts...");
 
-  // Get week 1 workouts as templates for planned exercises
-  const week1Workouts = await db
-    .select()
-    .from(workouts)
-    .where(
-      and(
-        eq(workouts.trainingBlockId, BLOCK_ID),
-        eq(workouts.weekNumber, 1)
-      )
-    );
-
   const newWorkouts: (typeof workouts.$inferInsert)[] = [];
 
   for (const week of [2, 3]) {
     for (let day = 1; day <= 5; day++) {
-      const templateWorkout = week1Workouts.find((w) => w.dayNumber === day);
-      if (!templateWorkout) continue;
+      const plannedExercises = PLANNED_EXERCISES[day];
+      if (!plannedExercises) continue;
 
       newWorkouts.push({
         id: wid(week, day),
@@ -255,7 +357,7 @@ async function generateWeek2And3Workouts() {
         scheduledDate: WEEK_DATES[week]![day - 1]!,
         weekNumber: week,
         dayNumber: day,
-        plannedExercises: templateWorkout.plannedExercises,
+        plannedExercises,
         status: "pending", // Will update status later
       });
     }
@@ -904,6 +1006,7 @@ async function seed() {
   console.log("=== Seeding Training Data for Tosin ===\n");
 
   try {
+    await ensureTrainingBlockAndWeek1();
     await cleanSeedData();
     await generateWeek2And3Workouts();
     await seedWorkoutLogs();
