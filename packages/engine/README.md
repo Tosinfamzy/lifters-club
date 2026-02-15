@@ -96,7 +96,7 @@ Every decision function accepts an optional config object with sensible defaults
 ```typescript
 const decision = calculateLoadProgression(input, {
   rpeThresholdForIncrease: 7.5, // More aggressive (default: 8)
-  smallIncrementKg: 1.25,       // Micro-loading (default: 2.5)
+  smallIncrement: 1.25,       // Micro-loading (default: 2.5)
 });
 ```
 

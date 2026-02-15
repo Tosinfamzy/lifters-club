@@ -18,6 +18,8 @@ import { ExerciseSearch } from "./exercise-search";
 import { SetInput } from "./set-input";
 import { type Exercise } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
+import { useWeightUnit } from "@/hooks/use-weight-unit";
+import { toLbs } from "@/lib/constants";
 
 interface ExerciseEntry {
   id: string;
@@ -35,6 +37,7 @@ interface LogWorkoutDialogProps {
 
 export function LogWorkoutDialog({ onSuccess }: LogWorkoutDialogProps) {
   const api = useApi();
+  const weightUnit = useWeightUnit();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +177,7 @@ export function LogWorkoutDialog({ onSuccess }: LogWorkoutDialogProps) {
             sets: e.sets
               .filter((s) => s.weight !== "" && s.reps !== "")
               .map((s) => ({
-                weight: Number(s.weight),
+                weight: toLbs(Number(s.weight), weightUnit),
                 reps: Number(s.reps),
                 rpe: s.rpe !== "" ? Number(s.rpe) : undefined,
               })),
@@ -287,7 +290,7 @@ export function LogWorkoutDialog({ onSuccess }: LogWorkoutDialogProps) {
                     {/* Set headers */}
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="w-8">Set</span>
-                      <span className="w-24">Weight (lbs)</span>
+                      <span className="w-24">Weight ({weightUnit})</span>
                       <span className="w-5" />
                       <span className="w-20">Reps</span>
                       <span className="w-16">RPE</span>
@@ -301,6 +304,7 @@ export function LogWorkoutDialog({ onSuccess }: LogWorkoutDialogProps) {
                         weight={set.weight}
                         reps={set.reps}
                         rpe={set.rpe}
+                        weightUnit={weightUnit}
                         onWeightChange={(v) =>
                           updateSet(entry.id, setIndex, "weight", v)
                         }

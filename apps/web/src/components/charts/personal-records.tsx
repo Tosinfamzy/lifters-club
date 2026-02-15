@@ -2,6 +2,8 @@
 
 import { Trophy, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useWeightUnit } from "@/hooks/use-weight-unit";
+import { formatWeight } from "@/lib/constants";
 
 interface PersonalRecord {
   exerciseId: string;
@@ -24,6 +26,8 @@ interface PersonalRecordsProps {
 }
 
 export function PersonalRecords({ records }: PersonalRecordsProps) {
+  const weightUnit = useWeightUnit();
+
   if (records.length === 0) {
     return (
       <Card>
@@ -34,7 +38,7 @@ export function PersonalRecords({ records }: PersonalRecordsProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[100px] items-center justify-center text-muted-foreground">
+          <div className="flex h-25 items-center justify-center text-muted-foreground">
             No personal records yet. Start training to set some PRs!
           </div>
         </CardContent>
@@ -90,7 +94,7 @@ export function PersonalRecords({ records }: PersonalRecordsProps) {
               <div className="text-right">
                 <div className="flex items-center gap-1 text-lg font-bold text-primary">
                   <TrendingUp className="h-4 w-4" />
-                  {record.weightPR!.weight} lbs
+                  {formatWeight(record.weightPR!.weight, weightUnit)}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   × {record.weightPR!.reps} reps

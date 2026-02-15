@@ -20,7 +20,10 @@ import { Badge } from "@/components/ui/badge";
 import type { Decision, DecisionType, DecisionOutcome, OverrideReason } from "@/lib/api";
 import { DECISION_TYPE_LABELS } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
+import { useWeightUnit } from "@/hooks/use-weight-unit";
+import { formatWeight } from "@/lib/constants";
 import { OverrideReasonPicker } from "./override-reason-picker";
+import type { WeightUnit } from "@gymapp/types";
 import {
   TrendingUp,
   TrendingDown,
@@ -67,7 +70,7 @@ function formatDateTime(dateString: string): string {
   });
 }
 
-function renderLoadProgressionDetail(decision: Decision) {
+function renderLoadProgressionDetail(decision: Decision, weightUnit: WeightUnit) {
   const input = decision.input;
   const output = decision.output;
 
@@ -87,7 +90,7 @@ function renderLoadProgressionDetail(decision: Decision) {
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Current Weight</span>
-            <span className="font-medium">{input.currentWeight as number} lbs</span>
+            <span className="font-medium">{formatWeight(input.currentWeight as number, weightUnit)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Target Rep Range</span>
@@ -110,13 +113,12 @@ function renderLoadProgressionDetail(decision: Decision) {
         <CardContent>
           <div className="flex items-center gap-4">
             <div className="text-2xl font-bold">
-              {input.currentWeight as number}
+              {formatWeight(input.currentWeight as number, weightUnit)}
             </div>
             <ArrowRight className="h-5 w-5 text-muted-foreground" />
             <div className="text-2xl font-bold text-primary">
-              {output.newWeight as number}
+              {formatWeight(output.newWeight as number, weightUnit)}
             </div>
-            <span className="text-sm text-muted-foreground">lbs</span>
           </div>
           <div className={`inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-full text-xs font-medium ${
             output.action === "increase"
@@ -222,6 +224,7 @@ export function DecisionDetail({
   onOutcomeRecorded,
 }: DecisionDetailProps) {
   const api = useApi();
+  const weightUnit = useWeightUnit();
   const [isRecording, setIsRecording] = useState(false);
   const [showReasonPicker, setShowReasonPicker] = useState(false);
   const [recordedOutcome, setRecordedOutcome] = useState<DecisionOutcome | null>(null);
@@ -282,7 +285,7 @@ export function DecisionDetail({
   const renderDetail = () => {
     switch (decision.type) {
       case "load_progression":
-        return renderLoadProgressionDetail(decision);
+        return renderLoadProgressionDetail(decision, weightUnit);
       case "volume_adjustment":
         return renderVolumeAdjustmentDetail(decision);
       default:

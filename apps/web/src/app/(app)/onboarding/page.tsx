@@ -17,6 +17,8 @@ import { Dumbbell, Loader2, Target, TrendingUp, Zap, Check, Scale, Calculator, R
 import type { CalibrationPath, CalibrationExercise } from "@gymapp/types";
 import { useApi } from "@/lib/use-api";
 import { useAppUser } from "@/providers/user-provider";
+import { useWeightUnit } from "@/hooks/use-weight-unit";
+import { toLbs } from "@/lib/constants";
 import { toast } from "sonner";
 
 type TrainingLevel = "beginner" | "intermediate" | "advanced";
@@ -109,6 +111,7 @@ export default function OnboardingPage() {
   const { user, isLoaded } = useUser();
   const api = useApi();
   const { refetch } = useAppUser();
+  const weightUnit = useWeightUnit();
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [trainingLevel, setTrainingLevel] = useState<TrainingLevel | null>(null);
@@ -211,7 +214,7 @@ export default function OnboardingPage() {
           .filter((b) => b.weight && parseFloat(b.weight) > 0)
           .map((b) => ({
             exerciseId: b.exerciseId,
-            weight: parseFloat(b.weight),
+            weight: toLbs(parseFloat(b.weight), weightUnit),
             reps: parseInt(b.reps) || 8,
             source: "user_input" as const,
           }));
@@ -454,7 +457,7 @@ export default function OnboardingPage() {
                               <Input
                                 id={`weight-${index}`}
                                 type="number"
-                                placeholder="Weight (lbs)"
+                                placeholder={`Weight (${weightUnit})`}
                                 value={baseline.weight}
                                 onChange={(e) => updateBaseline(index, "weight", e.target.value)}
                               />

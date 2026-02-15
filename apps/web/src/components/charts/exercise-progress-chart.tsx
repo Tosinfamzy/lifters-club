@@ -10,6 +10,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useWeightUnit } from "@/hooks/use-weight-unit";
+import { fromLbs } from "@/lib/constants";
 
 interface ProgressSession {
   date: string;
@@ -30,6 +32,8 @@ export function ExerciseProgressChart({
   metric,
   title = "Progress",
 }: ExerciseProgressChartProps) {
+  const weightUnit = useWeightUnit();
+
   if (sessions.length < 2) {
     return (
       <Card>
@@ -37,7 +41,7 @@ export function ExerciseProgressChart({
           <CardTitle>{title}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[200px] items-center justify-center text-muted-foreground">
+          <div className="flex h-50 items-center justify-center text-muted-foreground">
             Need at least 2 sessions to show progress
           </div>
         </CardContent>
@@ -47,7 +51,7 @@ export function ExerciseProgressChart({
 
   const chartData = sessions.map((s) => ({
     name: formatDateLabel(s.date),
-    value: metric === "weight" ? s.bestWeight : s.bestVolume,
+    value: metric === "weight" ? fromLbs(s.bestWeight, weightUnit) : fromLbs(s.bestVolume, weightUnit),
     rpe: s.avgRpe,
     sets: s.totalSets,
   }));
@@ -89,8 +93,8 @@ export function ExerciseProgressChart({
                     <div className="rounded-lg border bg-background p-3 shadow-sm">
                       <div className="font-medium">{data.name}</div>
                       <div className="text-sm text-muted-foreground">
-                        {metric === "weight" ? "Weight" : "Volume"}: {data.value}
-                        {metric === "volume" ? " lbs" : " lbs"}
+                        {metric === "weight" ? "Weight" : "Volume"}:{" "}
+                        {weightUnit === "kg" ? data.value.toFixed(1) : Math.round(data.value)} {weightUnit}
                       </div>
                       {data.rpe && (
                         <div className="text-sm text-muted-foreground">

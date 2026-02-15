@@ -45,8 +45,8 @@ Decision functions are configurable without modification:
 interface ProgressionConfig {
   rpeThresholdForIncrease: number;  // default: 8
   rpeThresholdForDecrease: number;  // default: 9
-  smallIncrementKg: number;         // default: 2.5
-  largeIncrementKg: number;         // default: 5
+  smallIncrement: number;         // default: 2.5
+  largeIncrement: number;         // default: 5
 }
 
 export function calculateLoadProgression(

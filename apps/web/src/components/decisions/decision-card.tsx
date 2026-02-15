@@ -10,6 +10,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import type { Decision, DecisionType } from "@/lib/api";
 import { DECISION_TYPE_LABELS } from "@/lib/api";
+import { useWeightUnit } from "@/hooks/use-weight-unit";
+import { formatWeight } from "@/lib/constants";
+import type { WeightUnit } from "@gymapp/types";
 import {
   TrendingUp,
   TrendingDown,
@@ -66,15 +69,15 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString();
 }
 
-function getDecisionSummary(decision: Decision): string {
+function getDecisionSummary(decision: Decision, weightUnit: WeightUnit): string {
   const output = decision.output;
 
   switch (decision.type) {
     case "load_progression": {
       const action = output.action as string;
       const newWeight = output.newWeight as number;
-      if (action === "increase") return `Increase to ${newWeight}`;
-      if (action === "decrease") return `Decrease to ${newWeight}`;
+      if (action === "increase") return `Increase to ${formatWeight(newWeight, weightUnit)}`;
+      if (action === "decrease") return `Decrease to ${formatWeight(newWeight, weightUnit)}`;
       return "Maintain weight";
     }
     case "volume_adjustment": {
@@ -169,6 +172,7 @@ function OutcomeBadge({ decision }: { decision: Decision }) {
 }
 
 export function DecisionCard({ decision, onSelect }: DecisionCardProps) {
+  const weightUnit = useWeightUnit();
   const Icon = TYPE_ICONS[decision.type];
   const colorClass = TYPE_COLORS[decision.type];
 
@@ -199,7 +203,7 @@ export function DecisionCard({ decision, onSelect }: DecisionCardProps) {
         </div>
       </CardHeader>
       <CardContent className="pt-0">
-        <p className="text-sm font-medium">{getDecisionSummary(decision)}</p>
+        <p className="text-sm font-medium">{getDecisionSummary(decision, weightUnit)}</p>
         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
           {decision.reasoning}
         </p>

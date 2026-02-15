@@ -1,6 +1,11 @@
 import type { MuscleGroup } from "./exercise";
 
 /**
+ * Weight measurement unit
+ */
+export type WeightUnit = "lbs" | "kg";
+
+/**
  * User training experience level
  */
 export type TrainingLevel = "beginner" | "intermediate" | "advanced";
@@ -19,6 +24,7 @@ export interface UserPreferences {
   equipmentAvailable: string[];
   daysPerWeek: number;
   sessionDurationMinutes: number;
+  weightUnit?: WeightUnit;
 }
 
 /**

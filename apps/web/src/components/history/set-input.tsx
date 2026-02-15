@@ -3,12 +3,15 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { getWeightStep } from "@/lib/constants";
+import type { WeightUnit } from "@gymapp/types";
 
 interface SetInputProps {
   setNumber: number;
   weight: number | "";
   reps: number | "";
   rpe: number | "";
+  weightUnit?: WeightUnit;
   onWeightChange: (value: number | "") => void;
   onRepsChange: (value: number | "") => void;
   onRpeChange: (value: number | "") => void;
@@ -21,6 +24,7 @@ export function SetInput({
   weight,
   reps,
   rpe,
+  weightUnit = "lbs",
   onWeightChange,
   onRepsChange,
   onRpeChange,
@@ -55,7 +59,7 @@ export function SetInput({
         onChange={(e) => handleNumberChange(e.target.value, onWeightChange, true)}
         min={0}
         max={2000}
-        step={2.5}
+        step={getWeightStep(weightUnit)}
       />
       <span className="text-muted-foreground">×</span>
       <Input

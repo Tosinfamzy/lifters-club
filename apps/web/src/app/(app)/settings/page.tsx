@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Dumbbell, Target, Ruler, Loader2, CheckCircle, Bell, Mail } from "lucide-react";
 import { toast } from "sonner";
+import type { WeightUnit } from "@gymapp/types";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
 
@@ -40,8 +41,8 @@ export default function SettingsPage() {
   const [primaryGoal, setPrimaryGoal] = useState<string>(
     appUser?.primaryGoal || "hypertrophy"
   );
-  const [weightUnit, setWeightUnit] = useState(
-    (appUser?.preferences?.weightUnit as string) || "lbs"
+  const [weightUnit, setWeightUnit] = useState<WeightUnit>(
+    (appUser?.preferences?.weightUnit as WeightUnit) || "lbs"
   );
 
   const defaultNotifications: NotificationPreferences = {
@@ -201,7 +202,7 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Select value={weightUnit} onValueChange={setWeightUnit}>
+              <Select value={weightUnit} onValueChange={(v) => setWeightUnit(v as WeightUnit)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

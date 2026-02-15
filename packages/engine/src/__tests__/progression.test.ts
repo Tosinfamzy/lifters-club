@@ -141,8 +141,8 @@ describe("calculateLoadProgression", () => {
     const result = calculateLoadProgression(input, {
       rpeThresholdForIncrease: 7,
       rpeThresholdForDecrease: 9,
-      smallIncrementKg: 2.5,
-      largeIncrementKg: 5,
+      smallIncrement: 2.5,
+      largeIncrement: 5,
       weightThresholdForLargeIncrement: 50,
     });
 

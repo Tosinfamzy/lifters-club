@@ -8,16 +8,16 @@ import { calculateWorkingWeight, estimateOneRepMax } from "./estimation";
 export interface ProgressionConfig {
   rpeThresholdForIncrease: number;
   rpeThresholdForDecrease: number;
-  smallIncrementKg: number;
-  largeIncrementKg: number;
+  smallIncrement: number;
+  largeIncrement: number;
   weightThresholdForLargeIncrement: number;
 }
 
 const defaultConfig: ProgressionConfig = {
   rpeThresholdForIncrease: 8,
   rpeThresholdForDecrease: 9,
-  smallIncrementKg: 2.5,
-  largeIncrementKg: 5,
+  smallIncrement: 2.5,
+  largeIncrement: 5,
   weightThresholdForLargeIncrement: 50,
 };
 
@@ -64,8 +64,8 @@ export function calculateLoadProgression(
 
   const increment =
     currentWeight < config.weightThresholdForLargeIncrement
-      ? config.smallIncrementKg
-      : config.largeIncrementKg;
+      ? config.smallIncrement
+      : config.largeIncrement;
 
   // Decision logic
   if (avgReps >= maxReps && avgRpe < config.rpeThresholdForIncrease) {

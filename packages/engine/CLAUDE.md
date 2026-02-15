@@ -90,16 +90,16 @@ Make thresholds configurable:
 export interface ProgressionConfig {
   rpeThresholdForIncrease: number;  // default: 8
   rpeThresholdForDecrease: number;  // default: 9
-  smallIncrementKg: number;         // default: 2.5
-  largeIncrementKg: number;         // default: 5
+  smallIncrement: number;         // default: 2.5
+  largeIncrement: number;         // default: 5
   weightThresholdForLargeIncrement: number; // default: 50
 }
 
 const defaultConfig: ProgressionConfig = {
   rpeThresholdForIncrease: 8,
   rpeThresholdForDecrease: 9,
-  smallIncrementKg: 2.5,
-  largeIncrementKg: 5,
+  smallIncrement: 2.5,
+  largeIncrement: 5,
   weightThresholdForLargeIncrement: 50,
 };
 
