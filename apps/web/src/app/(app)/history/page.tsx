@@ -23,19 +23,7 @@ import {
   ExportDialog,
   LogWorkoutDialog,
 } from "@/components/history";
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffDays = Math.floor(
-    (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString();
-}
+import { formatRelativeDate } from "@/lib/format";
 
 function calculateDuration(startedAt: string, completedAt?: string): number | null {
   if (!completedAt) return null;
@@ -90,11 +78,10 @@ export default function HistoryPage() {
       const response = await api.getWorkoutLogs({
         userId: appUser.id,
         limit: DEFAULT_PAGE_SIZE,
+        offset: newOffset,
       });
       const results = response.data || [];
-      // Since the API doesn't support offset yet, we append any new results
-      // For now, fetch with higher limit to get more results
-      setWorkoutLogs((prev) => [...prev, ...results.slice(prev.length)]);
+      setWorkoutLogs((prev) => [...prev, ...results]);
       setOffset(newOffset);
       setHasMore(results.length === DEFAULT_PAGE_SIZE);
     } catch (error) {
@@ -316,7 +303,7 @@ export default function HistoryPage() {
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {formatDate(log.completedAt!)}
+                            {formatRelativeDate(log.completedAt!)}
                           </span>
                           {duration && <span>{duration} min</span>}
                           {log.overallRpe && (

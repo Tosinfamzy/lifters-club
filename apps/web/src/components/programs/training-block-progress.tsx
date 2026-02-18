@@ -25,6 +25,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
+import { formatShortDate } from "@/lib/format";
 import type { TrainingBlock, Program, Workout } from "@/lib/api";
 
 interface TrainingBlockProgressProps {
@@ -55,14 +56,6 @@ const STATUS_LABELS: Record<Workout["status"], string> = {
   skipped: "Skipped",
 };
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 export function TrainingBlockProgress({
   block,
@@ -269,7 +262,7 @@ export function TrainingBlockProgress({
                           {STATUS_LABELS[effectiveStatus]}
                         </Badge>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {formatDate(workout.scheduledDate)}
+                          {formatShortDate(workout.scheduledDate)}
                         </p>
                       </div>
                     </div>

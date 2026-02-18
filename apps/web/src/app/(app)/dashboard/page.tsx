@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useUser } from "@clerk/nextjs";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
 import {
@@ -52,6 +53,7 @@ interface SummaryData {
 
 export default function DashboardPage() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
+  const { user: clerkUser } = useUser();
   const api = useApi();
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -244,9 +246,7 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <p className="text-muted-foreground">
-          {appUser
-            ? `Welcome back, ${appUser.email?.split("@")[0] || "lifter"}. Ready to train?`
-            : "Welcome back. Ready to train?"}
+          {`Welcome back, ${clerkUser?.firstName || appUser?.email?.split("@")[0] || "lifter"}. Ready to train?`}
         </p>
       </div>
 

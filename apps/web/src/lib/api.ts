@@ -327,11 +327,12 @@ class ApiClient {
   }
 
   // Workout Logs
-  async getWorkoutLogs(params: { userId?: string; workoutId?: string; limit?: number }) {
+  async getWorkoutLogs(params: { userId?: string; workoutId?: string; limit?: number; offset?: number }) {
     const searchParams = new URLSearchParams();
     if (params.userId) searchParams.set("userId", params.userId);
     if (params.workoutId) searchParams.set("workoutId", params.workoutId);
     if (params.limit) searchParams.set("limit", String(params.limit));
+    if (params.offset) searchParams.set("offset", String(params.offset));
     return this.request<ApiResponse<WorkoutLog[]>>(`/api/logs?${searchParams}`);
   }
 

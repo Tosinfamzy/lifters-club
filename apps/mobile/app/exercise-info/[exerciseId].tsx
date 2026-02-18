@@ -20,6 +20,7 @@ import {
 } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 import { useApi } from "../../hooks/use-api";
+import { ExerciseProgressChart } from "../../components/ExerciseProgressChart";
 import type { Exercise, ExerciseProgressSession } from "../../lib/api";
 
 const difficultyColors: Record<string, string> = {
@@ -253,6 +254,17 @@ export default function ExerciseInfoScreen() {
             ))}
           </View>
         </View>
+
+        {/* Progress Chart */}
+        {progress.length > 0 && (
+          <View style={styles.section}>
+            <ExerciseProgressChart
+              sessions={progress}
+              metric="weight"
+              title="Weight Progress"
+            />
+          </View>
+        )}
 
         {/* Recent Progress */}
         {progress.length > 0 && (

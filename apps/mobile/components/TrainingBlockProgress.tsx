@@ -18,6 +18,7 @@ import {
   Calendar,
 } from "lucide-react-native";
 import { useApi } from "../hooks/use-api";
+import { formatShortDate } from "../lib/format";
 import type { TrainingBlock, Workout, Program } from "../lib/api";
 
 interface TrainingBlockProgressProps {
@@ -52,15 +53,6 @@ function StatusIcon({ status, size = 20 }: { status: Workout["status"]; size?: n
     default:
       return <Circle size={size} color={color} />;
   }
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 export function TrainingBlockProgress({
@@ -110,7 +102,7 @@ export function TrainingBlockProgress({
   const handleSkipWorkout = (workout: Workout) => {
     Alert.alert(
       "Skip Workout?",
-      `Skip Day ${workout.dayNumber} (${formatDate(workout.scheduledDate)})? You can still come back to it later.`,
+      `Skip Day ${workout.dayNumber} (${formatShortDate(workout.scheduledDate)})? You can still come back to it later.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -265,7 +257,7 @@ export function TrainingBlockProgress({
                   </Text>
                 </View>
                 <Text style={styles.dateText}>
-                  {formatDate(workout.scheduledDate)}
+                  {formatShortDate(workout.scheduledDate)}
                 </Text>
               </View>
             </View>

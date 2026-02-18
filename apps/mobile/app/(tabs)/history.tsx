@@ -13,6 +13,7 @@ import { Calendar, Clock, Dumbbell, TrendingUp, BarChart3 } from "lucide-react-n
 import { useAppUser } from "../../providers/user-provider";
 import { VolumeChart } from "../../components";
 import { useApi } from "../../hooks/use-api";
+import { formatRelativeDate } from "../../lib/format";
 import type { WorkoutLog, VolumeWeekData, AnalyticsSummary } from "../../lib/api";
 
 type ViewMode = "history" | "analytics";
@@ -81,18 +82,7 @@ export default function HistoryScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appUser?.id]);
 
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays} days ago`;
-    return date.toLocaleDateString();
-  };
+  const formatDate = formatRelativeDate;
 
   const calculateDuration = (startedAt: string, completedAt?: string): string => {
     if (!completedAt) return "In progress";

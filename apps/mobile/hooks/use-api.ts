@@ -25,6 +25,7 @@ export function useApi() {
       getExercise: baseApi.getExercise.bind(baseApi),
       getExerciseSubstitutes: baseApi.getExerciseSubstitutes.bind(baseApi),
       getPrograms: baseApi.getPrograms.bind(baseApi),
+      getProgram: baseApi.getProgram.bind(baseApi),
 
       // Workouts (protected)
       getTodaysWorkout: () =>

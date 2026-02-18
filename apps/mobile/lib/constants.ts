@@ -50,3 +50,9 @@ export const GOAL_LABELS: Record<string, string> = {
   hypertrophy: "Hypertrophy",
   conditioning: "Conditioning",
 };
+
+export const LEVEL_LABELS: Record<string, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+};

@@ -1,8 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import Constants from "expo-constants";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
 import { User, Settings, LogOut, ChevronRight, Target, Dumbbell } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
+import { GOAL_LABELS, LEVEL_LABELS } from "../../lib/constants";
 
 export default function ProfileScreen() {
   const { signOut } = useAuth();
@@ -28,18 +30,6 @@ export default function ProfileScreen() {
     );
   };
 
-  const goalLabel = {
-    strength: "Strength",
-    hypertrophy: "Hypertrophy",
-    conditioning: "Conditioning",
-  };
-
-  const levelLabel = {
-    beginner: "Beginner",
-    intermediate: "Intermediate",
-    advanced: "Advanced",
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -56,7 +46,7 @@ export default function ProfileScreen() {
         <View style={styles.statItem}>
           <Target size={24} color="#3B82F6" />
           <Text style={styles.statValue}>
-            {appUser ? levelLabel[appUser.trainingLevel] : "—"}
+            {appUser ? LEVEL_LABELS[appUser.trainingLevel] : "—"}
           </Text>
           <Text style={styles.statLabel}>Level</Text>
         </View>
@@ -64,7 +54,7 @@ export default function ProfileScreen() {
         <View style={styles.statItem}>
           <Dumbbell size={24} color="#3B82F6" />
           <Text style={styles.statValue}>
-            {appUser ? goalLabel[appUser.primaryGoal] : "—"}
+            {appUser ? GOAL_LABELS[appUser.primaryGoal] : "—"}
           </Text>
           <Text style={styles.statLabel}>Goal</Text>
         </View>
@@ -99,7 +89,7 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Lifters Club v1.0.0</Text>
+        <Text style={styles.footerText}>Lifters Club v{Constants.expoConfig?.version ?? "1.0.0"}</Text>
       </View>
     </View>
   );

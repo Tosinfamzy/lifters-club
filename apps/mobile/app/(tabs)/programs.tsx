@@ -13,30 +13,14 @@ import { Calendar, Target, Dumbbell, Play } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 import { useApi } from "../../hooks/use-api";
 import { TrainingBlockProgress } from "../../components/TrainingBlockProgress";
+import { GOAL_LABELS, GOAL_COLORS, LEVEL_LABELS } from "../../lib/constants";
 import type { Program } from "../../lib/api";
-
-const goalLabels: Record<string, string> = {
-  strength: "Strength",
-  hypertrophy: "Hypertrophy",
-  conditioning: "Conditioning",
-};
-
-const levelLabels: Record<string, string> = {
-  beginner: "Beginner",
-  intermediate: "Intermediate",
-  advanced: "Advanced",
-};
-
-const goalColors: Record<string, string> = {
-  strength: "#EF4444",
-  hypertrophy: "#3B82F6",
-  conditioning: "#10B981",
-};
 
 export default function ProgramsScreen() {
   const api = useApi();
   const { appUser, refetch } = useAppUser();
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [activeProgram, setActiveProgram] = useState<Program | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "recommended">("recommended");
@@ -68,12 +52,29 @@ export default function ProgramsScreen() {
     fetchPrograms();
   }, [fetchPrograms]);
 
+  // Fetch active program independently so it's visible regardless of filter
+  const activeProgramId = appUser?.activeTrainingBlock?.programId;
+  useEffect(() => {
+    if (!activeProgramId) {
+      setActiveProgram(null);
+      return;
+    }
+    api.getProgram(activeProgramId)
+      .then((res) => setActiveProgram(res.data))
+      .catch((err) => console.error("Failed to fetch active program:", err));
+  }, [activeProgramId, api]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchPrograms();
+    if (activeProgramId) {
+      api.getProgram(activeProgramId)
+        .then((res) => setActiveProgram(res.data))
+        .catch((err) => console.error("Failed to refresh active program:", err));
+    }
     await refetch();
     setRefreshing(false);
-  }, [fetchPrograms, refetch]);
+  }, [fetchPrograms, refetch, activeProgramId, api]);
 
   const handleStartProgram = async (program: Program) => {
     if (!appUser) return;
@@ -182,23 +183,16 @@ export default function ProgramsScreen() {
       </View>
 
       {/* Active Program */}
-      {appUser?.activeTrainingBlock && (() => {
-        const block = appUser.activeTrainingBlock;
-        const activeProgram = programs.find(
-          (p) => p.id === block.programId
-        );
-        if (!activeProgram) return null;
-        return (
-          <TrainingBlockProgress
-            block={block}
-            program={activeProgram}
-            onWeekGenerated={() => {
-              refetch();
-              fetchPrograms();
-            }}
-          />
-        );
-      })()}
+      {appUser?.activeTrainingBlock && activeProgram && (
+        <TrainingBlockProgress
+          block={appUser.activeTrainingBlock}
+          program={activeProgram}
+          onWeekGenerated={() => {
+            refetch();
+            fetchPrograms();
+          }}
+        />
+      )}
 
       {/* Programs List */}
       <Text style={styles.sectionTitle}>
@@ -224,10 +218,10 @@ export default function ProgramsScreen() {
                 <View
                   style={[
                     styles.goalBadge,
-                    { backgroundColor: goalColors[program.goal] },
+                    { backgroundColor: GOAL_COLORS[program.goal] },
                   ]}
                 >
-                  <Text style={styles.goalText}>{goalLabels[program.goal]}</Text>
+                  <Text style={styles.goalText}>{GOAL_LABELS[program.goal]}</Text>
                 </View>
               </View>
               {program.description && (
@@ -244,7 +238,7 @@ export default function ProgramsScreen() {
               </View>
               <View style={styles.metaItem}>
                 <Target size={14} color="#94A3B8" />
-                <Text style={styles.metaText}>{levelLabels[program.level]}</Text>
+                <Text style={styles.metaText}>{LEVEL_LABELS[program.level]}</Text>
               </View>
               <View style={styles.metaItem}>
                 <Dumbbell size={14} color="#94A3B8" />

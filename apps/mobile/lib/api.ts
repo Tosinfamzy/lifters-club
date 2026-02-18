@@ -390,6 +390,10 @@ class ApiClient {
     );
   }
 
+  async getProgram(id: string) {
+    return this.request<ApiResponse<Program>>(`/api/programs/${id}`);
+  }
+
   // ─── Training Blocks (protected) ──────────────────────────────────────
 
   async pauseTrainingBlock(blockId: string) {
