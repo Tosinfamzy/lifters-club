@@ -319,6 +319,13 @@ class ApiClient {
     };
   }
 
+  async updateWorkout(id: string, data: { status: Workout["status"] }) {
+    return this.request<ApiResponse<Workout>>(`/api/workouts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
   // Workout Logs
   async getWorkoutLogs(params: { userId?: string; workoutId?: string; limit?: number }) {
     const searchParams = new URLSearchParams();

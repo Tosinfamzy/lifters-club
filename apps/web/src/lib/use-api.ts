@@ -59,6 +59,9 @@ export function useApi() {
       getWorkouts: (params: Parameters<typeof baseApi.getWorkouts>[0]) =>
         authenticatedRequest((client) => client.getWorkouts(params)),
 
+      updateWorkout: (id: string, data: Parameters<typeof baseApi.updateWorkout>[1]) =>
+        authenticatedRequest((client) => client.updateWorkout(id, data)),
+
       getWorkoutLogs: (params: Parameters<typeof baseApi.getWorkoutLogs>[0]) =>
         authenticatedRequest((client) => client.getWorkoutLogs(params)),
 

@@ -79,6 +79,9 @@ export function TrainingBlockProgress({
     isDeloadWeek: boolean;
     summary: string;
   } | null>(null);
+  const [skippingWorkoutId, setSkippingWorkoutId] = useState<string | null>(null);
+  const [confirmSkipId, setConfirmSkipId] = useState<string | null>(null);
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
 
   const totalWeeks = program.template.weeks;
   const progressPercent = (block.currentWeek / totalWeeks) * 100;
@@ -88,16 +91,30 @@ export function TrainingBlockProgress({
     (w) => w.weekNumber === block.currentWeek
   );
 
-  // Check if current week is complete
+  // Check if current week is complete (account for locally-skipped workouts)
   const isWeekComplete =
     currentWeekWorkouts.length > 0 &&
     currentWeekWorkouts.every(
-      (w) => w.status === "completed" || w.status === "skipped"
+      (w) => w.status === "completed" || w.status === "skipped" || skippedIds.has(w.id)
     );
 
   // Check if program is complete
   const isProgramComplete =
     block.currentWeek >= totalWeeks && isWeekComplete;
+
+  const handleSkipWorkout = async (workoutId: string) => {
+    setSkippingWorkoutId(workoutId);
+    setError(null);
+    try {
+      await api.updateWorkout(workoutId, { status: "skipped" });
+      setSkippedIds((prev) => new Set(prev).add(workoutId));
+      setConfirmSkipId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to skip workout");
+    } finally {
+      setSkippingWorkoutId(null);
+    }
+  };
 
   const handleGenerateWeek = async () => {
     setIsGenerating(true);
@@ -183,8 +200,12 @@ export function TrainingBlockProgress({
           ) : (
             <div className="space-y-2">
               {currentWeekWorkouts.map((workout) => {
-                const StatusIcon = STATUS_ICONS[workout.status];
-                const statusColor = STATUS_COLORS[workout.status];
+                const effectiveStatus = skippedIds.has(workout.id) ? "skipped" : workout.status;
+                const StatusIcon = STATUS_ICONS[effectiveStatus];
+                const statusColor = STATUS_COLORS[effectiveStatus];
+                const canSkip = effectiveStatus === "pending";
+                const isConfirming = confirmSkipId === workout.id;
+                const isSkipping = skippingWorkoutId === workout.id;
 
                 return (
                   <div
@@ -202,16 +223,55 @@ export function TrainingBlockProgress({
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${statusColor}`}
-                      >
-                        {STATUS_LABELS[workout.status]}
-                      </Badge>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {formatDate(workout.scheduledDate)}
-                      </p>
+                    <div className="flex items-center gap-2">
+                      {canSkip && !isConfirming && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground hover:text-yellow-500"
+                          onClick={() => setConfirmSkipId(workout.id)}
+                        >
+                          <SkipForward className="mr-1 h-3 w-3" />
+                          Skip
+                        </Button>
+                      )}
+                      {isConfirming && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs border-yellow-500/50 text-yellow-500 hover:bg-yellow-500/10"
+                            onClick={() => handleSkipWorkout(workout.id)}
+                            disabled={isSkipping}
+                          >
+                            {isSkipping ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              "Confirm"
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setConfirmSkipId(null)}
+                            disabled={isSkipping}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                      <div className="text-right">
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${statusColor}`}
+                        >
+                          {STATUS_LABELS[effectiveStatus]}
+                        </Badge>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {formatDate(workout.scheduledDate)}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 );
@@ -287,10 +347,14 @@ export function TrainingBlockProgress({
             <div className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Complete all workouts to unlock the next week
+                Complete or skip remaining workouts to advance
               </p>
             </div>
           </div>
+        )}
+
+        {error && !isGenerating && (
+          <p className="text-sm text-red-500">{error}</p>
         )}
       </CardContent>
     </Card>
