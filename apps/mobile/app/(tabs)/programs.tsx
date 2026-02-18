@@ -9,9 +9,10 @@ import {
   Alert,
   RefreshControl,
 } from "react-native";
-import { Calendar, Target, Dumbbell, Play, Check } from "lucide-react-native";
+import { Calendar, Target, Dumbbell, Play } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 import { useApi } from "../../hooks/use-api";
+import { TrainingBlockProgress } from "../../components/TrainingBlockProgress";
 import type { Program } from "../../lib/api";
 
 const goalLabels: Record<string, string> = {
@@ -181,23 +182,23 @@ export default function ProgramsScreen() {
       </View>
 
       {/* Active Program */}
-      {appUser?.activeTrainingBlock && (
-        <View style={styles.activeCard}>
-          <View style={styles.activeBadge}>
-            <Check size={12} color="#FFFFFF" />
-            <Text style={styles.activeBadgeText}>Active</Text>
-          </View>
-          <Text style={styles.activeTitle}>
-            {programs.find((p) => p.id === appUser.activeTrainingBlock!.programId)?.name ||
-              appUser.activeTrainingBlock.programId
-                .replace(/-/g, " ")
-                .replace(/\b\w/g, (c) => c.toUpperCase())}
-          </Text>
-          <Text style={styles.activeSubtitle}>
-            Week {appUser.activeTrainingBlock.currentWeek}
-          </Text>
-        </View>
-      )}
+      {appUser?.activeTrainingBlock && (() => {
+        const block = appUser.activeTrainingBlock;
+        const activeProgram = programs.find(
+          (p) => p.id === block.programId
+        );
+        if (!activeProgram) return null;
+        return (
+          <TrainingBlockProgress
+            block={block}
+            program={activeProgram}
+            onWeekGenerated={() => {
+              refetch();
+              fetchPrograms();
+            }}
+          />
+        );
+      })()}
 
       {/* Programs List */}
       <Text style={styles.sectionTitle}>
@@ -314,40 +315,6 @@ const styles = StyleSheet.create({
   },
   filterTabTextActive: {
     color: "#FFFFFF",
-  },
-  activeCard: {
-    backgroundColor: "#1E3A5F",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#3B82F6",
-  },
-  activeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#10B981",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: "flex-start",
-    marginBottom: 8,
-  },
-  activeBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  activeTitle: {
-    color: "#F8FAFC",
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  activeSubtitle: {
-    color: "#94A3B8",
-    fontSize: 14,
-    marginTop: 4,
   },
   sectionTitle: {
     color: "#F8FAFC",

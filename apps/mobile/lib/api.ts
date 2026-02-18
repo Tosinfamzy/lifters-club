@@ -251,6 +251,15 @@ export interface LoadRecommendation {
   confidence: string;
 }
 
+// Week generation types
+export interface GenerateWeekResponse {
+  workouts: Workout[];
+  decisions: { id: string; type: string; reasoning: string }[];
+  weekNumber: number;
+  isDeloadWeek: boolean;
+  summary: string;
+}
+
 // ─── API Client ────────────────────────────────────────────────────────────
 
 class ApiClient {
@@ -410,6 +419,31 @@ class ApiClient {
 
   async getWorkout(workoutId: string) {
     return this.request<ApiResponse<Workout>>(`/api/workouts/${workoutId}`);
+  }
+
+  async getWorkouts(params: { trainingBlockId: string }) {
+    const searchParams = new URLSearchParams();
+    searchParams.set("trainingBlockId", params.trainingBlockId);
+    return this.request<ApiResponse<Workout[]>>(
+      `/api/workouts?${searchParams}`
+    );
+  }
+
+  async updateWorkout(id: string, data: { status: Workout["status"] }) {
+    return this.request<ApiResponse<Workout>>(`/api/workouts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generateWeek(
+    trainingBlockId: string,
+    options?: { forceDeload?: boolean }
+  ) {
+    return this.request<ApiResponse<GenerateWeekResponse>>(
+      `/api/workouts/training-blocks/${trainingBlockId}/generate-week`,
+      { method: "POST", body: JSON.stringify(options ?? {}) }
+    );
   }
 
   // ─── Workout Logs (protected) ─────────────────────────────────────────

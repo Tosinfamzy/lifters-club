@@ -86,6 +86,16 @@ export function useApi() {
         data: Parameters<typeof baseApi.getLoadProgression>[0]
       ) => authenticatedRequest((c) => c.getLoadProgression(data)),
 
+      // Workouts (protected)
+      getWorkouts: (params: Parameters<typeof baseApi.getWorkouts>[0]) =>
+        authenticatedRequest((c) => c.getWorkouts(params)),
+      updateWorkout: (id: string, data: Parameters<typeof baseApi.updateWorkout>[1]) =>
+        authenticatedRequest((c) => c.updateWorkout(id, data)),
+      generateWeek: (
+        trainingBlockId: string,
+        options?: Parameters<typeof baseApi.generateWeek>[1]
+      ) => authenticatedRequest((c) => c.generateWeek(trainingBlockId, options)),
+
       // Training blocks (protected)
       pauseTrainingBlock: (blockId: string) =>
         authenticatedRequest((c) => c.pauseTrainingBlock(blockId)),
