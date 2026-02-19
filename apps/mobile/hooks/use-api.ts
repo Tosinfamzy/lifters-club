@@ -104,6 +104,17 @@ export function useApi() {
         data: Parameters<typeof baseApi.createTrainingBlock>[0]
       ) => authenticatedRequest((c) => c.createTrainingBlock(data)),
 
+      // Standalone workouts (protected)
+      generateStandaloneWorkout: (
+        data: Parameters<typeof baseApi.generateStandaloneWorkout>[0]
+      ) => authenticatedRequest((c) => c.generateStandaloneWorkout(data)),
+      getStandaloneWorkout: (id: string) =>
+        authenticatedRequest((c) => c.getStandaloneWorkout(id)),
+      startStandaloneWorkout: (id: string) =>
+        authenticatedRequest((c) => c.startStandaloneWorkout(id)),
+      completeStandaloneWorkout: (id: string) =>
+        authenticatedRequest((c) => c.completeStandaloneWorkout(id)),
+
       // Analytics (protected)
       getAnalyticsSummary: () =>
         authenticatedRequest((c) => c.getAnalyticsSummary()),

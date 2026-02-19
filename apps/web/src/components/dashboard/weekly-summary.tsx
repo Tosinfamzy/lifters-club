@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -19,37 +19,14 @@ import {
   Loader2,
   Trophy,
 } from "lucide-react";
-import { toast } from "sonner";
 import { useAppUser } from "@/providers/user-provider";
-import { type WeeklySummaryData } from "@/lib/api";
-import { useApi } from "@/lib/use-api";
+import { useWeeklySummary } from "@/lib/queries";
 
 export function WeeklySummary() {
-  const { appUser, isLoading: isUserLoading } = useAppUser();
-  const api = useApi();
-
-  const [summary, setSummary] = useState<WeeklySummaryData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { isLoading: isUserLoading } = useAppUser();
   const [weekOffset, setWeekOffset] = useState(0);
 
-  const fetchWeeklySummary = useCallback(async () => {
-    if (!appUser?.id) return;
-
-    setIsLoading(true);
-    try {
-      const response = await api.getWeeklySummary(appUser.id, weekOffset);
-      setSummary(response.data);
-    } catch (error) {
-      console.error("Failed to fetch weekly summary:", error);
-      toast.error("Failed to load weekly summary");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [appUser?.id, api, weekOffset]);
-
-  useEffect(() => {
-    fetchWeeklySummary();
-  }, [fetchWeeklySummary]);
+  const { data: summary, isLoading } = useWeeklySummary(weekOffset);
 
   const formatDateRange = (start: string, end: string) => {
     const startDate = new Date(start);

@@ -260,6 +260,34 @@ export interface GenerateWeekResponse {
   summary: string;
 }
 
+// Standalone workout types
+export interface StandaloneWorkout {
+  id: string;
+  userId: string;
+  name?: string;
+  scheduledDate: string;
+  focusMuscles: string[];
+  exercises: {
+    exerciseId: string;
+    sets: number;
+    repRange: [number, number];
+    restSeconds: number;
+    targetWeight?: number;
+    notes?: string;
+  }[];
+  status: "pending" | "in_progress" | "completed" | "skipped";
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerateStandaloneWorkoutResponse {
+  workout: StandaloneWorkout;
+  reasoning: string[];
+  estimatedDuration: number;
+}
+
 // ─── API Client ────────────────────────────────────────────────────────────
 
 class ApiClient {
@@ -609,6 +637,40 @@ class ApiClient {
     return this.request<ApiResponse<LoadRecommendation>>(
       "/api/decisions/load-progression",
       { method: "POST", body: JSON.stringify(data) }
+    );
+  }
+
+  // ─── Standalone Workouts (protected) ──────────────────────────────────
+
+  async generateStandaloneWorkout(data: {
+    scheduledDate: string;
+    focusMuscles: string[];
+    name?: string;
+    sessionDurationMinutes?: number;
+  }) {
+    return this.request<ApiResponse<GenerateStandaloneWorkoutResponse>>(
+      "/api/standalone-workouts/generate",
+      { method: "POST", body: JSON.stringify(data) }
+    );
+  }
+
+  async getStandaloneWorkout(id: string) {
+    return this.request<ApiResponse<StandaloneWorkout>>(
+      `/api/standalone-workouts/${id}`
+    );
+  }
+
+  async startStandaloneWorkout(id: string) {
+    return this.request<ApiResponse<StandaloneWorkout>>(
+      `/api/standalone-workouts/${id}/start`,
+      { method: "POST" }
+    );
+  }
+
+  async completeStandaloneWorkout(id: string) {
+    return this.request<ApiResponse<StandaloneWorkout>>(
+      `/api/standalone-workouts/${id}/complete`,
+      { method: "POST" }
     );
   }
 

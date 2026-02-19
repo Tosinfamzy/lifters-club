@@ -6,6 +6,8 @@ import { weeklyPlans, standaloneWorkouts } from "@gymapp/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../lib/logger";
+import { generateWeeklyPlan as generateWeeklyPlanService } from "../services/weekly-plan-generation";
+import { WorkoutGenerationError } from "../services/workout-generation";
 import type { Env } from "../types";
 import {
   createWeeklyPlanSchema,
@@ -184,17 +186,35 @@ weeklyPlanRoutes.post(
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // TODO: Integrate with decision engine
-    // This will use the generateWeeklyPlan() function from the engine
-    // to create an AI-powered weekly plan based on user's history
+    const data = c.req.valid("json");
 
-    return c.json(
-      {
-        error: "Engine integration pending",
-        message: "The AI weekly plan generation feature requires full engine integration. Use POST /weekly-plans for manual plan creation.",
-      },
-      501
-    );
+    try {
+      const result = await generateWeeklyPlanService({
+        userId,
+        startDate: data.startDate,
+        daysPerWeek: data.daysPerWeek,
+        goal: data.goal,
+        name: data.name,
+        focusMuscles: data.focusMuscles,
+      });
+
+      return c.json(
+        {
+          data: {
+            ...result.plan,
+            workouts: result.workouts,
+            reasoning: result.reasoning,
+          },
+        },
+        201
+      );
+    } catch (err) {
+      if (err instanceof WorkoutGenerationError) {
+        return c.json({ error: err.message }, 400);
+      }
+      logger.error({ err, userId }, "Failed to generate weekly plan");
+      throw err;
+    }
   }
 );
 

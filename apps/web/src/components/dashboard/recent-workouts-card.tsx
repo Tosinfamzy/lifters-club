@@ -18,26 +18,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { Workout } from "@/lib/api";
+import { formatRelativeDate } from "@/lib/format";
 
 interface RecentWorkoutsCardProps {
   workouts: Workout[] | null;
   isLoading: boolean;
-}
-
-function formatRelativeDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffTime = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function formatExerciseName(exerciseId: string): string {

@@ -5,8 +5,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -16,6 +18,9 @@ import {
   Target,
   Dumbbell,
   TrendingUp,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react-native";
 import { useApi } from "../../hooks/use-api";
 import type { LoggedSet, WorkoutLogWithSets } from "../../lib/api";
@@ -34,6 +39,9 @@ export default function WorkoutDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedSets, setEditedSets] = useState<Map<string, { weight: string; reps: string; rpe: string }>>(new Map());
+  const [isSaving, setIsSaving] = useState(false);
 
   const fetchLogDetail = useCallback(async () => {
     if (!logId) return;
@@ -99,6 +107,83 @@ export default function WorkoutDetailScreen() {
       .join(" ");
   };
 
+  const startEditing = useCallback(() => {
+    if (!logDetail) return;
+    const edits = new Map<string, { weight: string; reps: string; rpe: string }>();
+    for (const set of logDetail.sets) {
+      edits.set(set.id, {
+        weight: String(set.weight),
+        reps: String(set.reps),
+        rpe: set.rpe != null ? String(set.rpe) : "",
+      });
+    }
+    setEditedSets(edits);
+    setIsEditing(true);
+  }, [logDetail]);
+
+  const cancelEditing = useCallback(() => {
+    setIsEditing(false);
+    setEditedSets(new Map());
+  }, []);
+
+  const updateEditedSet = useCallback(
+    (setId: string, field: "weight" | "reps" | "rpe", value: string) => {
+      setEditedSets((prev) => {
+        const updated = new Map(prev);
+        const existing = updated.get(setId);
+        if (existing) {
+          updated.set(setId, { ...existing, [field]: value });
+        }
+        return updated;
+      });
+    },
+    []
+  );
+
+  const saveEdits = useCallback(async () => {
+    if (!logDetail || !logId) return;
+
+    setIsSaving(true);
+    try {
+      const updates: Promise<unknown>[] = [];
+      for (const set of logDetail.sets) {
+        const edited = editedSets.get(set.id);
+        if (!edited) continue;
+
+        const newWeight = parseFloat(edited.weight);
+        const newReps = parseInt(edited.reps);
+        const newRpe = edited.rpe ? parseFloat(edited.rpe) : null;
+
+        if (
+          newWeight !== set.weight ||
+          newReps !== set.reps ||
+          newRpe !== set.rpe
+        ) {
+          updates.push(
+            api.updateLoggedSet(logId, set.id, {
+              weight: newWeight,
+              reps: newReps,
+              rpe: newRpe,
+            })
+          );
+        }
+      }
+
+      if (updates.length > 0) {
+        await Promise.all(updates);
+        await fetchLogDetail();
+      }
+
+      setIsEditing(false);
+      setEditedSets(new Map());
+    } catch (err) {
+      console.error("Failed to save edits:", err);
+      Alert.alert("Error", "Failed to save changes. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [logDetail, logId, editedSets, api, fetchLogDetail]);
+
   const groupSetsByExercise = (sets: LoggedSet[]): GroupedExercise[] => {
     const grouped: Record<string, LoggedSet[]> = {};
 
@@ -162,6 +247,37 @@ export default function WorkoutDetailScreen() {
           <ArrowLeft size={24} color="#F8FAFC" />
         </TouchableOpacity>
         <Text style={styles.title}>Workout Details</Text>
+        <View style={styles.headerActions}>
+          {isEditing ? (
+            <>
+              <TouchableOpacity
+                style={styles.headerActionButton}
+                onPress={cancelEditing}
+                disabled={isSaving}
+              >
+                <X size={20} color="#EF4444" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.headerActionButton, styles.saveButton]}
+                onPress={saveEdits}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Check size={20} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.headerActionButton}
+              onPress={startEditing}
+            >
+              <Pencil size={18} color="#3B82F6" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <ScrollView
@@ -253,22 +369,62 @@ export default function WorkoutDetailScreen() {
                   <Text style={[styles.tableCell, styles.tableCellRpe]}>RPE</Text>
                 </View>
 
-                {exercise.sets.map((set) => (
-                  <View key={set.id} style={styles.tableRow}>
-                    <Text style={[styles.tableCell, styles.tableCellSet, styles.tableCellValue]}>
-                      {set.setNumber}
-                    </Text>
-                    <Text style={[styles.tableCell, styles.tableCellWeight, styles.tableCellValue]}>
-                      {set.weight} lbs
-                    </Text>
-                    <Text style={[styles.tableCell, styles.tableCellReps, styles.tableCellValue]}>
-                      {set.reps}
-                    </Text>
-                    <Text style={[styles.tableCell, styles.tableCellRpe, styles.tableCellValue]}>
-                      {set.rpe || "—"}
-                    </Text>
-                  </View>
-                ))}
+                {exercise.sets.map((set) => {
+                  const edited = editedSets.get(set.id);
+                  return (
+                    <View key={set.id} style={styles.tableRow}>
+                      <Text style={[styles.tableCell, styles.tableCellSet, styles.tableCellValue]}>
+                        {set.setNumber}
+                      </Text>
+                      {isEditing && edited ? (
+                        <>
+                          <View style={[styles.tableCellWeight]}>
+                            <TextInput
+                              style={styles.editInput}
+                              value={edited.weight}
+                              onChangeText={(v) => updateEditedSet(set.id, "weight", v)}
+                              keyboardType="numeric"
+                              placeholder="0"
+                              placeholderTextColor="#64748B"
+                            />
+                          </View>
+                          <View style={[styles.tableCellReps]}>
+                            <TextInput
+                              style={styles.editInput}
+                              value={edited.reps}
+                              onChangeText={(v) => updateEditedSet(set.id, "reps", v)}
+                              keyboardType="numeric"
+                              placeholder="0"
+                              placeholderTextColor="#64748B"
+                            />
+                          </View>
+                          <View style={[styles.tableCellRpe]}>
+                            <TextInput
+                              style={styles.editInput}
+                              value={edited.rpe}
+                              onChangeText={(v) => updateEditedSet(set.id, "rpe", v)}
+                              keyboardType="numeric"
+                              placeholder="—"
+                              placeholderTextColor="#64748B"
+                            />
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={[styles.tableCell, styles.tableCellWeight, styles.tableCellValue]}>
+                            {set.weight} lbs
+                          </Text>
+                          <Text style={[styles.tableCell, styles.tableCellReps, styles.tableCellValue]}>
+                            {set.reps}
+                          </Text>
+                          <Text style={[styles.tableCell, styles.tableCellRpe, styles.tableCellValue]}>
+                            {set.rpe || "—"}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             </View>
           ))
@@ -302,6 +458,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     color: "#F8FAFC",
+    flex: 1,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  headerActionButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#1E293B",
+  },
+  saveButton: {
+    backgroundColor: "#22C55E",
   },
   centered: {
     flex: 1,
@@ -478,6 +648,16 @@ const styles = StyleSheet.create({
   },
   tableCellRpe: {
     width: 40,
+    textAlign: "center",
+  },
+  editInput: {
+    backgroundColor: "#334155",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    color: "#F8FAFC",
+    fontSize: 14,
+    fontWeight: "500",
     textAlign: "center",
   },
 });

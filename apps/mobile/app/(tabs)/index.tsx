@@ -172,15 +172,15 @@ export default function TodayScreen() {
 
         <TouchableOpacity
           style={styles.actionCard}
-          onPress={() => router.push("/(tabs)/history")}
+          onPress={() => router.push("/quick-workout")}
         >
           <View style={[styles.actionIcon, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
             <Dumbbell size={24} color="#10B981" />
           </View>
           <View style={styles.actionContent}>
-            <Text style={styles.actionTitle}>Log a Workout</Text>
+            <Text style={styles.actionTitle}>Quick Workout</Text>
             <Text style={styles.actionDescription}>
-              Track an ad-hoc training session
+              Generate an ad-hoc training session
             </Text>
           </View>
         </TouchableOpacity>

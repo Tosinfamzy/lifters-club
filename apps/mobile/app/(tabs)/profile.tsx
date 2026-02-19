@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from "react-native";
 import Constants from "expo-constants";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
@@ -34,7 +34,11 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
-          <User size={40} color="#F8FAFC" />
+          {user?.imageUrl ? (
+            <Image source={{ uri: user.imageUrl }} style={styles.avatarImage} />
+          ) : (
+            <User size={40} color="#F8FAFC" />
+          )}
         </View>
         <Text style={styles.name}>
           {user?.firstName || user?.emailAddresses[0]?.emailAddress?.split("@")[0] || "Lifter"}
@@ -114,6 +118,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   name: {
     color: "#F8FAFC",

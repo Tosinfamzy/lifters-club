@@ -6,6 +6,7 @@ import { VolumeChart } from "@/components/charts";
 import { TrendingUp, Dumbbell, Clock, BarChart3 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import { toast } from "sonner";
+import { formatRelativeDate } from "@/lib/format";
 import type { VolumeWeekData } from "@/lib/api";
 
 interface SummaryData {
@@ -160,15 +161,4 @@ export function AnalyticsSection({ userId }: AnalyticsSectionProps) {
       )}
     </div>
   );
-}
-
-function formatRelativeDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }

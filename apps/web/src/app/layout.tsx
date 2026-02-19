@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { QueryProvider } from "@/providers/query-provider";
 import { UserProvider } from "@/providers/user-provider";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -42,7 +43,9 @@ export default function RootLayout({
     >
       <html lang="en" className="dark">
         <body className="min-h-screen bg-background text-foreground antialiased">
-          <UserProvider>{children}</UserProvider>
+          <QueryProvider>
+            <UserProvider>{children}</UserProvider>
+          </QueryProvider>
           <Toaster theme="dark" richColors closeButton />
         </body>
       </html>

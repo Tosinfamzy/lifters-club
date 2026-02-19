@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -23,177 +22,48 @@ import {
   Clock,
 } from "lucide-react";
 import Link from "next/link";
-import { toast } from "sonner";
 import { useUser } from "@clerk/nextjs";
 import { useAppUser } from "@/providers/user-provider";
-import { useApi } from "@/lib/use-api";
 import {
   WeeklySummary,
   TodaysWorkoutCard,
   RecentWorkoutsCard,
 } from "@/components/dashboard";
 import { TrainingBlockProgress } from "@/components/programs/training-block-progress";
-import type {
-  Workout,
-  TrainingBlock,
-  Program,
-  Decision,
-  TodaysWorkoutResponse,
-} from "@/lib/api";
-
-interface SummaryData {
-  totalWorkouts: number;
-  workoutsThisWeek: number;
-  workoutsThisMonth: number;
-  averageRpe: number | null;
-  averageDuration: number | null;
-  currentStreak: number;
-  lastWorkout: string | null;
-}
+import { formatRelativeDate } from "@/lib/format";
+import {
+  useTrainingBlocks,
+  useRecentDecisions,
+  useTodaysWorkout,
+  useRecentWorkouts,
+  useAnalyticsSummary,
+  queryKeys,
+} from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function DashboardPage() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
   const { user: clerkUser } = useUser();
-  const api = useApi();
+  const queryClient = useQueryClient();
 
-  const [summary, setSummary] = useState<SummaryData | null>(null);
-  const [decisions, setDecisions] = useState<Decision[]>([]);
-  const [trainingBlock, setTrainingBlock] = useState<TrainingBlock | null>(null);
-  const [blockProgram, setBlockProgram] = useState<Program | null>(null);
-  const [blockWorkouts, setBlockWorkouts] = useState<Workout[]>([]);
-  const [todaysWorkout, setTodaysWorkout] = useState<TodaysWorkoutResponse | null>(null);
-  const [recentWorkouts, setRecentWorkouts] = useState<Workout[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isTodayLoading, setIsTodayLoading] = useState(true);
-  const [isRecentLoading, setIsRecentLoading] = useState(true);
-  const [apiConnected, setApiConnected] = useState(true);
+  const { data: blockData, isLoading: isBlockLoading } = useTrainingBlocks();
+  const { data: decisions = [], isLoading: isDecisionsLoading } = useRecentDecisions();
+  const { data: todaysWorkout, isLoading: isTodayLoading } = useTodaysWorkout();
+  const { data: recentWorkouts = [], isLoading: isRecentLoading } = useRecentWorkouts();
+  const { data: summary, isLoading: isSummaryLoading } = useAnalyticsSummary();
 
-  const fetchDashboardData = useCallback(async (cancelled: { current: boolean }) => {
-    if (!appUser?.id) {
-      setIsLoading(false);
-      setIsTodayLoading(false);
-      setIsRecentLoading(false);
-      return;
-    }
+  const trainingBlock = blockData?.block ?? null;
+  const blockProgram = blockData?.program ?? null;
+  const blockWorkouts = blockData?.workouts ?? [];
 
-    setIsLoading(true);
-    setIsTodayLoading(true);
-    setIsRecentLoading(true);
+  const isLoading = isBlockLoading || isDecisionsLoading || isSummaryLoading;
 
-    try {
-      // Fetch all data in parallel
-      const [
-        blocksResult,
-        decisionsResult,
-        todayResult,
-        recentResult,
-      ] = await Promise.allSettled([
-        api.getTrainingBlocks(appUser.id, "active"),
-        api.getDecisionHistory({ userId: appUser.id, limit: 3 }),
-        api.getTodaysWorkout(appUser.id),
-        api.getRecentWorkouts(appUser.id, 5),
-      ]);
-
-      if (cancelled.current) return;
-
-      // Handle training blocks
-      if (blocksResult.status === "fulfilled") {
-        const blocks = blocksResult.value.data || [];
-        if (blocks.length > 0) {
-          const block = blocks[0] ?? null;
-          setTrainingBlock(block);
-
-          // Fetch program and workouts for the training block
-          if (block) {
-            try {
-              const [blockDetails, workoutsResult] = await Promise.all([
-                api.getTrainingBlock(block.id),
-                api.getWorkouts({ trainingBlockId: block.id }),
-              ]);
-
-              if (cancelled.current) return;
-
-              if (blockDetails.data.program) {
-                setBlockProgram(blockDetails.data.program);
-              }
-              if (workoutsResult.data) {
-                setBlockWorkouts(workoutsResult.data);
-              }
-            } catch {
-              // Continue without block details
-            }
-          }
-        }
-        setApiConnected(true);
-      }
-
-      if (cancelled.current) return;
-
-      // Handle decisions
-      if (decisionsResult.status === "fulfilled") {
-        setDecisions(decisionsResult.value.data || []);
-      }
-
-      // Handle today's workout
-      if (todayResult.status === "fulfilled") {
-        setTodaysWorkout(todayResult.value.data || null);
-      }
-      setIsTodayLoading(false);
-
-      // Handle recent workouts
-      if (recentResult.status === "fulfilled") {
-        setRecentWorkouts(recentResult.value.data || []);
-      }
-      setIsRecentLoading(false);
-
-      // Fetch summary using the API client
-      try {
-        const summaryResponse = await api.getAnalyticsSummary(appUser.id);
-        if (!cancelled.current) {
-          setSummary(summaryResponse.data || null);
-        }
-      } catch {
-        // Summary fetch failed, continue without it
-      }
-    } catch (error) {
-      console.error("Failed to fetch dashboard data:", error);
-      if (!cancelled.current) {
-        setApiConnected(false);
-        toast.error("Failed to load dashboard data");
-      }
-    } finally {
-      if (!cancelled.current) {
-        setIsLoading(false);
-        setIsTodayLoading(false);
-        setIsRecentLoading(false);
-      }
-    }
-  }, [appUser?.id, api]);
-
-  useEffect(() => {
-    const cancelled = { current: false };
-    fetchDashboardData(cancelled);
-    return () => {
-      cancelled.current = true;
-    };
-  }, [fetchDashboardData]);
-
-  // Wrapper for external callers (e.g., onWeekGenerated) that don't manage cancellation
-  const refreshDashboard = useCallback(() => {
-    fetchDashboardData({ current: false });
-  }, [fetchDashboardData]);
-
-  const formatRelativeDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays} days ago`;
-    return date.toLocaleDateString();
+  const refreshDashboard = () => {
+    if (!appUser?.id) return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.trainingBlocks(appUser.id) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.todaysWorkout(appUser.id) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.recentWorkouts(appUser.id) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.summary(appUser.id) });
   };
 
   const getDecisionIcon = (type: string) => {
@@ -250,22 +120,8 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* API Status */}
-      {!apiConnected && (
-        <Card className="border-yellow-500/50 bg-yellow-500/10">
-          <CardContent className="py-4">
-            <p className="text-sm text-yellow-400">
-              API server not connected. Start it with:{" "}
-              <code className="bg-secondary px-1 rounded">
-                make dev-server
-              </code>
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Today's Workout - Prominent */}
-      <TodaysWorkoutCard data={todaysWorkout} isLoading={isTodayLoading} />
+      <TodaysWorkoutCard data={todaysWorkout ?? null} isLoading={isTodayLoading} />
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

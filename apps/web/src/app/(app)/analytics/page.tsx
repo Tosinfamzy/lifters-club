@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   VolumeChart,
   FrequencyHeatmap,
@@ -10,25 +17,16 @@ import {
   StrengthProgress,
 } from "@/components/charts";
 import { useAppUser } from "@/providers/user-provider";
-import { useApi } from "@/lib/use-api";
-import { toast } from "sonner";
 import { TrendingUp, Dumbbell, Clock, BarChart3, Loader2 } from "lucide-react";
-import type {
-  VolumeWeekData,
-  PersonalRecord as PersonalRecordType,
-  Exercise,
-  WorkoutLog,
-} from "@/lib/api";
-
-interface SummaryData {
-  totalWorkouts: number;
-  workoutsThisWeek: number;
-  workoutsThisMonth: number;
-  averageRpe: number | null;
-  averageDuration: number | null;
-  currentStreak: number;
-  lastWorkout: string | null;
-}
+import { formatRelativeDate } from "@/lib/format";
+import {
+  useVolumeAnalytics,
+  useAnalyticsSummary,
+  useWorkoutLogsForAnalytics,
+  usePersonalRecords,
+  useExercisesList,
+} from "@/lib/queries";
+import type { VolumeWeekData, WorkoutLog } from "@/lib/api";
 
 interface WorkoutDay {
   date: string;
@@ -40,111 +38,59 @@ interface RpeDataPoint {
   rpe: number;
 }
 
+const PERIOD_OPTIONS = [
+  { value: "4", label: "4 weeks" },
+  { value: "8", label: "8 weeks" },
+  { value: "12", label: "12 weeks" },
+  { value: "24", label: "24 weeks" },
+] as const;
+
 export default function AnalyticsPage() {
-  const { appUser, isLoading: isUserLoading } = useAppUser();
-  const api = useApi();
+  const { isLoading: isUserLoading } = useAppUser();
+  const [weeks, setWeeks] = useState(12);
 
-  const [volumeData, setVolumeData] = useState<VolumeWeekData[]>([]);
-  const [summary, setSummary] = useState<SummaryData | null>(null);
-  const [workoutDays, setWorkoutDays] = useState<WorkoutDay[]>([]);
-  const [rpeData, setRpeData] = useState<RpeDataPoint[]>([]);
-  const [personalRecords, setPersonalRecords] = useState<PersonalRecordType[]>([]);
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: volumeData = [], isLoading: isVolumeLoading } = useVolumeAnalytics(weeks);
+  const { data: summary, isLoading: isSummaryLoading } = useAnalyticsSummary();
+  const { data: logs = [], isLoading: isLogsLoading } = useWorkoutLogsForAnalytics();
+  const { data: personalRecords = [], isLoading: isPrsLoading } = usePersonalRecords();
+  const { data: exercises = [], isLoading: isExercisesLoading } = useExercisesList();
 
-  useEffect(() => {
-    if (!appUser?.id) return;
+  const isLoading = isVolumeLoading || isSummaryLoading || isLogsLoading || isPrsLoading || isExercisesLoading;
 
-    let cancelled = false;
-    const userId = appUser.id;
-
-    async function fetchAllAnalytics() {
-      setIsLoading(true);
-
-      try {
-        const [volumeResult, summaryResult, logsResult, prsResult, exercisesResult] =
-          await Promise.allSettled([
-            api.getVolumeAnalytics(userId, 12),
-            api.getAnalyticsSummary(userId),
-            api.getWorkoutLogs({ userId, limit: 50 }),
-            api.getPersonalRecords(userId),
-            api.getExercises({ limit: 50 }),
-          ]);
-
-        if (cancelled) return;
-
-        // Process volume data
-        if (volumeResult.status === "fulfilled") {
-          const weeks = volumeResult.value.data?.weeks || [];
-          setVolumeData(weeks);
-
-          // Convert to workout days for heatmap
-          const days: WorkoutDay[] = weeks.flatMap(
-            (week: VolumeWeekData) => {
-              const weekDays: WorkoutDay[] = [];
-              if (week.workoutCount > 0) {
-                const startDate = new Date(week.weekStart);
-                for (let i = 0; i < week.workoutCount && i < 7; i++) {
-                  const dayDate = new Date(startDate);
-                  dayDate.setDate(startDate.getDate() + i * 2); // Spread workouts
-                  weekDays.push({
-                    date: dayDate.toISOString(),
-                    workoutCount: 1,
-                  });
-                }
-              }
-              return weekDays;
-            }
-          );
-          setWorkoutDays(days);
-        }
-
-        // Process summary
-        if (summaryResult.status === "fulfilled") {
-          setSummary(summaryResult.value.data || null);
-        }
-
-        // Process logs for RPE data
-        if (logsResult.status === "fulfilled") {
-          const logs = logsResult.value.data || [];
-          const rpePoints: RpeDataPoint[] = logs
-            .filter(
-              (log): log is WorkoutLog & { completedAt: string; overallRpe: number } =>
-                !!log.completedAt && !!log.overallRpe
-            )
-            .map((log) => ({
-              date: log.completedAt,
-              rpe: log.overallRpe,
-            }))
-            .reverse(); // Oldest first for chart
-          setRpeData(rpePoints);
-        }
-
-        // Process personal records
-        if (prsResult.status === "fulfilled") {
-          setPersonalRecords(prsResult.value.data?.records || []);
-        }
-
-        // Process exercises for strength progress selector
-        if (exercisesResult.status === "fulfilled") {
-          setExercises(exercisesResult.value.data || []);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error("Failed to fetch analytics:", error);
-        toast.error("Failed to load analytics");
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
+  // Derive workout days for heatmap from volume data
+  const workoutDays = useMemo(() => {
+    const days: WorkoutDay[] = volumeData.flatMap((week: VolumeWeekData) => {
+      const weekDays: WorkoutDay[] = [];
+      if (week.workoutCount > 0) {
+        const startDate = new Date(week.weekStart);
+        for (let i = 0; i < week.workoutCount && i < 7; i++) {
+          const dayDate = new Date(startDate);
+          dayDate.setDate(startDate.getDate() + i * 2);
+          weekDays.push({
+            date: dayDate.toISOString(),
+            workoutCount: 1,
+          });
         }
       }
-    }
+      return weekDays;
+    });
+    return days;
+  }, [volumeData]);
 
-    fetchAllAnalytics();
-    return () => {
-      cancelled = true;
-    };
-  }, [appUser?.id, api]);
+  // Derive RPE data from logs
+  const rpeData = useMemo(() => {
+    const rpePoints: RpeDataPoint[] = logs
+      .filter(
+        (log): log is WorkoutLog & { completedAt: string; overallRpe: number } =>
+          !!log.completedAt && !!log.overallRpe
+      )
+      .map((log) => ({
+        date: log.completedAt,
+        rpe: log.overallRpe,
+      }))
+      .reverse();
+    return rpePoints;
+  }, [logs]);
 
   if (isUserLoading || isLoading) {
     return (
@@ -157,11 +103,28 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-8">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold">Analytics</h1>
-          <p className="text-muted-foreground">
-            Track your training progress and performance metrics
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Analytics</h1>
+            <p className="text-muted-foreground">
+              Track your training progress and performance metrics
+            </p>
+          </div>
+          <Select
+            value={String(weeks)}
+            onValueChange={(v) => setWeeks(Number(v))}
+          >
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PERIOD_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Summary Cards */}
@@ -230,7 +193,7 @@ export default function AnalyticsPage() {
         {/* Charts Row 1 */}
         <div className="grid gap-6 lg:grid-cols-2">
           <VolumeChart weeks={volumeData} />
-          <FrequencyHeatmap workouts={workoutDays} weeks={12} />
+          <FrequencyHeatmap workouts={workoutDays} weeks={weeks} />
         </div>
 
         {/* Charts Row 2 */}
@@ -271,7 +234,7 @@ export default function AnalyticsPage() {
                     {volumeData.reduce((sum, w) => sum + w.setCount, 0)}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    Total Sets (12w)
+                    Total Sets ({weeks}w)
                   </div>
                 </div>
                 {summary.lastWorkout && (
@@ -290,17 +253,4 @@ export default function AnalyticsPage() {
         )}
       </div>
   );
-}
-
-function formatRelativeDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffDays = Math.floor(
-    (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }

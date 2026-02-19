@@ -40,11 +40,15 @@ export interface GenerateWorkoutResult {
   template: Record<string, unknown> | null;
 }
 
-export async function generateWorkout(
-  input: GenerateWorkoutInput
-): Promise<GenerateWorkoutResult> {
-  const { userId, focusMuscles, scheduledDate, sessionDurationMinutes, name, saveAsTemplate, templateName } = input;
-
+/**
+ * Core generation logic: gather exercise data and call the engine.
+ * Returns the raw engine output without persisting anything.
+ */
+export async function generateWorkoutExercises(
+  userId: string,
+  focusMuscles: MuscleGroup[],
+  options?: { sessionDurationMinutes?: number; goal?: "strength" | "hypertrophy" | "conditioning" }
+) {
   // 1. Query exercises that target the focus muscles
   const muscleConditions = focusMuscles.map(
     (muscle) => sql`${exercises.primaryMuscles} @> ${JSON.stringify([muscle])}`
@@ -135,13 +139,23 @@ export async function generateWorkout(
   const result = generateQuickWorkout({
     focusMuscles,
     availableExercises,
-    sessionDurationMinutes,
-    goal: "hypertrophy",
+    sessionDurationMinutes: options?.sessionDurationMinutes,
+    goal: options?.goal ?? "hypertrophy",
   });
 
   if (result.exercises.length === 0) {
     throw new WorkoutGenerationError("Could not generate a workout with the available exercises");
   }
+
+  return result;
+}
+
+export async function generateWorkout(
+  input: GenerateWorkoutInput
+): Promise<GenerateWorkoutResult> {
+  const { userId, focusMuscles, scheduledDate, sessionDurationMinutes, name, saveAsTemplate, templateName } = input;
+
+  const result = await generateWorkoutExercises(userId, focusMuscles, { sessionDurationMinutes });
 
   // 6. Create the standalone workout (and optional template) in a transaction
   const workoutId = `sw_${nanoid(12)}`;

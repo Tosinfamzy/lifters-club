@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -14,6 +14,8 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries";
 import { DEFAULT_PAGE_SIZE } from "@/lib/constants";
 import type { WorkoutLog, WorkoutLogWithSets } from "@/lib/api";
 import {
@@ -35,9 +37,25 @@ function calculateDuration(startedAt: string, completedAt?: string): number | nu
 export default function HistoryPage() {
   const { appUser, isLoading: isUserLoading } = useAppUser();
   const api = useApi();
+  const queryClient = useQueryClient();
 
-  const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const userId = appUser?.id;
+
+  // Initial data load via React Query
+  const { data: initialLogs, isLoading } = useQuery({
+    queryKey: queryKeys.history.logs(userId ?? ""),
+    queryFn: async () => {
+      const response = await api.getWorkoutLogs({
+        userId: userId!,
+        limit: DEFAULT_PAGE_SIZE,
+      });
+      return response.data || [];
+    },
+    enabled: !!userId,
+  });
+
+  // Local state for pagination beyond the initial query
+  const [extraLogs, setExtraLogs] = useState<WorkoutLog[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -48,40 +66,31 @@ export default function HistoryPage() {
     sortOrder: "desc",
   });
 
-  const fetchWorkoutLogs = useCallback(async () => {
-    if (!appUser?.id) return;
-
-    setIsLoading(true);
-    setOffset(0);
-    try {
-      const response = await api.getWorkoutLogs({
-        userId: appUser.id,
-        limit: DEFAULT_PAGE_SIZE,
-      });
-      const results = response.data || [];
-      setWorkoutLogs(results);
-      setHasMore(results.length === DEFAULT_PAGE_SIZE);
-    } catch (error) {
-      console.error("Failed to fetch workout logs:", error);
-      toast.error("Failed to fetch workout history");
-    } finally {
-      setIsLoading(false);
+  // Set hasMore based on initial data length
+  useEffect(() => {
+    if (initialLogs && initialLogs.length === DEFAULT_PAGE_SIZE) {
+      setHasMore(true);
     }
-  }, [appUser?.id, api]);
+  }, [initialLogs]);
+
+  // Combine initial (cached) logs with any extra pages
+  const workoutLogs = useMemo(() => {
+    return [...(initialLogs || []), ...extraLogs];
+  }, [initialLogs, extraLogs]);
 
   const handleLoadMore = useCallback(async () => {
-    if (!appUser?.id || isLoadingMore) return;
+    if (!userId || isLoadingMore) return;
 
     setIsLoadingMore(true);
-    const newOffset = offset + DEFAULT_PAGE_SIZE;
+    const newOffset = offset === 0 ? DEFAULT_PAGE_SIZE : offset + DEFAULT_PAGE_SIZE;
     try {
       const response = await api.getWorkoutLogs({
-        userId: appUser.id,
+        userId,
         limit: DEFAULT_PAGE_SIZE,
         offset: newOffset,
       });
       const results = response.data || [];
-      setWorkoutLogs((prev) => [...prev, ...results]);
+      setExtraLogs((prev) => [...prev, ...results]);
       setOffset(newOffset);
       setHasMore(results.length === DEFAULT_PAGE_SIZE);
     } catch (error) {
@@ -90,11 +99,15 @@ export default function HistoryPage() {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [appUser?.id, api, offset, isLoadingMore]);
+  }, [userId, api, offset, isLoadingMore]);
 
-  useEffect(() => {
-    fetchWorkoutLogs();
-  }, [fetchWorkoutLogs]);
+  const refreshLogs = useCallback(() => {
+    if (!userId) return;
+    setExtraLogs([]);
+    setOffset(0);
+    setHasMore(false);
+    queryClient.invalidateQueries({ queryKey: queryKeys.history.logs(userId) });
+  }, [userId, queryClient]);
 
   const handleViewWorkout = async (log: WorkoutLog) => {
     try {
@@ -108,7 +121,6 @@ export default function HistoryPage() {
   };
 
   const handleUpdate = async () => {
-    // Refresh the selected log
     if (selectedLog) {
       try {
         const response = await api.getWorkoutLog(selectedLog.id);
@@ -117,8 +129,7 @@ export default function HistoryPage() {
         console.error("Failed to refresh workout details:", error);
       }
     }
-    // Also refresh the list
-    fetchWorkoutLogs();
+    refreshLogs();
   };
 
   const completedLogs = workoutLogs.filter((log) => log.completedAt);
@@ -127,7 +138,6 @@ export default function HistoryPage() {
   const filteredAndSortedLogs = useMemo(() => {
     let filtered = [...completedLogs];
 
-    // Date filters
     if (filters.dateFrom) {
       const fromDate = new Date(filters.dateFrom);
       filtered = filtered.filter(
@@ -142,7 +152,6 @@ export default function HistoryPage() {
       );
     }
 
-    // Sort
     filtered.sort((a, b) => {
       let comparison = 0;
       switch (filters.sortBy) {
@@ -211,7 +220,7 @@ export default function HistoryPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <LogWorkoutDialog onSuccess={fetchWorkoutLogs} />
+            <LogWorkoutDialog onSuccess={refreshLogs} />
             <ExportDialog workouts={filteredAndSortedLogs} />
           </div>
         </div>
