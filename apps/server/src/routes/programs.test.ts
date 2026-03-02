@@ -128,10 +128,13 @@ const testProgram2 = {
 };
 
 // Helper to clean up test programs (FK-safe order: workouts -> training_blocks -> programs)
+// Use specific patterns to only match this file's IDs and avoid deleting
+// programs from other test files (e.g., workouts.test.ts uses "test-program-workouts")
 async function cleanupTestPrograms() {
-  await db.delete(workouts).where(like(workouts.trainingBlockId, "test-%"));
-  await db.delete(trainingBlocks).where(like(trainingBlocks.programId, "test-program-%"));
-  await db.delete(programs).where(like(programs.id, "test-program-%"));
+  await db.delete(workouts).where(like(workouts.trainingBlockId, "test-block-programs-%"));
+  await db.delete(trainingBlocks).where(like(trainingBlocks.programId, "test-program-0%"));
+  await db.delete(programs).where(like(programs.id, "test-program-0%"));
+  await db.delete(programs).where(like(programs.id, "test-minimal-%"));
 }
 
 describe("Programs API", () => {
