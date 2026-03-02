@@ -19,6 +19,7 @@ An ADR is a document that captures an important architectural decision made alon
 | [0007](./0007-testing-strategy.md) | Testing Strategy | Accepted | 2025-01-21 |
 | [0008](./0008-code-quality-principles.md) | Code Quality Principles | Accepted | 2025-01-21 |
 | [0009](./0009-simple-offline-queue.md) | Simple Offline Queue with MMKV | Accepted | 2025-01-25 |
+| [0010](./0010-observability-strategy.md) | Observability Strategy — Pino + Sentry over OTel | Accepted | 2026-03-02 |
 
 ## Creating a New ADR
 

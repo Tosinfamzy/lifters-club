@@ -68,6 +68,18 @@ export function useApi() {
         data: Parameters<typeof baseApi.updateUser>[1]
       ) => authenticatedRequest((c) => c.updateUser(userId, data)),
 
+      // Onboarding / Calibration (protected)
+      getCalibrationPlan: (userId: string, equipment: string[]) =>
+        authenticatedRequest((c) => c.getCalibrationPlan(userId, equipment)),
+      saveUserBaselines: (
+        userId: string,
+        baselines: Parameters<typeof baseApi.saveUserBaselines>[1]
+      ) => authenticatedRequest((c) => c.saveUserBaselines(userId, baselines)),
+      updateOnboardingStatus: (
+        userId: string,
+        data: Parameters<typeof baseApi.updateOnboardingStatus>[1]
+      ) => authenticatedRequest((c) => c.updateOnboardingStatus(userId, data)),
+
       // Readiness (protected)
       submitReadiness: (data: Parameters<typeof baseApi.submitReadiness>[0]) =>
         authenticatedRequest((c) => c.submitReadiness(data)),

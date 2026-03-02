@@ -154,6 +154,42 @@ export interface User {
   trainingLevel: "beginner" | "intermediate" | "advanced";
   primaryGoal: "strength" | "hypertrophy" | "conditioning";
   preferences: Record<string, unknown>;
+  onboardingComplete?: boolean;
+  baselineComplete?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Calibration / onboarding types
+export type CalibrationPath = "barbell" | "dumbbell" | "bodyweight" | "skip";
+export type BaselineMethod = "known_maxes" | "calibration" | "conservative_start";
+export type BaselineSource = "user_input" | "calibration" | "inferred";
+
+export interface CalibrationExercise {
+  pattern: string;
+  exerciseId: string;
+  exerciseName: string;
+}
+
+export interface CalibrationPlanResponse {
+  path: CalibrationPath;
+  plan: {
+    path: CalibrationPath;
+    exercises: CalibrationExercise[];
+    instructions: string;
+  } | null;
+  needsCalibration: boolean;
+}
+
+export interface UserBaseline {
+  id: string;
+  userId: string;
+  exerciseId: string;
+  baselineWeight: number;
+  baselineReps: number;
+  estimatedE1RM?: number;
+  source: BaselineSource;
+  establishedAt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -582,6 +618,35 @@ class ApiClient {
     }
   ) {
     return this.request<ApiResponse<User>>(`/api/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Onboarding / Calibration (protected) ──────────────────────────────
+
+  async getCalibrationPlan(userId: string, equipment: string[]) {
+    const equipmentStr = equipment.join(",");
+    return this.request<ApiResponse<CalibrationPlanResponse>>(
+      `/api/users/${userId}/calibration-plan?equipment=${equipmentStr}`
+    );
+  }
+
+  async saveUserBaselines(
+    userId: string,
+    baselines: { exerciseId: string; weight: number; reps: number; source: BaselineSource }[]
+  ) {
+    return this.request<ApiResponse<UserBaseline[]>>(
+      `/api/users/${userId}/baselines`,
+      { method: "POST", body: JSON.stringify({ baselines }) }
+    );
+  }
+
+  async updateOnboardingStatus(
+    userId: string,
+    data: { onboardingComplete?: boolean; baselineComplete?: boolean }
+  ) {
+    return this.request<ApiResponse<User>>(`/api/users/${userId}/onboarding`, {
       method: "PATCH",
       body: JSON.stringify(data),
     });

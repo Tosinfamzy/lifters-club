@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { verifyToken } from "@clerk/backend";
 import { logger } from "../lib/logger";
+import { Sentry } from "../lib/sentry";
 import { config } from "../config";
 import type { Env } from "../types";
 
@@ -36,6 +37,13 @@ export async function authMiddleware(c: Context<Env>, next: Next) {
     c.set("userId", payload.sub);
     c.set("clerkId", payload.sub);
 
+    // Enrich request-scoped logger and Sentry scope with userId
+    const reqLogger = c.get("logger");
+    if (reqLogger) {
+      c.set("logger", reqLogger.child({ userId: payload.sub }));
+    }
+    Sentry.getCurrentScope().setUser({ id: payload.sub });
+
     await next();
   } catch (err) {
     // Use request-scoped logger if available, otherwise use global logger
@@ -63,6 +71,13 @@ export async function optionalAuthMiddleware(c: Context<Env>, next: Next) {
 
         c.set("userId", payload.sub);
         c.set("clerkId", payload.sub);
+
+        // Enrich request-scoped logger and Sentry scope with userId
+        const reqLogger = c.get("logger");
+        if (reqLogger) {
+          c.set("logger", reqLogger.child({ userId: payload.sub }));
+        }
+        Sentry.getCurrentScope().setUser({ id: payload.sub });
       } catch {
         // Token invalid but we continue without auth
         // Clear any potentially set values

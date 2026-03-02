@@ -89,8 +89,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (!isSignedIn && !inAuthGroup) {
       router.replace("/(auth)");
     } else if (isSignedIn && !appUser && !inOnboarding) {
+      // New user (404 from server) — needs onboarding
       router.replace("/onboarding");
-    } else if (isSignedIn && appUser && (inAuthGroup || inOnboarding)) {
+    } else if (isSignedIn && appUser && !appUser.onboardingComplete && !inOnboarding) {
+      // Existing user with incomplete onboarding
+      router.replace("/onboarding");
+    } else if (isSignedIn && appUser && appUser.onboardingComplete && (inAuthGroup || inOnboarding)) {
       router.replace("/(tabs)");
     }
   }, [authLoaded, isSignedIn, appUser, isLoading, segments, router]);
