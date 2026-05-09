@@ -19,6 +19,11 @@ out
 .env.local
 .env.*.local
 
+# Secrets (never commit)
+sentry_token.txt
+*.token
+*_token.txt
+
 # IDE
 .idea
 .vscode/*

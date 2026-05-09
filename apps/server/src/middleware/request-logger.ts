@@ -1,6 +1,5 @@
 import type { Context, Next } from "hono";
 import { logger, createChildLogger } from "../lib/logger";
-import { Sentry } from "../lib/sentry";
 import type { Env } from "../types";
 
 /**
@@ -28,10 +27,6 @@ export async function requestLogger(c: Context<Env>, next: Next) {
 
   // Store logger in context for use in route handlers
   c.set("logger", reqLogger);
-
-  // Link Sentry scope to this request for automatic context on any event
-  Sentry.getCurrentScope().setTag("requestId", requestId);
-  Sentry.getCurrentScope().setExtra("path", path);
 
   // Log request start (only in debug mode to reduce noise)
   if (logger.level === "debug" || logger.level === "trace") {

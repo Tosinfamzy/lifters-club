@@ -24,6 +24,8 @@ const envSchema = z.object({
 
   // Sentry (optional)
   SENTRY_DSN: z.string().optional(),
+  SENTRY_RELEASE: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional(),
 });
 
 function validateEnv() {

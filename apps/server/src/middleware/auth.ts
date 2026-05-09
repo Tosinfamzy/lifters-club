@@ -42,7 +42,7 @@ export async function authMiddleware(c: Context<Env>, next: Next) {
     if (reqLogger) {
       c.set("logger", reqLogger.child({ userId: payload.sub }));
     }
-    Sentry.getCurrentScope().setUser({ id: payload.sub });
+    Sentry.setUser({ id: payload.sub });
 
     await next();
   } catch (err) {
@@ -77,7 +77,7 @@ export async function optionalAuthMiddleware(c: Context<Env>, next: Next) {
         if (reqLogger) {
           c.set("logger", reqLogger.child({ userId: payload.sub }));
         }
-        Sentry.getCurrentScope().setUser({ id: payload.sub });
+        Sentry.setUser({ id: payload.sub });
       } catch {
         // Token invalid but we continue without auth
         // Clear any potentially set values

@@ -7,18 +7,23 @@ import { config, getCorsOrigins } from "./config";
 import { rateLimiter } from "./middleware/rate-limit";
 import { securityHeaders, requestId } from "./middleware/security-headers";
 import { requestLogger } from "./middleware/request-logger";
-import { initSentry, captureError, flushSentry } from "./lib/sentry";
+import { sentryScope } from "./middleware/sentry-scope";
+import { captureError, flushSentry } from "./lib/sentry";
 import { closeDb } from "@gymapp/db";
 import { logger } from "./lib/logger";
 import type { Env } from "./types";
 
-// Initialize Sentry error tracking (must be before app creation)
-initSentry();
+// Sentry.init runs in instrument.ts via Node's --import flag, before this file loads.
 
 const app = new Hono<Env>();
 
 // Request ID for tracing (should be first)
 app.use("*", requestId);
+
+// Sentry isolation scope per-request. Must run after requestId so the
+// requestId tag is attached, and before any other middleware so that
+// downstream Sentry.setUser / setTag calls land on the isolated scope.
+app.use("*", sentryScope);
 
 // Structured logging with Pino (creates child logger with request context)
 app.use("*", requestLogger);
@@ -71,6 +76,13 @@ app.get("/", (c) =>
   })
 );
 
+// Debug routes for verifying observability setup. Disabled in production.
+if (config.NODE_ENV !== "production") {
+  app.get("/api/debug/sentry-throw", () => {
+    throw new Error("Test error from /api/debug/sentry-throw");
+  });
+}
+
 // Mount OpenAPI routes at /api (includes /api/exercises, /api/docs, /api/openapi.json)
 app.route("/api", openapi);
 
@@ -87,6 +99,16 @@ app.onError((err, c) => {
 
   // Handle known HTTP exceptions (validation errors, auth errors, etc.)
   if (err instanceof HTTPException) {
+    // 4xx are user-facing and shouldn't page; 5xx are real server errors and
+    // should be captured to Sentry like any other unexpected throw.
+    if (err.status >= 500) {
+      captureError(err, {
+        requestId: reqId,
+        userId,
+        path: c.req.path,
+        method: c.req.method,
+      });
+    }
     return c.json(
       {
         error: err.message,
