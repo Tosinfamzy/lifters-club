@@ -28,5 +28,7 @@ COPY . .
 RUN pnpm turbo build --filter=@gymapp/server^...
 WORKDIR /app/apps/server
 ENV NODE_ENV=production
-# Run TypeScript directly with tsx instead of compiled JS
-CMD ["npx", "tsx", "src/index.ts"]
+# Use node --import to load the tsx loader and Sentry instrumentation
+# before any application module. instrument.ts MUST run before src/index.ts
+# so Sentry's auto-instrumentation hooks http/hono at require-time.
+CMD ["node", "--import=tsx", "--import=./src/instrument.ts", "src/index.ts"]
