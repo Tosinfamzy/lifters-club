@@ -17,6 +17,31 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
+      # Tag this deploy so Sentry can correlate errors to commits.
+      # The running server reads SENTRY_RELEASE in instrument.ts and stamps
+      # every event with it. Sentry's "first seen in release" / regression
+      # tracking depends on this matching across deploys.
+      - name: Set SENTRY_RELEASE on Railway
+        run: railway variables --set "SENTRY_RELEASE=${{ github.sha }}" --service gymapp-api --skip-deploys
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      # Register the release in Sentry before the new code starts emitting
+      # events. Source/source-map upload is intentionally NOT done here:
+      # production runs TypeScript directly via tsx (no compiled JS bundle),
+      # so there are no .js+.map files to upload. Stack frames already
+      # reference the .ts source paths; in-Sentry source view can be added
+      # later via the GitHub repo integration (no code change needed).
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: tosins-personal
+          SENTRY_PROJECT: lifters-club-server
+        with:
+          environment: production
+          version: ${{ github.sha }}
+
       - name: Deploy to Railway
         run: railway up --service gymapp-api
         env:
