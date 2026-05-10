@@ -14,7 +14,7 @@ Lifters Club is a **training decision engine** that transforms workout history i
 
 | Layer | Technology |
 |-------|------------|
-| Monorepo | Turborepo + Yarn Workspaces |
+| Monorepo | Turborepo + pnpm Workspaces |
 | Backend | Hono (TypeScript) |
 | Frontend | Next.js 15 (App Router) |
 | Database | PostgreSQL 16 + Drizzle ORM |

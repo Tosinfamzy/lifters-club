@@ -77,3 +77,46 @@ Revisit this decision when any of the following occur:
 - [Sentry Node.js SDK — Scopes](https://docs.sentry.io/platforms/javascript/guides/node/enriching-events/scopes/)
 - [OpenTelemetry — When to Adopt](https://opentelemetry.io/docs/concepts/signals/)
 - [ADR-0003: Hono for Backend API](./0003-hono-backend.md)
+
+---
+
+## Update — 2026-05-09: Multi-platform expansion
+
+The strategy in this ADR (Pino + Sentry, defer OTel) still holds. What changed is the **scope** — Sentry now covers all three runtimes, and the server-side scope handling has been hardened. The original "Decision" section described the server-only state of 2026-03-02; this update documents what actually exists now.
+
+### Sentry projects (all under `tosins-personal` org)
+
+| Project | Slug | Runtime |
+|---|---|---|
+| Server (Hono) | `lifters-club-server` | `@sentry/node@10.52` (renamed from `node-hono`) |
+| Web (Next.js 15) | `lifters-club-web` | `@sentry/nextjs@10.52` (client + server + edge) |
+| Mobile (Expo / RN 0.81) | `lifters-club-mobile` | `@sentry/react-native@7.2` |
+
+Region: EU (`o4510834109054976.ingest.de.sentry.io`).
+
+### Server-side changes since the original decision
+
+1. **Init lifted to `apps/server/src/instrument.ts`**, loaded via Node's `--import` flag (dev script + Dockerfile prod CMD). Sentry's auto-instrumentation hooks `http` and `hono` at require-time, so middleware and route handlers are spans automatically.
+2. **Per-request scope isolation** via `apps/server/src/middleware/sentry-scope.ts` wrapping each request in `Sentry.withIsolationScope`. The original ADR described setting tags on `Sentry.getCurrentScope()`, which on `@sentry/node` v10 mutates a process-global current scope and leaks across concurrent requests. The new middleware fixes this; `requestId` / `path` / `method` tags and `Sentry.setUser(...)` from auth all land on the per-request isolation scope.
+3. **5xx capture** — `app.onError` now also forwards `HTTPException` instances with `status >= 500` to Sentry (4xx are still treated as user errors and skipped).
+4. **`tracesSampler`** drops `/health`, `/api/docs`, `/api/openapi.json`, and the root info endpoint to zero so they don't consume the trace budget. Other paths sample at 10% in prod / 100% in dev (overridable via `SENTRY_TRACES_SAMPLE_RATE`).
+5. **CPU profiling** via `nodeProfilingIntegration()` from `@sentry/profiling-node`. Profile sample rate defaults to 100% dev / 10% prod (overridable via `SENTRY_PROFILES_SAMPLE_RATE`). Prebuilt binaries cover macOS arm64 + Linux x64 musl/glibc, so no Alpine build deps were needed.
+6. **Release tagging in CI** — `.github/workflows/deploy-api.yml` sets `SENTRY_RELEASE=$GITHUB_SHA` on the Railway service before each `railway up`, and uses `getsentry/action-release@v1` to register the release in Sentry. The running server reads `process.env.SENTRY_RELEASE` in `instrument.ts`.
+
+### Web (Next.js 15)
+
+`@sentry/nextjs` set up via `withSentryConfig(...)` in `apps/web/next.config.mjs`. Three runtimes are initialized separately: `sentry.client.config.ts` (browser, auto-loaded by withSentryConfig), `sentry.server.config.ts` (Node, dispatched from `instrumentation.ts#register`), and `sentry.edge.config.ts` (Edge runtime, same dispatch). `instrumentation.ts` also exports `onRequestError = Sentry.captureRequestError` so RSC / route-handler / server-action / middleware errors are captured. `app/global-error.tsx` is the root error boundary required by Sentry. Session Replay is opt-in via `NEXT_PUBLIC_SENTRY_REPLAY=1` (off by default to keep bundle size and PII surface small; enabled mode masks all text and blocks all media). Source-map upload runs during `next build` when `SENTRY_AUTH_TOKEN` is set in the Vercel build env.
+
+### Mobile (Expo SDK 54 / RN 0.81)
+
+`@sentry/react-native` registered via `app.json` config plugin (`@sentry/react-native/expo`) so native iOS/Android modules are wired at prebuild time. `metro.config.js` wraps the default Expo Metro config with `getSentryExpoConfig` so `eas build` emits source maps and debug IDs for symbolication. SDK init runs at the top of `apps/mobile/app/_layout.tsx` before the existing `publishableKey` throw so initialization-time failures are captured. Default export is wrapped with `Sentry.wrap()`. The app's `ErrorBoundary` component now forwards every caught render error to Sentry with the React component stack attached. Cannot ship as OTA — picking up the Sentry native modules requires a fresh `eas build`.
+
+### PII strip (consistent across platforms)
+
+All three runtimes' `beforeSend` hooks strip `Authorization` and `Cookie` headers (case-insensitive) before events leave the SDK. This is independent of any Sentry server-side data scrubbing rules.
+
+### What's still deferred
+
+- **SQL span coverage** — Drizzle uses `postgres-js` (porsager), which Sentry's `postgresIntegration` (pg-only) doesn't instrument. Adding DB span timing would require a driver swap or manual `Sentry.startSpan` wrapping in `@gymapp/db`; neither has been done.
+- **Source upload for server** — production runs TS directly via `tsx` (no compiled JS bundle), so the new Sentry CLI's `sourcemap upload` (which requires `.js` + `.map`) doesn't apply. Source-in-Sentry view for server stack frames will be added later via Sentry's GitHub repo integration (a Sentry settings change, no code change). Switching prod to compiled JS would undo the deliberate ESM-resolution decision documented in `apps/server/Dockerfile`.
+- **OTel** — original deferral still holds. No second service yet.
