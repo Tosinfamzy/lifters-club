@@ -19,6 +19,7 @@
     "@gymapp/types": "workspace:*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "^11.4.1",
+    "@sentry/react-native": "~7.2.0",
     "@tanstack/react-query": "^5.62.0",
     "d3-shape": "^3.2.0",
     "expo": "~54.0.32",

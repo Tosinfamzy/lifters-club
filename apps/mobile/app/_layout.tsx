@@ -3,10 +3,39 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator } from "react-native";
+import * as Sentry from "@sentry/react-native";
 import { tokenCache } from "../lib/clerk";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { OfflineProvider } from "../providers/offline-provider";
 import { UserProvider } from "../providers/user-provider";
+
+// Initialize Sentry before any other module-level work so that the
+// publishableKey throw below (and any other early failure) is captured.
+const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: process.env.EXPO_PUBLIC_ENV ?? (__DEV__ ? "development" : "production"),
+    release: process.env.EXPO_PUBLIC_SENTRY_RELEASE,
+
+    // Capture every error; sample traces conservatively in prod.
+    sampleRate: 1.0,
+    tracesSampleRate: __DEV__ ? 1.0 : 0.1,
+
+    // PII strip mirrors the server app: no Authorization tokens / cookies
+    // make it into Sentry events even if some request library leaks them.
+    beforeSend(event) {
+      if (event.request?.headers) {
+        const headers = event.request.headers as Record<string, string>;
+        delete headers.authorization;
+        delete headers.Authorization;
+        delete headers.cookie;
+        delete headers.Cookie;
+      }
+      return event;
+    },
+  });
+}
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -96,7 +125,7 @@ function InitialLayout() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
       <QueryClientProvider client={queryClient}>
@@ -112,3 +141,8 @@ export default function RootLayout() {
     </ClerkProvider>
   );
 }
+
+// Sentry.wrap enables touch event tracking, navigation breadcrumbs (when
+// the navigation integration is added), and profiling. Required for full
+// React Native instrumentation.
+export default Sentry.wrap(RootLayout);

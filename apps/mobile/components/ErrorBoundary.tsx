@@ -1,6 +1,7 @@
 import React, { Component } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { AlertCircle, RefreshCw } from "lucide-react-native";
+import * as Sentry from "@sentry/react-native";
 import { COLORS } from "../lib/constants";
 
 interface Props {
@@ -21,6 +22,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("ErrorBoundary caught:", error, info.componentStack);
+    Sentry.captureException(error, {
+      contexts: {
+        react: { componentStack: info.componentStack ?? undefined },
+      },
+    });
   }
 
   private handleRetry = () => {
