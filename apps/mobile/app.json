@@ -32,6 +32,13 @@
     "platforms": [
       "ios",
       "android"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "857e011f-fdfa-470e-b42d-235463819ff2"
+      }
+    },
+    "owner": "tosinfamzy"
   }
 }

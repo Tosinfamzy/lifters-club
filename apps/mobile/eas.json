@@ -33,17 +33,5 @@
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "@clerk_publishable_key"
       }
     }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": ""
-      },
-      "android": {
-        "serviceAccountKeyPath": ""
-      }
-    }
   }
 }
