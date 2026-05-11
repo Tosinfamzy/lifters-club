@@ -4,5 +4,5 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "apps/web/.next",
   "framework": "nextjs",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- apps/web/ packages/"
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- apps/web/ packages/ turbo.json pnpm-workspace.yaml pnpm-lock.yaml vercel.json"
 }
