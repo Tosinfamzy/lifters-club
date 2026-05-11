@@ -91,7 +91,7 @@ The core innovation - **14 pure-function decision/calculation modules** (~2,500 
 
 **Key design:** All functions take data as input (no DB calls), return decisions with reasoning strings, accept optional config objects for threshold customization. Engine version is tracked for audit trail.
 
-**Test coverage:** 5 test suites, 60+ test cases covering progression, volume, rotation, planning, and recovery. Targets 90%+.
+**Test coverage:** 8 test files (~1,184 LOC), covering progression, volume, rotation, planning, recovery, calibration, feedback, and substitution. Targets 90%+.
 
 ---
 
@@ -125,10 +125,16 @@ The core innovation - **14 pure-function decision/calculation modules** (~2,500 
 
 **Additional features:**
 - OpenAPI/Swagger docs at `/api/docs`
-- Sentry error tracking
-- Structured JSON logging with request context
+- Structured JSON logging with request context (Pino, request-scoped child loggers, userId enriched after auth)
+- **Sentry observability (full stack):**
+  - `instrument.ts` loaded via Node's `--import` flag so Sentry hooks `http` / `hono` at require-time
+  - `sentryScope` middleware wraps each request in `Sentry.withIsolationScope` (no leakage across concurrent requests)
+  - `app.onError` captures 5xx (typed and untyped) to Sentry; 4xx are user errors and skipped
+  - `nodeProfilingIntegration()` attaches CPU profiles to traces (prebuilt binaries cover Alpine x64 musl, so no Dockerfile build deps)
+  - `tracesSampler` drops `/health`, `/api/docs`, `/api/openapi.json`, root info to zero; everything else 10% prod / 100% dev
+  - Release tagged per deploy via `SENTRY_RELEASE` (set on the Railway service by CI before each `railway up`)
 
-**Integration tests:** 4 test suites covering exercises, users, programs, and workouts. Tests mock Clerk JWT verification and run against a real PostgreSQL database in CI.
+**Integration tests:** 5 test suites covering exercises, users, programs, workouts, and decisions. ~128 tests. Mocks Clerk JWT verification and runs against a real PostgreSQL database in CI.
 
 ---
 
@@ -166,6 +172,13 @@ The core innovation - **14 pure-function decision/calculation modules** (~2,500 
 
 **Patterns:** React Server Components for data fetching, client components for interactivity, centralized `useApi` hook, error boundaries, loading states.
 
+**Sentry observability:**
+- `@sentry/nextjs` wired across all three runtimes: `sentry.client.config.ts` (browser, auto-loaded by `withSentryConfig`), `sentry.server.config.ts` (Node), `sentry.edge.config.ts` (Edge runtime / middleware)
+- `src/instrumentation.ts` dispatches to the right runtime in `register()` and exports `onRequestError = Sentry.captureRequestError` so RSC / route-handler / server-action / middleware errors are captured
+- `src/app/global-error.tsx` is the root error boundary required by Sentry to catch errors thrown above the per-route `error.tsx` files
+- Source-map upload + release tagging run automatically during Vercel's `next build` when `SENTRY_AUTH_TOKEN` is in the build env (passed through Turborepo via `turbo.json`'s `build.passThroughEnv`)
+- Session Replay is opt-in via `NEXT_PUBLIC_SENTRY_REPLAY=1` (off by default; masks all text and blocks all media when enabled)
+
 ---
 
 ### 4. Mobile App (`apps/mobile`)
@@ -200,6 +213,15 @@ The core innovation - **14 pure-function decision/calculation modules** (~2,500 
 
 **Onboarding parity with web:** Mobile onboarding is now a 4-step flow matching web — training level, goal, equipment selection, baseline method (known maxes / calibration / conservative start).
 
+**Sentry observability:**
+- `@sentry/react-native@7.2` registered via Expo config plugin in `app.json` (`@sentry/react-native/expo` with org + project options) so native iOS/Android modules are wired at prebuild time
+- `metro.config.js` wraps the default Expo Metro config with `getSentryExpoConfig` so `eas build` emits source maps + debug IDs for symbolication
+- SDK init runs at the top of `app/_layout.tsx` before the existing `publishableKey` throw, so init-time failures are also captured
+- Default export wrapped with `Sentry.wrap()` for touch tracking and breadcrumbs
+- `components/ErrorBoundary.tsx` forwards caught render errors to Sentry with the React component stack attached
+- EAS project linked (`@tosinfamzy/lifters-club`); `EXPO_PUBLIC_SENTRY_DSN` (plaintext) + `SENTRY_AUTH_TOKEN` (secret) set on production / preview / development
+- **Note:** cannot ship as OTA — Sentry's native iOS/Android code requires a fresh `eas build --profile development` before the SDK actually loads in the app
+
 ---
 
 ### 5. CI/CD
@@ -214,10 +236,12 @@ The core innovation - **14 pure-function decision/calculation modules** (~2,500 
 7. Run tests (Vitest)
 
 **Additional workflows:**
-- `db-migrate.yml` - Database migration deployment
-- `deploy-api.yml` - Server deployment (scaffold)
+- `db-migrate.yml` - Database migration deployment (only fires on changes to `packages/db/migrations/**` or `packages/db/src/schema/**`)
+- `deploy-api.yml` - Server deployment to Railway. On push to `main` touching `apps/server/**` / `packages/**` / `pnpm-lock.yaml`: sets `SENTRY_RELEASE=<commit SHA>` on the Railway service via `railway variables --set --skip-deploys`, registers the release in Sentry via `getsentry/action-release@v1`, then runs `railway up --service gymapp-api`.
 
-**Docker:** `docker-compose.yml` for local dev (server, web, db), `docker-compose.test.yml` for test database, multi-stage Dockerfiles for both server and web.
+**Vercel:** Web app deploys automatically on push to `main` via Vercel's Git integration. Build runs `pnpm build` through Turborepo, source maps upload + release register during `next build` when `SENTRY_AUTH_TOKEN` is in the build env. Project has an "Ignored Build Step" (`git diff --quiet HEAD^ HEAD -- apps/web/ packages/`) that skips builds when only root-level files change — this means changes to `turbo.json` or `pnpm-workspace.yaml` won't trigger a redeploy and need a follow-up commit touching `apps/web/` (see "What needs building" below).
+
+**Docker:** `docker-compose.yml` for local dev (server, web, db), `docker-compose.test.yml` for test database, multi-stage Dockerfile for the server (Alpine base, prod CMD `node --import=tsx --import=./src/instrument.ts src/index.ts`).
 
 ---
 
@@ -280,6 +304,8 @@ The project was built in roughly this order:
 - Standalone/quick workouts work independently from programs
 - Mobile app has full workout logging with readiness checks, rest timers, decision badges, and exercise substitution
 - Mobile onboarding has reached parity with web (training level, goal, equipment, baseline method)
+- Multi-platform Sentry observability is live: server (verified — scope isolation + profile attachment confirmed in real events), web (verified — Vercel build uploads source maps and registers releases per deploy), mobile (in code, awaits first `eas build --profile development`)
+- Railway server deploys tagged with commit SHA per deploy via `deploy-api.yml`; Vercel web deploys tagged automatically via `VERCEL_GIT_COMMIT_SHA`
 
 **What's wired but incomplete:**
 - **Calibration workout path** - Web onboarding shows calibration plan and manual baseline entry works, but the "run calibration workouts and extract baselines" flow is missing. `processCalibrationResults()` exists in the engine but is never called from any endpoint.
@@ -287,11 +313,19 @@ The project was built in roughly this order:
 - **Non-load/volume decision evaluation** - Only `load_progression` and `volume_adjustment` auto-evaluate on workout completion. Other decision types (rotation, deload, recovery, missed session) can only be manually evaluated via `PATCH /decisions/:id/outcome`.
 
 **What needs building:**
-- Calibration workout completion flow (endpoint to process calibration results into baselines) — **elevated priority**: mobile onboarding now lets users pick "calibration" as a baseline method, but the backend endpoint to turn completed calibration workouts into baselines doesn't exist, so the path dead-ends
+
+*Product features:*
+- Calibration workout completion flow (endpoint to process calibration results into baselines) — **elevated priority**: both web and mobile onboarding now let users pick "calibration" as a baseline method, but the backend endpoint to turn completed calibration workouts into baselines doesn't exist, so the path dead-ends
 - Feedback-driven algorithm adjustment (wire `getProgressionModifier()` into decision routes)
-- Auto-evaluation for remaining decision types
-- Offline sync (PowerSync/MMKV queue documented in ADRs, mobile has basic MMKV set queueing but full sync not implemented)
-- Production deployment infrastructure beyond scaffolds
+- Auto-evaluation for remaining decision types (rotation, deload, recovery, missed session — currently manual-only via `PATCH /decisions/:id/outcome`)
+- Offline sync (PowerSync/MMKV queue documented in ADRs, mobile has basic MMKV set queueing but full reconnect-flush sync not implemented)
+
+*Operational / infra:*
+- First mobile dev build via `eas build --profile development` — Sentry's native iOS/Android modules require a fresh build (Expo Go won't load them)
+- Vercel "Ignored Build Step" should be broadened to watch `turbo.json` + `pnpm-workspace.yaml` + `pnpm-lock.yaml`, otherwise root-level changes that affect the web build (like Turborepo env passthrough) won't trigger a redeploy without an `apps/web/`-touching companion commit
+- Migrate `apps/web/sentry.client.config.ts` → `apps/web/src/instrumentation-client.ts` before adopting Turbopack (current Sentry plugin emits a deprecation warning under Turbopack)
+- SQL span coverage for `@gymapp/db`: Drizzle uses `postgres-js` (porsager), which Sentry's `postgresIntegration` (pg-only) doesn't instrument. Add manual `Sentry.startSpan` wrapping in the db package or swap drivers
+- Production deployment polish: domain config, blue/green strategy, alerting rules in Sentry, monitoring dashboards
 
 ---
 
