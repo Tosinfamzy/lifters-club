@@ -134,8 +134,13 @@ export default function OnboardingScreen() {
     });
   };
 
+  // Both "known_maxes" and "calibration" collect a weight/reps entry per
+  // exercise; "conservative_start" needs nothing.
+  const methodNeedsBaselineInput =
+    baselineMethod === "known_maxes" || baselineMethod === "calibration";
+
   const hasValidBaselines = () => {
-    if (baselineMethod !== "known_maxes") return true;
+    if (!methodNeedsBaselineInput) return true;
     return baselines.every((b) => b.weight && parseFloat(b.weight) > 0);
   };
 
@@ -164,20 +169,30 @@ export default function OnboardingScreen() {
         }
       }
 
-      // Step 2: Save baselines if user provided them
-      if (baselineMethod === "known_maxes" && baselines.length > 0) {
-        const validBaselines = baselines
+      // Step 2: Establish baselines from the user's entries. "known_maxes"
+      // saves them directly; "calibration" routes the same entries through the
+      // engine (best set per exercise + estimated 1RM) via a separate endpoint.
+      let baselineEstablished = baselineMethod === "conservative_start";
+      if (methodNeedsBaselineInput && baselines.length > 0) {
+        const validEntries = baselines
           .filter((b) => b.weight && parseFloat(b.weight) > 0)
           .map((b) => ({
             exerciseId: b.exerciseId,
             weight: parseFloat(b.weight),
             reps: parseInt(b.reps) || 8,
-            source: "user_input" as const,
           }));
 
-        if (validBaselines.length > 0) {
+        if (validEntries.length > 0) {
           try {
-            await api.saveUserBaselines(userId, validBaselines);
+            if (baselineMethod === "calibration") {
+              await api.submitCalibrationResults(userId, validEntries);
+            } else {
+              await api.saveUserBaselines(
+                userId,
+                validEntries.map((e) => ({ ...e, source: "user_input" as const }))
+              );
+            }
+            baselineEstablished = true;
           } catch {
             console.error("Failed to save baselines, continuing anyway");
           }
@@ -187,7 +202,7 @@ export default function OnboardingScreen() {
       // Step 3: Mark onboarding as complete
       await api.updateOnboardingStatus(userId, {
         onboardingComplete: true,
-        baselineComplete: baselineMethod === "known_maxes" || baselineMethod === "conservative_start",
+        baselineComplete: baselineEstablished,
       });
 
       await refetch();
@@ -391,11 +406,13 @@ export default function OnboardingScreen() {
             })}
           </View>
 
-          {/* Weight inputs for known_maxes */}
-          {baselineMethod === "known_maxes" && calibrationPlan?.plan && baselines.length > 0 && (
+          {/* Weight inputs for known_maxes and calibration */}
+          {methodNeedsBaselineInput && calibrationPlan?.plan && baselines.length > 0 && (
             <View style={styles.baselinesSection}>
               <Text style={styles.baselinesHint}>
-                Enter the weight you can lift for about 8 reps with good form:
+                {baselineMethod === "calibration"
+                  ? "Perform a test set on each lift and enter the weight and reps you completed:"
+                  : "Enter the weight you can lift for about 8 reps with good form:"}
               </Text>
               {baselines.map((baseline, index) => (
                 <View key={baseline.exerciseId} style={styles.baselineRow}>
@@ -424,10 +441,10 @@ export default function OnboardingScreen() {
           )}
 
           {/* Info banners for other methods */}
-          {baselineMethod === "calibration" && (
+          {baselineMethod === "calibration" && !calibrationPlan?.plan && (
             <View style={styles.infoBanner}>
               <Text style={styles.infoBannerText}>
-                Calibration workouts will be added to your first week. You&apos;ll perform test sets to find your working weights.
+                Calibration needs free weights. With your selected equipment we&apos;ll start you with conservative weights instead.
               </Text>
             </View>
           )}

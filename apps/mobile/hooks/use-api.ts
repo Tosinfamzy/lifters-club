@@ -75,6 +75,11 @@ export function useApi() {
         userId: string,
         baselines: Parameters<typeof baseApi.saveUserBaselines>[1]
       ) => authenticatedRequest((c) => c.saveUserBaselines(userId, baselines)),
+      submitCalibrationResults: (
+        userId: string,
+        sets: Parameters<typeof baseApi.submitCalibrationResults>[1],
+        targetReps?: number
+      ) => authenticatedRequest((c) => c.submitCalibrationResults(userId, sets, targetReps)),
       updateOnboardingStatus: (
         userId: string,
         data: Parameters<typeof baseApi.updateOnboardingStatus>[1]

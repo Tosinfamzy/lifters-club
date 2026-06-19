@@ -642,6 +642,24 @@ class ApiClient {
     );
   }
 
+  // Derive baselines from completed calibration test sets. The server runs the
+  // engine to pick the best set per exercise and estimate a 1RM.
+  async submitCalibrationResults(
+    userId: string,
+    sets: { exerciseId: string; weight: number; reps: number }[],
+    targetReps?: number
+  ) {
+    return this.request<
+      ApiResponse<{
+        baselines: UserBaseline[];
+        results: { exerciseId: string; baselineWeight: number; baselineReps: number; estimatedE1RM: number }[];
+      }>
+    >(`/api/users/${userId}/calibration-results`, {
+      method: "POST",
+      body: JSON.stringify(targetReps ? { sets, targetReps } : { sets }),
+    });
+  }
+
   async updateOnboardingStatus(
     userId: string,
     data: { onboardingComplete?: boolean; baselineComplete?: boolean }
