@@ -13,6 +13,15 @@ import { nodeProfilingIntegration } from "@sentry/profiling-node";
 const dsn = process.env.SENTRY_DSN;
 const env = process.env.NODE_ENV ?? "development";
 
+// Which Pino levels are mirrored into Sentry Logs. warn and above by default:
+// that captures every 4xx/5xx and warning with full structured context while
+// skipping routine 200s (notably frequent /health pings, which log at info).
+// Set SENTRY_LOG_LEVELS to widen it, e.g. "info,warn,error,fatal".
+const sentryLogLevels = (process.env.SENTRY_LOG_LEVELS ?? "warn,error,fatal")
+  .split(",")
+  .map((level) => level.trim())
+  .filter(Boolean) as Array<"trace" | "debug" | "info" | "warn" | "error" | "fatal">;
+
 if (dsn && env !== "test") {
   Sentry.init({
     dsn,
@@ -21,7 +30,18 @@ if (dsn && env !== "test") {
     sampleRate: 1.0,
     serverName: "lifters-club-api",
 
-    integrations: [nodeProfilingIntegration()],
+    // Forward Pino structured logs to Sentry's Logs product.
+    enableLogs: true,
+
+    integrations: [
+      nodeProfilingIntegration(),
+      // Auto-instruments every Pino logger and mirrors its records into Sentry
+      // Logs with their structured attributes (requestId, userId, route,
+      // statusCode, ...). Routine logs still go to stdout (Railway); this adds
+      // a queryable copy in Sentry. error.levels stays the default [] so we
+      // don't double-report — app.onError already captures 5xx as issues.
+      Sentry.pinoIntegration({ log: { levels: sentryLogLevels } }),
+    ],
 
     // CPU profiles attach to traces. 100% in dev, 10% in prod by default,
     // overridable via SENTRY_PROFILES_SAMPLE_RATE.
