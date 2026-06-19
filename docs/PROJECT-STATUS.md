@@ -308,14 +308,14 @@ The project was built in roughly this order:
 - Railway server deploys tagged with commit SHA per deploy via `deploy-api.yml`; Vercel web deploys tagged automatically via `VERCEL_GIT_COMMIT_SHA`
 
 **What's wired but incomplete:**
-- **Calibration workout path** - Backend is now complete: `POST /api/users/:id/calibration-results` takes the logged calibration sets, runs `processCalibrationResults()` (picks the best set per exercise, estimates a 1RM), and persists the output as `source: "calibration"` baselines. Web/mobile onboarding still need to call this endpoint after the user completes the calibration workout to close the loop end-to-end.
+- **Calibration workout path** - ✅ Complete end-to-end. `POST /api/users/:id/calibration-results` takes the logged calibration sets, runs `processCalibrationResults()` (picks the best set per exercise, estimates a 1RM), and persists the output as `source: "calibration"` baselines. Web and mobile onboarding now collect a test-set entry per calibration-plan exercise and submit it to this endpoint when the user picks the "calibration" baseline method.
 - **Decision feedback loop** - Outcomes are tracked and accuracy stats are calculated, but `getProgressionModifier()` (adjusting algorithm aggressiveness based on historical accuracy) exists in the engine but isn't called by decision routes. Decisions don't yet self-tune.
 - **Non-load/volume decision evaluation** - Only `load_progression` and `volume_adjustment` auto-evaluate on workout completion. Other decision types (rotation, deload, recovery, missed session) can only be manually evaluated via `PATCH /decisions/:id/outcome`.
 
 **What needs building:**
 
 *Product features:*
-- Calibration workout completion flow — **backend done** (`POST /api/users/:id/calibration-results`). Remaining: wire web + mobile onboarding to submit the completed calibration sets to this endpoint so the "calibration" baseline method works end-to-end (currently the clients collect the workout but never POST the results)
+- ~~Calibration workout completion flow~~ — ✅ **done**. Backend endpoint (`POST /api/users/:id/calibration-results`) plus web + mobile onboarding now submit calibration test sets through the engine to establish baselines.
 - Feedback-driven algorithm adjustment (wire `getProgressionModifier()` into decision routes)
 - Auto-evaluation for remaining decision types (rotation, deload, recovery, missed session — currently manual-only via `PATCH /decisions/:id/outcome`)
 - Offline sync (PowerSync/MMKV queue documented in ADRs, mobile has basic MMKV set queueing but full reconnect-flush sync not implemented)
