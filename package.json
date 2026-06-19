@@ -2,6 +2,9 @@
   "name": "lifters-club",
   "private": true,
   "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
   "pnpm": {
     "overrides": {
       "react": "19.1.0",
