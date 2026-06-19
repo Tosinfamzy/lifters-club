@@ -69,8 +69,8 @@ export function useApi() {
       ) => authenticatedRequest((c) => c.updateUser(userId, data)),
 
       // Onboarding / Calibration (protected)
-      getCalibrationPlan: (userId: string, equipment: string[]) =>
-        authenticatedRequest((c) => c.getCalibrationPlan(userId, equipment)),
+      getCalibrationPlan: (userId: string, equipment: string[], goal?: string) =>
+        authenticatedRequest((c) => c.getCalibrationPlan(userId, equipment, goal)),
       saveUserBaselines: (
         userId: string,
         baselines: Parameters<typeof baseApi.saveUserBaselines>[1]

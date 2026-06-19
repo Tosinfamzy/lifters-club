@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
+  Alert,
 } from "react-native";
 import { useUser } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";
@@ -105,7 +106,7 @@ export default function OnboardingScreen() {
     setIsLoadingPlan(true);
     try {
       const userId = `user-${user.id.slice(0, 8)}`;
-      const result = await api.getCalibrationPlan(userId, selectedEquipment);
+      const result = await api.getCalibrationPlan(userId, selectedEquipment, goal ?? undefined);
       setCalibrationPlan(result.data);
 
       if (result.data.plan?.exercises) {
@@ -193,8 +194,14 @@ export default function OnboardingScreen() {
               );
             }
             baselineEstablished = true;
-          } catch {
-            console.error("Failed to save baselines, continuing anyway");
+          } catch (err) {
+            // Don't trap the user in onboarding over a baseline hiccup, but
+            // surface the real error instead of silently swallowing it.
+            console.error("Failed to save starting weights:", err);
+            Alert.alert(
+              "Couldn't save starting weights",
+              "Onboarding is complete, but we couldn't save your starting weights. You can set them later in your profile."
+            );
           }
         }
       }

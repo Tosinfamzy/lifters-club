@@ -134,7 +134,7 @@ export default function OnboardingPage() {
 
     setIsLoadingPlan(true);
     try {
-      const result = await api.getCalibrationPlan(userId, equipment);
+      const result = await api.getCalibrationPlan(userId, equipment, primaryGoal ?? undefined);
       setCalibrationPlan(result.data.plan);
 
       // Initialize baseline inputs from plan exercises
@@ -237,8 +237,12 @@ export default function OnboardingPage() {
               );
             }
             baselineEstablished = true;
-          } catch {
-            console.error("Failed to save baselines, continuing anyway");
+          } catch (err) {
+            // Don't trap the user in onboarding over a baseline hiccup, but
+            // surface the real error instead of silently swallowing it.
+            console.error("Failed to save starting weights:", err);
+            const msg = err instanceof Error ? err.message : "Could not save your starting weights";
+            toast.error(`${msg}. You can set them later in Settings.`);
           }
         }
       }

@@ -99,8 +99,8 @@ export function useApi() {
         baselines: Parameters<typeof baseApi.saveUserBaselines>[1]
       ) => authenticatedRequest((client) => client.saveUserBaselines(userId, baselines)),
 
-      getCalibrationPlan: (userId: string, equipment: string[]) =>
-        authenticatedRequest((client) => client.getCalibrationPlan(userId, equipment)),
+      getCalibrationPlan: (userId: string, equipment: string[], goal?: string) =>
+        authenticatedRequest((client) => client.getCalibrationPlan(userId, equipment, goal)),
 
       submitCalibrationResults: (
         userId: string,

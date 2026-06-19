@@ -15,7 +15,7 @@ import {
 } from "@gymapp/engine";
 import type { Env } from "../types";
 import type { PrimaryGoal, BaselineSource } from "@gymapp/types";
-import { verifyUserAccess, verifyBodyUserAccess } from "../middleware/authorize";
+import { verifyUserAccess, verifyBodyUserAccess, getUserByClerkId } from "../middleware/authorize";
 import { logger as globalLogger } from "../lib/logger";
 
 const userRoutes = new Hono<Env>();
@@ -449,22 +449,32 @@ userRoutes.get("/:id/baselines", async (c) => {
   return c.json({ data: baselines });
 });
 
-// GET /:id/calibration-plan - Get calibration plan based on equipment
+// GET /:id/calibration-plan - Get calibration plan based on equipment + goal.
+// A plan is stateless (pure function of equipment + goal), so this must work
+// during onboarding *before* the user row exists. Require auth, but don't
+// require an existing user record or ownership.
 const calibrationPlanQuerySchema = z.object({
   equipment: z.string().optional(), // comma-separated list
+  goal: z.enum(["strength", "hypertrophy", "conditioning"]).optional(),
 });
 
 userRoutes.get(
   "/:id/calibration-plan",
   zValidator("query", calibrationPlanQuerySchema),
   async (c) => {
-    const userId = c.req.param("id");
-    const { equipment: equipmentStr } = c.req.valid("query");
+    const clerkId = c.get("clerkId");
+    if (!clerkId) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
 
-    // Verify the authenticated user owns this resource
-    const authResult = await verifyUserAccess(c, userId);
-    if (!authResult.authorized) {
-      return authResult.response;
+    const { equipment: equipmentStr, goal } = c.req.valid("query");
+
+    // Prefer the goal passed by the client (known during onboarding); fall back
+    // to the user's stored goal if they already exist, then a sensible default.
+    let primaryGoal = goal as PrimaryGoal | undefined;
+    if (!primaryGoal) {
+      const existingUser = await getUserByClerkId(clerkId);
+      primaryGoal = (existingUser?.primaryGoal as PrimaryGoal | undefined) ?? "hypertrophy";
     }
 
     // Parse equipment list
@@ -476,10 +486,7 @@ userRoutes.get(
     const path = getCalibrationPath(equipment);
 
     // Generate plan
-    const plan = generateCalibrationPlan(
-      path,
-      authResult.user.primaryGoal as PrimaryGoal
-    );
+    const plan = generateCalibrationPlan(path, primaryGoal);
 
     return c.json({
       data: {
