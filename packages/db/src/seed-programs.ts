@@ -378,17 +378,28 @@ async function seedPrograms() {
   console.log("Seeding training programs...");
 
   try {
-    // Clear existing programs
-    await db.delete(programs);
-    console.log("  Cleared existing programs");
-
-    // Insert all programs
+    // Upsert rather than delete-then-insert: training_blocks hold a FK to
+    // programs.id, so clearing the table fails once any block references a
+    // program. Upserting keeps the seed idempotent and FK-safe.
     for (const program of programSeedData) {
-      await db.insert(programs).values(program);
-      console.log(`  Inserted program: ${program.name}`);
+      await db
+        .insert(programs)
+        .values(program)
+        .onConflictDoUpdate({
+          target: programs.id,
+          set: {
+            name: program.name,
+            description: program.description,
+            daysPerWeek: program.daysPerWeek,
+            goal: program.goal,
+            level: program.level,
+            template: program.template,
+          },
+        });
+      console.log(`  Upserted program: ${program.name}`);
     }
 
-    console.log(`\nSeed completed! Inserted ${programSeedData.length} program(s).`);
+    console.log(`\nSeed completed! Upserted ${programSeedData.length} program(s).`);
   } catch (error) {
     console.error("Seed failed:", error);
     throw error;
