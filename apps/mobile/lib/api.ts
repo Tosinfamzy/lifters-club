@@ -625,10 +625,11 @@ class ApiClient {
 
   // ─── Onboarding / Calibration (protected) ──────────────────────────────
 
-  async getCalibrationPlan(userId: string, equipment: string[]) {
-    const equipmentStr = equipment.join(",");
+  async getCalibrationPlan(userId: string, equipment: string[], goal?: string) {
+    const params = new URLSearchParams({ equipment: equipment.join(",") });
+    if (goal) params.set("goal", goal);
     return this.request<ApiResponse<CalibrationPlanResponse>>(
-      `/api/users/${userId}/calibration-plan?equipment=${equipmentStr}`
+      `/api/users/${userId}/calibration-plan?${params.toString()}`
     );
   }
 

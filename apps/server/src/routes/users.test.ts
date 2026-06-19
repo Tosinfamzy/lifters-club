@@ -694,14 +694,30 @@ describe("Users API", () => {
       expect(body.data!.plan).toBeDefined();
     });
 
-    it("should return 403 for non-owner", async () => {
-      await db.insert(users).values(testUser);
-      await db.insert(users).values(otherUser);
+    it("returns a plan before the user record exists (onboarding)", async () => {
+      // No user inserted — during onboarding the plan is fetched before the
+      // user is created. The goal comes from the query param.
+      const res = await app.request(
+        `/api/users/${TEST_USER_ID}/calibration-plan?equipment=barbell&goal=strength`,
+        { headers: authHeaders() }
+      );
+      expect(res.status).toBe(200);
 
-      const res = await app.request(`/api/users/${OTHER_USER_ID}/calibration-plan`, {
-        headers: authHeaders(),
-      });
-      expect(res.status).toBe(403);
+      const body = (await res.json()) as ApiResponse<{
+        path: string;
+        plan: unknown;
+        needsCalibration: boolean;
+      }>;
+      expect(body.data!.path).toBe("barbell");
+      expect(body.data!.plan).toBeDefined();
+      expect(body.data!.needsCalibration).toBe(true);
+    });
+
+    it("requires authentication", async () => {
+      const res = await app.request(
+        `/api/users/${TEST_USER_ID}/calibration-plan?equipment=barbell`
+      );
+      expect(res.status).toBe(401);
     });
   });
 
