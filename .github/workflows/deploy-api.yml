@@ -18,7 +18,7 @@ jobs:
       # Full history: getsentry/action-release walks the git log to associate
       # commits with the release (set_commits: auto). A shallow clone can't
       # find the previous release's SHA and the step errors out.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
