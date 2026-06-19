@@ -110,4 +110,4 @@ export type { DeloadConfig } from "./deload";
 export type { EstimationConfig } from "./estimation";
 
 // Calibration types
-export type { CalibrationConfig } from "./calibration";
+export type { CalibrationConfig, CalibrationSetInput } from "./calibration";

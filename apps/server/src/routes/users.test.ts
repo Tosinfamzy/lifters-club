@@ -531,6 +531,106 @@ describe("Users API", () => {
     });
   });
 
+  describe("POST /api/users/:id/calibration-results", () => {
+    it("derives baselines from logged calibration sets", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(
+        `/api/users/${TEST_USER_ID}/calibration-results`,
+        {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            sets: [
+              { exerciseId: "barbell-bench-press", weight: 100, reps: 8 },
+              { exerciseId: "barbell-bench-press", weight: 110, reps: 8 },
+              { exerciseId: "barbell-back-squat", weight: 140, reps: 8 },
+            ],
+          }),
+        }
+      );
+      expect(res.status).toBe(201);
+
+      const body = (await res.json()) as ApiResponse<{
+        baselines: Array<{ exerciseId: string; baselineWeight: number; source: string }>;
+        results: Array<{ exerciseId: string; estimatedE1RM: number }>;
+      }>;
+
+      // One baseline per exercise, marked as calibration-sourced
+      expect(body.data!.baselines.length).toBe(2);
+      expect(body.data!.baselines.every((b) => b.source === "calibration")).toBe(true);
+
+      // Heaviest bench set wins
+      const bench = body.data!.baselines.find(
+        (b) => b.exerciseId === "barbell-bench-press"
+      );
+      expect(bench!.baselineWeight).toBe(110);
+
+      // Engine estimates a 1RM above the working weight
+      const benchResult = body.data!.results.find(
+        (r) => r.exerciseId === "barbell-bench-press"
+      );
+      expect(benchResult!.estimatedE1RM).toBeGreaterThan(110);
+    });
+
+    it("persists the derived baselines and flips baselineComplete", async () => {
+      await db.insert(users).values(testUser);
+
+      await app.request(`/api/users/${TEST_USER_ID}/calibration-results`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          sets: [{ exerciseId: "barbell-bench-press", weight: 100, reps: 8 }],
+        }),
+      });
+
+      const saved = await db
+        .select()
+        .from(userBaselines)
+        .where(eq(userBaselines.userId, TEST_USER_ID));
+      expect(saved.length).toBe(1);
+      expect(saved[0]!.source).toBe("calibration");
+
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, TEST_USER_ID))
+        .limit(1);
+      expect(user[0]!.baselineComplete).toBe(true);
+    });
+
+    it("rejects an empty set list", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(
+        `/api/users/${TEST_USER_ID}/calibration-results`,
+        {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ sets: [] }),
+        }
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 403 for non-owner", async () => {
+      await db.insert(users).values(testUser);
+      await db.insert(users).values(otherUser);
+
+      const res = await app.request(
+        `/api/users/${OTHER_USER_ID}/calibration-results`,
+        {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            sets: [{ exerciseId: "barbell-bench-press", weight: 100, reps: 8 }],
+          }),
+        }
+      );
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe("GET /api/users/:id/baselines", () => {
     it("should return user baselines", async () => {
       await db.insert(users).values(testUser);
