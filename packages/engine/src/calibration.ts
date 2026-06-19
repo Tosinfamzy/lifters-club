@@ -40,6 +40,13 @@ export const defaultCalibrationConfig: CalibrationConfig = {
 };
 
 /**
+ * Minimal set data required to derive a baseline from a calibration set.
+ * A full LoggedSet satisfies this, but callers (e.g. an onboarding flow
+ * that hasn't persisted a workout log yet) can pass just these fields.
+ */
+export type CalibrationSetInput = Pick<LoggedSet, "exerciseId" | "weight" | "reps">;
+
+/**
  * Movement patterns mapped to calibration exercises by equipment type
  */
 const CALIBRATION_MOVEMENTS: Record<CalibrationPath, CalibrationExercise[]> = {
@@ -183,22 +190,24 @@ export function getCalibrationExerciseForPattern(
  * Takes the logged sets from a calibration workout and converts them
  * into baseline records that can be saved.
  *
- * @param calibrationSets - Sets logged during calibration
+ * @param calibrationSets - Sets logged during calibration. Only the
+ *   exercise, weight, and reps are needed, so callers can pass partial
+ *   set data without fabricating the rest of a LoggedSet.
  * @param targetReps - The target rep count used during calibration
  * @returns Array of baseline results
  *
  * @example
  * processCalibrationResults([
- *   { exerciseId: "barbell-bench-press", weight: 135, reps: 8, rpe: 7 },
- *   { exerciseId: "barbell-bench-press", weight: 135, reps: 8, rpe: 8 },
+ *   { exerciseId: "barbell-bench-press", weight: 135, reps: 8 },
+ *   { exerciseId: "barbell-bench-press", weight: 140, reps: 8 },
  * ])
  */
 export function processCalibrationResults(
-  calibrationSets: LoggedSet[],
+  calibrationSets: CalibrationSetInput[],
   targetReps: number = 8
 ): CalibrationResult[] {
   // Group sets by exercise
-  const setsByExercise = new Map<string, LoggedSet[]>();
+  const setsByExercise = new Map<string, CalibrationSetInput[]>();
 
   for (const set of calibrationSets) {
     const existing = setsByExercise.get(set.exerciseId) || [];

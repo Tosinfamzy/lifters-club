@@ -10,6 +10,7 @@ import {
   calculateSessionReadiness,
   getCalibrationPath,
   generateCalibrationPlan,
+  processCalibrationResults,
   estimateOneRepMax,
 } from "@gymapp/engine";
 import type { Env } from "../types";
@@ -348,6 +349,85 @@ userRoutes.post(
     logger.info({ userId, exerciseCount: baselines.length }, "User baselines established");
 
     return c.json({ data: inserted }, 201);
+  }
+);
+
+// POST /:id/calibration-results - Derive and save baselines from a completed
+// calibration workout. Unlike POST /:id/baselines (which takes finished
+// baselines), this takes the raw logged sets and runs the engine to pick the
+// best set per exercise and estimate a 1RM.
+const calibrationResultsSchema = z.object({
+  sets: z
+    .array(
+      z.object({
+        exerciseId: z.string().min(1),
+        weight: z.number().min(1, "Weight must be at least 1"),
+        reps: z.number().int().min(1).max(100),
+      })
+    )
+    .min(1, "At least one calibration set is required"),
+  targetReps: z.number().int().min(1).max(100).optional(),
+});
+
+userRoutes.post(
+  "/:id/calibration-results",
+  zValidator("json", calibrationResultsSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const { sets, targetReps } = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    // Engine picks the best set per exercise and estimates a 1RM
+    const results = processCalibrationResults(sets, targetReps);
+
+    const now = new Date();
+
+    // Replace any existing baselines for the calibrated exercises
+    for (const result of results) {
+      await db
+        .delete(userBaselines)
+        .where(
+          and(
+            eq(userBaselines.userId, userId),
+            eq(userBaselines.exerciseId, result.exerciseId)
+          )
+        );
+    }
+
+    const baselinesToInsert = results.map((r) => ({
+      id: `bl_${nanoid(12)}`,
+      userId,
+      exerciseId: r.exerciseId,
+      baselineWeight: r.baselineWeight,
+      baselineReps: r.baselineReps,
+      estimatedE1RM: r.estimatedE1RM,
+      source: "calibration" as BaselineSource,
+      establishedAt: now,
+    }));
+
+    const inserted = await db
+      .insert(userBaselines)
+      .values(baselinesToInsert)
+      .returning();
+
+    // Mark onboarding baselines as complete
+    await db
+      .update(users)
+      .set({ baselineComplete: true, updatedAt: now })
+      .where(eq(users.id, userId));
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info(
+      { userId, exerciseCount: results.length, setCount: sets.length },
+      "Calibration results processed into baselines"
+    );
+
+    return c.json({ data: { baselines: inserted, results } }, 201);
   }
 );
 

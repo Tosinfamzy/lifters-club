@@ -178,8 +178,13 @@ export default function OnboardingPage() {
     });
   };
 
+  // Both "known_maxes" and "calibration" collect a weight/reps entry per
+  // exercise; "conservative_start" needs nothing.
+  const methodNeedsBaselineInput =
+    baselineMethod === "known_maxes" || baselineMethod === "calibration";
+
   const hasValidBaselines = () => {
-    if (baselineMethod !== "known_maxes") return true;
+    if (!methodNeedsBaselineInput) return true;
     return baselines.every((b) => b.weight && parseFloat(b.weight) > 0);
   };
 
@@ -208,20 +213,30 @@ export default function OnboardingPage() {
         }
       }
 
-      // Step 2: Save baselines if user provided them
-      if (baselineMethod === "known_maxes" && baselines.length > 0) {
-        const validBaselines = baselines
+      // Step 2: Establish baselines from the user's entries. "known_maxes"
+      // saves them directly; "calibration" routes the same entries through the
+      // engine (best set per exercise + estimated 1RM) via a separate endpoint.
+      let baselineEstablished = baselineMethod === "conservative_start";
+      if (methodNeedsBaselineInput && baselines.length > 0) {
+        const validEntries = baselines
           .filter((b) => b.weight && parseFloat(b.weight) > 0)
           .map((b) => ({
             exerciseId: b.exerciseId,
             weight: toLbs(parseFloat(b.weight), weightUnit),
             reps: parseInt(b.reps) || 8,
-            source: "user_input" as const,
           }));
 
-        if (validBaselines.length > 0) {
+        if (validEntries.length > 0) {
           try {
-            await api.saveUserBaselines(userId, validBaselines);
+            if (baselineMethod === "calibration") {
+              await api.submitCalibrationResults(userId, validEntries);
+            } else {
+              await api.saveUserBaselines(
+                userId,
+                validEntries.map((e) => ({ ...e, source: "user_input" as const }))
+              );
+            }
+            baselineEstablished = true;
           } catch {
             console.error("Failed to save baselines, continuing anyway");
           }
@@ -231,7 +246,7 @@ export default function OnboardingPage() {
       // Step 3: Mark onboarding as complete
       await api.updateOnboardingStatus(userId, {
         onboardingComplete: true,
-        baselineComplete: baselineMethod === "known_maxes" || baselineMethod === "conservative_start",
+        baselineComplete: baselineEstablished,
       });
 
       // Refetch user profile so the provider knows onboarding is complete
@@ -443,11 +458,13 @@ export default function OnboardingPage() {
                     ))}
                   </div>
 
-                  {/* Weight inputs for known_maxes method */}
-                  {baselineMethod === "known_maxes" && calibrationPlan && baselines.length > 0 && (
+                  {/* Weight inputs for known_maxes and calibration methods */}
+                  {methodNeedsBaselineInput && calibrationPlan && baselines.length > 0 && (
                     <div className="mt-4 space-y-4 border-t pt-4">
                       <p className="text-sm text-muted-foreground">
-                        Enter the weight you can lift for about 8 reps with good form:
+                        {baselineMethod === "calibration"
+                          ? "Perform a test set on each lift and enter the weight and reps you completed:"
+                          : "Enter the weight you can lift for about 8 reps with good form:"}
                       </p>
                       {baselines.map((baseline, index) => (
                         <div key={baseline.exerciseId} className="space-y-2">
@@ -476,10 +493,10 @@ export default function OnboardingPage() {
                     </div>
                   )}
 
-                  {baselineMethod === "calibration" && (
+                  {baselineMethod === "calibration" && !calibrationPlan && (
                     <div className="mt-4 rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-4">
                       <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                        Calibration workouts will be added to your first week. You&apos;ll perform test sets to find your working weights.
+                        Calibration needs free weights. With your selected equipment we&apos;ll start you with conservative weights instead.
                       </p>
                     </div>
                   )}

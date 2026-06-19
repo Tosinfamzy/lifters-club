@@ -102,6 +102,12 @@ export function useApi() {
       getCalibrationPlan: (userId: string, equipment: string[]) =>
         authenticatedRequest((client) => client.getCalibrationPlan(userId, equipment)),
 
+      submitCalibrationResults: (
+        userId: string,
+        sets: Parameters<typeof baseApi.submitCalibrationResults>[1],
+        targetReps?: number
+      ) => authenticatedRequest((client) => client.submitCalibrationResults(userId, sets, targetReps)),
+
       updateOnboardingStatus: (
         userId: string,
         data: Parameters<typeof baseApi.updateOnboardingStatus>[1]
