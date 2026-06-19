@@ -7,12 +7,20 @@ on:
       - 'apps/server/**'
       - 'packages/**'
       - 'pnpm-lock.yaml'
+  # Allow manual re-deploys (e.g. after a failed run, or to ship a change that
+  # only touched workflow/root files and didn't match the push paths above).
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # Full history: getsentry/action-release walks the git log to associate
+      # commits with the release (set_commits: auto). A shallow clone can't
+      # find the previous release's SHA and the step errors out.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
@@ -32,8 +40,13 @@ jobs:
       # so there are no .js+.map files to upload. Stack frames already
       # reference the .ts source paths; in-Sentry source view can be added
       # later via the GitHub repo integration (no code change needed).
+      # Release tagging is auxiliary observability — it must never block a
+      # production deploy. ignore_missing tolerates a previous-release SHA that
+      # was squashed/amended out of history; continue-on-error means a Sentry
+      # hiccup still lets the deploy step run.
       - name: Create Sentry release
         uses: getsentry/action-release@v1
+        continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: tosins-personal
@@ -41,6 +54,7 @@ jobs:
         with:
           environment: production
           version: ${{ github.sha }}
+          ignore_missing: true
 
       - name: Deploy to Railway
         run: railway up --service gymapp-api
