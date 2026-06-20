@@ -21,7 +21,6 @@ interface ExerciseSetLoggerProps {
 
 export function ExerciseSetLogger({
   exercise,
-  exerciseIndex,
   isLastExercise,
   exerciseDecision,
   onUpdateSet,

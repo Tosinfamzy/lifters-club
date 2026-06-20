@@ -10,7 +10,7 @@ interface SetInputRowProps {
   onComplete: () => void;
 }
 
-export function SetInputRow({ set, setIndex, onUpdateField, onComplete }: SetInputRowProps) {
+export function SetInputRow({ set, onUpdateField, onComplete }: SetInputRowProps) {
   return (
     <View style={[styles.setCard, set.completed && styles.setCardCompleted]}>
       <View style={styles.setHeader}>
