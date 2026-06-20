@@ -34,7 +34,17 @@
 | luteal | 0.95 | true | mild conservative taper |
 
 > These are overridable soft defaults; the cycle-periodization literature is mixed, so the enforced
-> behavior is the `allowNewWeightTests` veto, not the %. Numbers are the product decision to confirm.
+> behavior is the `allowNewWeightTests` veto, not the %.
+>
+> **Grounded in (signed off):** the strongest reviews find **no/weak influence** of cycle phase on
+> strength (poor phase-detection methodology) — so this is an **opt-in, overridable** tool, not a
+> performance claim. Where a directional signal exists it matches these defaults: late follicular =
+> best for strength (estrogen) → follicular/ovulatory progress freely; **early follicular [≈ menses]
+> "unfavorable for all strength classes"** → menstrual hold/↓; luteal = progesterone fatigue, "lower
+> load" proposed → mild ×0.95 taper. The enforced lever is the no-new-max veto (conservative choice),
+> % is advisory. *Future (full):* symptom-based adjustment may matter more than phase per se
+> ("Power in the flow", 2025). Sources: Frontiers 2023 critical review; PMC10818650 meta-analysis;
+> Sports Medicine 2022 follicular-vs-luteal RT review.
 
 ## Types
 - `@gymapp/types/src/training.ts`: `CyclePhase = "menstrual"|"follicular"|"ovulatory"|"luteal"`;
