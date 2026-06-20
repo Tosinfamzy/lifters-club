@@ -16,7 +16,7 @@ expects a `ProgressionConfig`. The scalar→config translation does not exist ye
 1. **New pure engine helpers** (translation is pure math → belongs in the engine):
    - `applyProgressionModifier(modifier, config?): ProgressionConfig` in `progression.ts` —
      scales `smallIncrement`/`largeIncrement` by the modifier and nudges
-     `rpeThresholdForIncrease`, **clamped** to a sane range (e.g. [6, 9]). `modifier === 1.0`
+     `rpeThresholdForIncrease`, **clamped** to `[7, 9]` (the evidence-based working range). `modifier === 1.0`
      returns the config unchanged (exact no-op — preserves cold-start behavior byte-for-byte).
    - `applyVolumeModifier(modifier, config?): VolumeConfig` in `volume.ts` — volume has no
      increment (±1 sets), so the lever is `rpeThresholdForAdd`/`rpeThresholdForReduce`
@@ -112,11 +112,22 @@ Modifier thresholds mirror the existing `getProgressionModifier` (`feedback.ts:1
 | `0.8` (conservative) | `successRate < 0.6` | increments ×0.8; `rpeThresholdForIncrease` −0.5 |
 | `1.1` (aggressive) | `successRate > 0.85` | increments ×1.1; `rpeThresholdForIncrease` +0.5 |
 
-**Clamps (guardrails):** increment ∈ `[1.0 kg, 2× default]`; `rpeThresholdForIncrease` ∈ `[6, 9]`.
+**Clamps (guardrails):** increment ∈ `[1.0 kg, 2× default]`; `rpeThresholdForIncrease` ∈ `[7, 9]`.
 Volume path mirrors this on `rpeThresholdForAdd`/`rpeThresholdForReduce` (no increment field).
 
-> These deltas (−0.5 RPE, ×0.8/×1.1) and the clamp ranges are the **product/algorithm
-> decision to sign off** — they're proposals, easy to change since they're isolated constants.
+**Grounded in:** RPE 8 ≈ 2 reps-in-reserve; working sets live in the **RPE 7–9** band, so the
+±0.5 nudge stays in-window and the clamp floor is **7** (RPE 6 is below the useful progression
+range). Standard increments are 2.5 kg (upper) / 5 kg (lower); the ×0.8 conservative modifier
+pushes toward the **fractional/microplate** territory the literature endorses for slower
+progressers, and the 1.0 kg floor matches the smallest practical real-world jump. Load/volume
+**autoregulation** (adapting load to real-time performance) is meta-analysis-supported — the
+basis for tuning at all. See sources: autoregulation review (PMC8762534), GymAware RIR,
+StrongLifts increments.
+
+> **Heuristic, not lit-derived:** the ±20% magnitude and the 0.6 / 0.85 success-rate cutoffs are
+> our adaptive-control choices — strength science doesn't prescribe "dial back X% after N misses."
+> That's exactly why they're gentle, clamped, flag-gated (`SELF_TUNING_ENABLED`), and audited.
+> All deltas/cutoffs live in isolated named constants, easy to retune.
 
 ## Critical files
 - `apps/server/src/routes/decisions.ts`
