@@ -65,6 +65,7 @@ The engine is the heart of the product; these close the "learns from feedback" l
 exported, but **no decision route calls it**. Wire it into the decision endpoints
 so the engine adjusts aggressiveness based on the user's historical decision
 accuracy (followed + successful → more confident; overridden → more cautious).
+→ **Detailed plan: [plans/decision-self-tuning.md](plans/decision-self-tuning.md)**
 
 ### 2b. Auto-evaluate remaining decision types — **M**
 `evaluatePendingDecisions` (`apps/server/src/services/decision-eval.ts`) runs on
@@ -74,6 +75,8 @@ meaningfully scores `load_progression` and `volume_adjustment`. The other four �
 `missed_session` — can only be evaluated manually via
 `PATCH /decisions/:id/outcome`. Extend `evaluateDecision` to score them so the
 accuracy/feedback loop covers all decision types.
+→ **Detailed plan: [plans/decision-auto-eval.md](plans/decision-auto-eval.md)**
+(Prerequisite for 2a to be fully effective — self-tuning needs the wider feedback signal.)
 
 ---
 
