@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { db } from "@gymapp/db";
-import { users, decisions, decisionOutcomes } from "@gymapp/db/schema";
+import { users, decisions, decisionOutcomes, gymEquipmentInstances } from "@gymapp/db/schema";
 import { ENGINE_VERSION } from "@gymapp/engine";
 import { eq, like } from "drizzle-orm";
 
@@ -74,6 +74,7 @@ const increaseBody = {
 async function cleanup() {
   await db.delete(decisionOutcomes).where(like(decisionOutcomes.userId, "test-user-decisions-%"));
   await db.delete(decisions).where(like(decisions.userId, "test-user-decisions-%"));
+  await db.delete(gymEquipmentInstances).where(like(gymEquipmentInstances.userId, "test-user-decisions-%"));
   await db.delete(users).where(like(users.id, "test-user-decisions-%"));
 }
 
@@ -315,6 +316,53 @@ describe("Decisions API - self-tuning", () => {
         }),
       });
       expect(res.status).toBe(400);
+    });
+
+    it("applies a stored equipment instance when the request omits equipment", async () => {
+      // Saved machine: 4kg steps. The request carries no equipment.
+      await db.insert(gymEquipmentInstances).values({
+        id: "eq_test_stored",
+        userId: TEST_USER_ID,
+        exerciseId: increaseBody.exerciseId,
+        incrementConstraint: 4,
+        updatedAt: new Date(),
+      });
+
+      const res = await app.request("/api/decisions/load-progression", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(increaseBody),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<LoadDecisionResult>;
+      // Core increases 100 → 105; stored 4kg machine snaps down to 104.
+      expect(body.data!.newWeight).toBe(104);
+    });
+
+    it("lets request equipment override the stored instance", async () => {
+      // Stored = 4kg steps (→104); request = 10kg steps (→100). Request wins.
+      await db.insert(gymEquipmentInstances).values({
+        id: "eq_test_override",
+        userId: TEST_USER_ID,
+        exerciseId: increaseBody.exerciseId,
+        incrementConstraint: 4,
+        updatedAt: new Date(),
+      });
+
+      const res = await app.request("/api/decisions/load-progression", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...increaseBody,
+          equipment: { incrementConstraint: 10 },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<LoadDecisionResult>;
+      // 105 floored to the 10kg grid = 100 (proves the request increment, not 4, was used).
+      expect(body.data!.newWeight).toBe(100);
     });
   });
 

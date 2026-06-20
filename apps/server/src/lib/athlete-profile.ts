@@ -17,8 +17,9 @@ import {
   users,
   athleteConstraints,
   permanentSubstitutions,
+  gymEquipmentInstances,
 } from "@gymapp/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type {
   Exercise,
   EquipmentType,
@@ -26,6 +27,7 @@ import type {
   AthleteConstraints,
   PermanentSubstitution,
   SubstitutionReason,
+  EquipmentInstance,
 } from "@gymapp/types";
 
 /** Row shape from a `select().from(exercises)`. */
@@ -149,4 +151,40 @@ export async function loadPermanentSubstitutionsForClerkId(
   if (user.length === 0) return undefined;
 
   return loadPermanentSubstitutionsForUserId(user[0]!.id);
+}
+
+/**
+ * Load the athlete's saved equipment instance for a specific exercise by
+ * internal user id.
+ *
+ * Returns undefined when the athlete has no saved instance for the exercise so
+ * the load-progression route can fast-path the no-equipment case. Null DB
+ * columns are coerced to undefined to match the engine's optional fields.
+ *
+ * No Clerk-id variant: the only consumer (the load-progression route) already
+ * resolves the internal `users.id` from the authed context.
+ */
+export async function loadEquipmentInstanceFor(
+  userId: string,
+  exerciseId: string
+): Promise<EquipmentInstance | undefined> {
+  const rows = await db
+    .select()
+    .from(gymEquipmentInstances)
+    .where(
+      and(
+        eq(gymEquipmentInstances.userId, userId),
+        eq(gymEquipmentInstances.exerciseId, exerciseId)
+      )
+    )
+    .limit(1);
+
+  if (rows.length === 0) return undefined;
+
+  const row = rows[0]!;
+  return {
+    incrementConstraint: row.incrementConstraint ?? undefined,
+    minWeight: row.minWeight ?? undefined,
+    confirmedWorkingWeight: row.confirmedWorkingWeight ?? undefined,
+  };
 }

@@ -23,12 +23,17 @@ import {
 } from "@gymapp/engine";
 import type { ProgressionConfig, ProgressionInput, VolumeConfig } from "@gymapp/engine";
 import type { CyclePhaseConfig, UserPreferences } from "@gymapp/types";
-import { cyclePhaseSchema, type CyclePhaseInput } from "@gymapp/validation";
+import {
+  cyclePhaseSchema,
+  equipmentInstanceInputSchema,
+  type CyclePhaseInput,
+} from "@gymapp/validation";
 import type { Env } from "../types";
 import { getAuthenticatedUserFromContext } from "../middleware/authorize";
 import { verifyUserAccess as verifyRequestUserId } from "../lib/auth";
 import { logger as globalLogger } from "../lib/logger";
 import { getDecisionAccuracyStats } from "../services/decision-accuracy";
+import { loadEquipmentInstanceFor } from "../lib/athlete-profile";
 
 /**
  * Kill switch for decision self-tuning. Tuning is ON by default; set
@@ -423,15 +428,10 @@ const loadProgressionSchema = z.object({
   targetRepRange: z.tuple([z.number().int().min(1), z.number().int().min(1)]),
   // Optional: self-reported cycle phase for transient load modification.
   cyclePhase: cyclePhaseSchema.optional(),
-  // Optional: physical-machine context. Bounds are validated here at the
-  // boundary so a malformed instance can never reach the engine's snap.
-  equipment: z
-    .object({
-      incrementConstraint: z.number().positive().optional(),
-      minWeight: z.number().min(0).optional(),
-      confirmedWorkingWeight: z.number().min(0).optional(),
-    })
-    .optional(),
+  // Optional: physical-machine context. Bounds are validated at the boundary so
+  // a malformed instance can never reach the engine's snap. A request value
+  // overrides any stored instance (see the handler).
+  equipment: equipmentInstanceInputSchema.optional(),
   // Optional: for persistence
   userId: z.string().min(1).optional(),
   workoutId: z.string().min(1).optional(),
@@ -487,13 +487,15 @@ decisionRoutes.post(
 
     const logger = c.get("logger") ?? globalLogger;
 
-    // Resolve the authenticated user once — both self-tuning (decision history)
-    // and cycle-phase overrides (preferences) read from it; this avoids a
-    // duplicate user lookup when both axes are active.
+    // Resolve the authenticated user once — self-tuning (decision history),
+    // cycle-phase overrides (preferences), and the equipment read-through all
+    // read from it; this avoids duplicate user lookups when several axes are
+    // active. The `!input.equipment` arm covers the case where self-tuning is
+    // off and no cycle phase is sent but we still need the user to load a
+    // stored equipment instance.
+    const needsUser = isSelfTuningEnabled() || Boolean(rawCyclePhase) || !input.equipment;
     const authResult =
-      userId && (isSelfTuningEnabled() || rawCyclePhase)
-        ? await getAuthenticatedUserFromContext(c)
-        : undefined;
+      userId && needsUser ? await getAuthenticatedUserFromContext(c) : undefined;
     const authedUser = authResult?.authorized ? authResult.user : undefined;
 
     // Self-tune from the user's decision history. Anonymous calls (no userId)
@@ -532,6 +534,21 @@ decisionRoutes.post(
         },
         "Cycle phase applied"
       );
+    }
+
+    // Equipment: when the request didn't carry an instance, fall back to the
+    // athlete's saved instance for this exercise (request overrides stored). The
+    // engine snaps the prescribed load to a weight the machine can make; absent
+    // → no snap (byte-identical to pre-equipment behavior).
+    if (!input.equipment && authedUser) {
+      const storedEquipment = await loadEquipmentInstanceFor(authedUser.id, input.exerciseId);
+      if (storedEquipment) {
+        resolvedInput = { ...resolvedInput, equipment: storedEquipment };
+        logger.info(
+          { userId: verifiedUserId, exerciseId: input.exerciseId },
+          "Stored equipment instance applied"
+        );
+      }
     }
 
     const result = tunedConfig

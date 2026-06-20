@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { db } from "@gymapp/db";
-import { users, readinessChecks, userBaselines, athleteConstraints, permanentSubstitutions } from "@gymapp/db/schema";
+import { users, readinessChecks, userBaselines, athleteConstraints, permanentSubstitutions, gymEquipmentInstances } from "@gymapp/db/schema";
 import { eq, like } from "drizzle-orm";
 
 // Mock Clerk's verifyToken before importing the app
@@ -80,6 +80,7 @@ interface ReadinessData {
 describe("Users API", () => {
   beforeAll(async () => {
     // Clean up test data
+    await db.delete(gymEquipmentInstances).where(like(gymEquipmentInstances.userId, "test-user-users-%"));
     await db.delete(permanentSubstitutions).where(like(permanentSubstitutions.userId, "test-user-users-%"));
     await db.delete(athleteConstraints).where(like(athleteConstraints.userId, "test-user-users-%"));
     await db.delete(userBaselines).where(like(userBaselines.userId, "test-user-users-%"));
@@ -89,6 +90,7 @@ describe("Users API", () => {
 
   afterAll(async () => {
     // Final cleanup
+    await db.delete(gymEquipmentInstances).where(like(gymEquipmentInstances.userId, "test-user-users-%"));
     await db.delete(permanentSubstitutions).where(like(permanentSubstitutions.userId, "test-user-users-%"));
     await db.delete(athleteConstraints).where(like(athleteConstraints.userId, "test-user-users-%"));
     await db.delete(userBaselines).where(like(userBaselines.userId, "test-user-users-%"));
@@ -105,6 +107,7 @@ describe("Users API", () => {
     vi.mocked(verifyToken).mockResolvedValue({ sub: TEST_CLERK_ID } as never);
 
     // Clean up test users
+    await db.delete(gymEquipmentInstances).where(like(gymEquipmentInstances.userId, "test-user-users-%"));
     await db.delete(permanentSubstitutions).where(like(permanentSubstitutions.userId, "test-user-users-%"));
     await db.delete(athleteConstraints).where(like(athleteConstraints.userId, "test-user-users-%"));
     await db.delete(userBaselines).where(like(userBaselines.userId, "test-user-users-%"));
@@ -1080,6 +1083,138 @@ describe("Users API", () => {
       await db.insert(users).values(otherUser);
 
       const res = await app.request(`/api/users/${OTHER_USER_ID}/substitutions`, {
+        headers: authHeaders(),
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("Equipment Instances", () => {
+    interface EquipmentInstanceData {
+      exerciseId: string;
+      incrementConstraint?: number;
+      minWeight?: number;
+      confirmedWorkingWeight?: number;
+      label?: string;
+    }
+
+    it("GET returns an empty list when none are saved", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        headers: authHeaders(),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<EquipmentInstanceData[]>;
+      expect(body.data).toEqual([]);
+    });
+
+    it("PUT persists an instance that GET then round-trips", async () => {
+      await db.insert(users).values(testUser);
+
+      const instance = {
+        exerciseId: "cable-row",
+        incrementConstraint: 5,
+        minWeight: 5,
+        confirmedWorkingWeight: 40,
+        label: "blue cable station",
+      };
+
+      const putRes = await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify(instance),
+      });
+      expect(putRes.status).toBe(200);
+
+      const getRes = await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        headers: authHeaders(),
+      });
+      const body = (await getRes.json()) as ApiResponse<EquipmentInstanceData[]>;
+      expect(body.data!).toHaveLength(1);
+      expect(body.data![0]!.exerciseId).toBe("cable-row");
+      expect(body.data![0]!.incrementConstraint).toBe(5);
+      expect(body.data![0]!.minWeight).toBe(5);
+      expect(body.data![0]!.confirmedWorkingWeight).toBe(40);
+      expect(body.data![0]!.label).toBe("blue cable station");
+    });
+
+    it("accepts a minimal instance (exerciseId only)", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ exerciseId: "cable-row" }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<EquipmentInstanceData>;
+      expect(body.data!.exerciseId).toBe("cable-row");
+      expect(body.data!.incrementConstraint).toBeUndefined();
+    });
+
+    it("PUT twice for the same exercise upserts to a single row", async () => {
+      await db.insert(users).values(testUser);
+
+      await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ exerciseId: "cable-row", incrementConstraint: 5 }),
+      });
+      await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ exerciseId: "cable-row", incrementConstraint: 2.5 }),
+      });
+
+      const rows = await db
+        .select()
+        .from(gymEquipmentInstances)
+        .where(eq(gymEquipmentInstances.userId, TEST_USER_ID));
+      expect(rows.length).toBe(1);
+      expect(rows[0]!.incrementConstraint).toBe(2.5);
+    });
+
+    it("DELETE removes one instance by exercise id", async () => {
+      await db.insert(users).values(testUser);
+
+      await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ exerciseId: "cable-row", incrementConstraint: 5 }),
+      });
+
+      const delRes = await app.request(
+        `/api/users/${TEST_USER_ID}/equipment-instances/cable-row`,
+        { method: "DELETE", headers: authHeaders() }
+      );
+      expect(delRes.status).toBe(200);
+
+      const rows = await db
+        .select()
+        .from(gymEquipmentInstances)
+        .where(eq(gymEquipmentInstances.userId, TEST_USER_ID));
+      expect(rows.length).toBe(0);
+    });
+
+    it("rejects a non-positive increment with 400", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(`/api/users/${TEST_USER_ID}/equipment-instances`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ exerciseId: "cable-row", incrementConstraint: 0 }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("GET returns 403 for non-owner", async () => {
+      await db.insert(users).values(testUser);
+      await db.insert(users).values(otherUser);
+
+      const res = await app.request(`/api/users/${OTHER_USER_ID}/equipment-instances`, {
         headers: authHeaders(),
       });
       expect(res.status).toBe(403);
