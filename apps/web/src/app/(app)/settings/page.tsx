@@ -24,6 +24,7 @@ import type { WeightUnit } from "@gymapp/types";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
 import { ConstraintsCard } from "@/components/settings/constraints-card";
+import { SubstitutionsCard } from "@/components/settings/substitutions-card";
 
 interface NotificationPreferences {
   emailWorkoutReminders: boolean;
@@ -337,7 +338,10 @@ export default function SettingsPage() {
           <p className="text-sm text-muted-foreground mb-4">
             Context the decision engine uses to tailor and keep your training safe.
           </p>
-          <ConstraintsCard />
+          <div className="space-y-6">
+            <ConstraintsCard />
+            <SubstitutionsCard />
+          </div>
         </div>
       </div>
   );

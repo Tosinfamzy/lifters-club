@@ -52,6 +52,17 @@ export function useApi() {
         data: Parameters<typeof baseApi.updateConstraints>[1]
       ) => authenticatedRequest((client) => client.updateConstraints(userId, data)),
 
+      getSubstitutions: (userId: string) =>
+        authenticatedRequest((client) => client.getSubstitutions(userId)),
+
+      updateSubstitution: (
+        userId: string,
+        data: Parameters<typeof baseApi.updateSubstitution>[1]
+      ) => authenticatedRequest((client) => client.updateSubstitution(userId, data)),
+
+      deleteSubstitution: (userId: string, originalExerciseId: string) =>
+        authenticatedRequest((client) => client.deleteSubstitution(userId, originalExerciseId)),
+
       getTrainingBlocks: (userId: string, status?: string) =>
         authenticatedRequest((client) => client.getTrainingBlocks(userId, status)),
 
