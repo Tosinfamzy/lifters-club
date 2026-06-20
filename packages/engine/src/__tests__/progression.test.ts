@@ -197,4 +197,184 @@ describe("calculateLoadProgression", () => {
       expect(noopResult).toEqual(defaultResult);
     });
   });
+
+  describe("cycle phase", () => {
+    // A clean "ready to increase" scenario at a heavy weight (large increment).
+    const increaseInput: ProgressionInput = {
+      exerciseId: "barbell-bench-press",
+      recentSets: [
+        { reps: 10, rpe: 7, weight: 100 },
+        { reps: 10, rpe: 7, weight: 100 },
+      ],
+      currentWeight: 100,
+      targetRepRange: [8, 10],
+    };
+
+    it("holds an earned increase during the menstrual phase (no new weight tests)", () => {
+      // Arrange — same input that would normally increase to 105.
+      const input: ProgressionInput = {
+        ...increaseInput,
+        cyclePhase: { phase: "menstrual", loadModifier: 0.9, allowNewWeightTests: false },
+      };
+
+      // Act
+      const result = calculateLoadProgression(input);
+
+      // Assert — increase is vetoed and held weight is scaled by 0.90.
+      expect(result.action).not.toBe("increase");
+      expect(result.action).toBe("maintain");
+      expect(result.newWeight).toBe(90); // 100 (held) * 0.90
+      expect(result.reason).toContain("menstrual");
+      // Reason must agree with the prescribed weight — it's reduced to 90%, not
+      // a true "hold". (Regression: the reason previously claimed "holding load".)
+      expect(result.reason).toContain("90%");
+      expect(result.reason).not.toContain("holding load");
+    });
+
+    it("scales a maintain decision by the menstrual loadModifier", () => {
+      // Arrange — an in-range, moderate-RPE session that would maintain at 80.
+      const input: ProgressionInput = {
+        exerciseId: "row",
+        recentSets: [
+          { reps: 9, rpe: 8, weight: 80 },
+          { reps: 8, rpe: 8, weight: 80 },
+        ],
+        currentWeight: 80,
+        targetRepRange: [8, 10],
+        cyclePhase: { phase: "menstrual", loadModifier: 0.9, allowNewWeightTests: false },
+      };
+
+      // Act
+      const result = calculateLoadProgression(input);
+
+      // Assert
+      expect(result.action).toBe("maintain");
+      expect(result.newWeight).toBe(72); // 80 * 0.90
+    });
+
+    it("scales a decrease decision by the menstrual loadModifier", () => {
+      // Arrange — a grinding session that would decrease from 140 to 135.
+      const input: ProgressionInput = {
+        exerciseId: "squat",
+        recentSets: [
+          { reps: 4, rpe: 9, weight: 140 },
+          { reps: 3, rpe: 10, weight: 140 },
+        ],
+        currentWeight: 140,
+        targetRepRange: [6, 8],
+        cyclePhase: { phase: "menstrual", loadModifier: 0.9, allowNewWeightTests: false },
+      };
+
+      // Act
+      const result = calculateLoadProgression(input);
+
+      // Assert — decrease survives the veto (it is not an increase) and is scaled.
+      expect(result.action).toBe("decrease");
+      expect(result.newWeight).toBe(121.5); // 135 * 0.90 = 121.5
+    });
+
+    it("progresses normally during the follicular phase (1.0, tests allowed)", () => {
+      // Arrange
+      const input: ProgressionInput = {
+        ...increaseInput,
+        cyclePhase: { phase: "follicular", loadModifier: 1.0, allowNewWeightTests: true },
+      };
+
+      // Act
+      const result = calculateLoadProgression(input);
+
+      // Assert — identical to no-cycle behavior.
+      expect(result.action).toBe("increase");
+      expect(result.newWeight).toBe(105);
+    });
+
+    it("blocks an increase via allowNewWeightTests:false even at loadModifier 1.0", () => {
+      // Arrange — isolate the veto from any scaling.
+      const input: ProgressionInput = {
+        ...increaseInput,
+        cyclePhase: { phase: "luteal", loadModifier: 1.0, allowNewWeightTests: false },
+      };
+
+      // Act
+      const result = calculateLoadProgression(input);
+
+      // Assert
+      expect(result.action).toBe("maintain");
+      expect(result.newWeight).toBe(100); // held at current, * 1.0
+    });
+
+    it("is byte-identical to the existing case when cyclePhase is undefined", () => {
+      // Arrange — increaseInput has no cyclePhase.
+      const withUndefined: ProgressionInput = { ...increaseInput, cyclePhase: undefined };
+
+      // Act
+      const baseline = calculateLoadProgression(increaseInput);
+      const result = calculateLoadProgression(withUndefined);
+
+      // Assert
+      expect(result).toEqual(baseline);
+      expect(result).toEqual({
+        action: "increase",
+        newWeight: 105,
+        reason: "Averaging 10.0 reps at RPE 7.0 — ready to progress",
+      });
+    });
+
+    it("vetoes an increase even under aggressive self-tuning (composition)", () => {
+      // Arrange — aggressive tuning earns a bigger step; menstrual forbids it.
+      const input: ProgressionInput = {
+        ...increaseInput,
+        cyclePhase: { phase: "menstrual", loadModifier: 0.9, allowNewWeightTests: false },
+      };
+
+      // Act — aggressive config (1.1) would push to 105.5 without the veto.
+      const result = calculateLoadProgression(input, applyProgressionModifier(1.1));
+
+      // Assert — still no increase; held at current, scaled by 0.90.
+      expect(result.action).not.toBe("increase");
+      expect(result.action).toBe("maintain");
+      expect(result.newWeight).toBe(90); // 100 (held) * 0.90
+    });
+
+    it("scales the baseline-branch working weight by the loadModifier", () => {
+      // Arrange — no recent sets, baseline provided.
+      const baseInput: ProgressionInput = {
+        exerciseId: "press",
+        recentSets: [],
+        currentWeight: 60,
+        targetRepRange: [6, 8],
+        baselineWeight: 80,
+        baselineReps: 5,
+      };
+      const cycleInput: ProgressionInput = {
+        ...baseInput,
+        cyclePhase: { phase: "menstrual", loadModifier: 0.9, allowNewWeightTests: false },
+      };
+
+      // Act
+      const baseline = calculateLoadProgression(baseInput);
+      const result = calculateLoadProgression(cycleInput);
+
+      // Assert — same action, working weight scaled by 0.90 (rounded to 0.5).
+      expect(baseline.action).toBe("maintain");
+      expect(result.action).toBe("maintain");
+      expect(result.newWeight).toBe(Math.round(baseline.newWeight * 0.9 * 2) / 2);
+    });
+
+    it("honors a per-athlete override over the menstrual default", () => {
+      // Arrange — athlete exceeds the hold: allow tests, only 5% taper.
+      const input: ProgressionInput = {
+        ...increaseInput,
+        cyclePhase: { phase: "menstrual", loadModifier: 0.95, allowNewWeightTests: true },
+      };
+
+      // Act
+      const result = calculateLoadProgression(input);
+
+      // Assert — increase survives (tests allowed) and is scaled by 0.95,
+      // rounded to the nearest 0.5kg (105 * 0.95 = 99.75 → 100).
+      expect(result.action).toBe("increase");
+      expect(result.newWeight).toBe(100);
+    });
+  });
 });

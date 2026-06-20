@@ -17,9 +17,12 @@ import {
   getProgressionModifier,
   applyProgressionModifier,
   applyVolumeModifier,
+  defaultCyclePhaseConfig,
   ENGINE_VERSION,
 } from "@gymapp/engine";
-import type { ProgressionConfig, VolumeConfig } from "@gymapp/engine";
+import type { ProgressionConfig, ProgressionInput, VolumeConfig } from "@gymapp/engine";
+import type { CyclePhaseConfig, UserPreferences } from "@gymapp/types";
+import { cyclePhaseSchema, type CyclePhaseInput } from "@gymapp/validation";
 import type { Env } from "../types";
 import { getAuthenticatedUserFromContext } from "../middleware/authorize";
 import { verifyUserAccess as verifyRequestUserId } from "../lib/auth";
@@ -417,48 +420,120 @@ const loadProgressionSchema = z.object({
   })).min(1),
   currentWeight: z.number().min(0),
   targetRepRange: z.tuple([z.number().int().min(1), z.number().int().min(1)]),
+  // Optional: self-reported cycle phase for transient load modification.
+  cyclePhase: cyclePhaseSchema.optional(),
   // Optional: for persistence
   userId: z.string().min(1).optional(),
   workoutId: z.string().min(1).optional(),
 });
 
+/**
+ * Resolve a full {@link CyclePhaseConfig} from the request's partial cycle
+ * phase, layering: engine defaults → per-athlete preference overrides →
+ * request-supplied fields. Returns the request's partial merged so the most
+ * specific source wins (request > preference override > engine default).
+ */
+function resolveCyclePhaseConfig(
+  requestPhase: CyclePhaseInput,
+  preferences?: UserPreferences
+): CyclePhaseConfig {
+  const engineDefault = defaultCyclePhaseConfig[requestPhase.phase];
+  const rawOverride = preferences?.cyclePhaseOverrides?.[requestPhase.phase];
+
+  // Validate the override at the boundary: `preferences` is untyped jsonb, so a
+  // malformed `loadModifier` (0, >1, NaN, non-number) must never reach the
+  // engine — the cycle axis can only hold/reduce load, never increase it. The
+  // request path is already bounded by `cyclePhaseSchema`; this guards the
+  // stored-override path that bypasses it.
+  const overrideLoad =
+    typeof rawOverride?.loadModifier === "number" &&
+    Number.isFinite(rawOverride.loadModifier) &&
+    rawOverride.loadModifier >= 0.5 &&
+    rawOverride.loadModifier <= 1
+      ? rawOverride.loadModifier
+      : undefined;
+  const overrideAllow =
+    typeof rawOverride?.allowNewWeightTests === "boolean"
+      ? rawOverride.allowNewWeightTests
+      : undefined;
+
+  return {
+    phase: requestPhase.phase,
+    dayOfPhase: requestPhase.dayOfPhase,
+    loadModifier: requestPhase.loadModifier ?? overrideLoad ?? engineDefault.loadModifier,
+    allowNewWeightTests:
+      requestPhase.allowNewWeightTests ?? overrideAllow ?? engineDefault.allowNewWeightTests,
+  };
+}
+
 decisionRoutes.post(
   "/load-progression",
   zValidator("json", loadProgressionSchema),
   async (c) => {
-    const { userId, workoutId, ...input } = c.req.valid("json");
+    const { userId, workoutId, cyclePhase: rawCyclePhase, ...input } = c.req.valid("json");
 
     // Verify userId matches authenticated user if provided
     const verifiedUserId = verifyRequestUserId(c, userId);
 
     const logger = c.get("logger") ?? globalLogger;
 
+    // Resolve the authenticated user once — both self-tuning (decision history)
+    // and cycle-phase overrides (preferences) read from it; this avoids a
+    // duplicate user lookup when both axes are active.
+    const authResult =
+      userId && (isSelfTuningEnabled() || rawCyclePhase)
+        ? await getAuthenticatedUserFromContext(c)
+        : undefined;
+    const authedUser = authResult?.authorized ? authResult.user : undefined;
+
     // Self-tune from the user's decision history. Anonymous calls (no userId)
     // and the kill switch both skip the stats query and use today's behavior.
     let appliedModifier = 1.0;
     let tunedConfig: ProgressionConfig | undefined;
-    if (userId && isSelfTuningEnabled()) {
-      const authResult = await getAuthenticatedUserFromContext(c);
-      if (authResult.authorized) {
-        const stats = await getDecisionAccuracyStats(authResult.user.id);
-        appliedModifier = getProgressionModifier(stats, "load_progression");
-        if (appliedModifier !== 1.0) {
-          tunedConfig = applyProgressionModifier(appliedModifier);
-          logger.info(
-            { userId: authResult.user.id, decisionType: "load_progression", modifier: appliedModifier },
-            "Self-tuning applied"
-          );
-        }
+    if (authedUser && isSelfTuningEnabled()) {
+      const stats = await getDecisionAccuracyStats(authedUser.id);
+      appliedModifier = getProgressionModifier(stats, "load_progression");
+      if (appliedModifier !== 1.0) {
+        tunedConfig = applyProgressionModifier(appliedModifier);
+        logger.info(
+          { userId: authedUser.id, decisionType: "load_progression", modifier: appliedModifier },
+          "Self-tuning applied"
+        );
       }
     }
 
-    const result = tunedConfig
-      ? calculateLoadProgression(input, tunedConfig)
-      : calculateLoadProgression(input);
+    // Resolve cycle phase (orthogonal to self-tuning). When the request carries
+    // a phase, build a full CyclePhaseConfig by layering the request's partial
+    // over per-athlete preference overrides over the engine defaults, then set
+    // it on the input. Absent → skip entirely (byte-identical to pre-cycle).
+    let resolvedInput: ProgressionInput = input;
+    if (rawCyclePhase) {
+      const preferences = authedUser
+        ? (authedUser.preferences as unknown as UserPreferences)
+        : undefined;
+      const resolvedCyclePhase = resolveCyclePhaseConfig(rawCyclePhase, preferences);
+      resolvedInput = { ...input, cyclePhase: resolvedCyclePhase };
+      logger.info(
+        {
+          userId: verifiedUserId,
+          phase: resolvedCyclePhase.phase,
+          loadModifier: resolvedCyclePhase.loadModifier,
+          allowNewWeightTests: resolvedCyclePhase.allowNewWeightTests,
+        },
+        "Cycle phase applied"
+      );
+    }
 
-    // Audit: record the applied modifier in the persisted input when tuned.
-    const persistedInput: Record<string, unknown> =
-      appliedModifier !== 1.0 ? { ...input, appliedModifier } : (input as Record<string, unknown>);
+    const result = tunedConfig
+      ? calculateLoadProgression(resolvedInput, tunedConfig)
+      : calculateLoadProgression(resolvedInput);
+
+    // Audit: record the applied modifier in the persisted input when tuned. The
+    // resolved cyclePhase already rides in `resolvedInput` for the audit trail.
+    const persistedInput: Record<string, unknown> = {
+      ...resolvedInput,
+      ...(appliedModifier !== 1.0 ? { appliedModifier } : {}),
+    };
 
     await persistDecision(
       "load_progression",

@@ -16,6 +16,34 @@ export type TrainingLevel = "beginner" | "intermediate" | "advanced";
 export type PrimaryGoal = "strength" | "hypertrophy" | "conditioning";
 
 /**
+ * Menstrual cycle phase used as a systematic load-modification protocol.
+ *
+ * This is a load *protocol* axis, distinct from acute readiness: a menstrual-phase
+ * athlete with high readiness should still hold/reduce load (protocol, not feeling).
+ */
+export type CyclePhase = "menstrual" | "follicular" | "ovulatory" | "luteal";
+
+/**
+ * Resolved cycle-phase configuration applied to a single load decision.
+ */
+export interface CyclePhaseConfig {
+  /** Self-reported phase for this session. */
+  phase: CyclePhase;
+  /** Optional day within the phase (carried for audit; not used by MVP logic). */
+  dayOfPhase?: number;
+  /**
+   * Multiplier applied to the chosen `newWeight` (clamped to [0.5, 1] — a
+   * hold/reduce protocol, never an increase).
+   */
+  loadModifier: number;
+  /**
+   * When false, suppresses the `increase` outcome entirely (no new weight
+   * tests during the phase), even when reps/RPE + self-tuning earned it.
+   */
+  allowNewWeightTests: boolean;
+}
+
+/**
  * User preferences for training
  */
 export interface UserPreferences {
@@ -25,6 +53,12 @@ export interface UserPreferences {
   daysPerWeek: number;
   sessionDurationMinutes: number;
   weightUnit?: WeightUnit;
+  /** Whether the athlete opts in to cycle-phase load modification (gates UI). */
+  tracksCycle?: boolean;
+  /** Per-athlete overrides for the default per-phase load modifiers. */
+  cyclePhaseOverrides?: Partial<
+    Record<CyclePhase, { loadModifier: number; allowNewWeightTests: boolean }>
+  >;
 }
 
 /**

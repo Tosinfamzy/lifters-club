@@ -212,6 +212,56 @@ describe("Decisions API - self-tuning", () => {
     });
   });
 
+  describe("POST /api/decisions/load-progression — cycle phase", () => {
+    it("persists the resolved cyclePhase in the decision input", async () => {
+      const res = await app.request("/api/decisions/load-progression", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...increaseBody,
+          cyclePhase: { phase: "luteal" },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const rows = await db
+        .select()
+        .from(decisions)
+        .where(eq(decisions.userId, TEST_USER_ID));
+      const persisted = rows.find(
+        (r) => (r.input as Record<string, unknown>).cyclePhase !== undefined
+      );
+      expect(persisted).toBeDefined();
+      const cyclePhase = (persisted!.input as Record<string, unknown>).cyclePhase as Record<
+        string,
+        unknown
+      >;
+      // Engine defaults for luteal: 0.95 modifier, tests allowed.
+      expect(cyclePhase.phase).toBe("luteal");
+      expect(cyclePhase.loadModifier).toBe(0.95);
+      expect(cyclePhase.allowNewWeightTests).toBe(true);
+    });
+
+    it("holds an otherwise-increase decision during the menstrual phase end-to-end", async () => {
+      const res = await app.request("/api/decisions/load-progression", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...increaseBody,
+          cyclePhase: { phase: "menstrual" },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<LoadDecisionResult>;
+      // Would be an increase to 105; menstrual holds (no new weight tests) and
+      // scales the held current weight by the 0.90 default.
+      expect(body.data!.action).toBe("maintain");
+      expect(body.data!.newWeight).toBe(90); // 100 (held) * 0.90
+      expect(body.data!.reason).toContain("menstrual");
+    });
+  });
+
   describe("GET /api/decisions/accuracy", () => {
     it("returns the expected stats shape after the service extraction", async () => {
       await seedLoadProgressionHistory(5, 0.6);

@@ -1,4 +1,4 @@
-import type { LoggedSet } from "@gymapp/types";
+import type { CyclePhaseConfig, LoggedSet } from "@gymapp/types";
 
 export interface ProgressionInput {
   exerciseId: string;
@@ -10,6 +10,13 @@ export interface ProgressionInput {
   baselineWeight?: number;
   /** Optional baseline reps (used with baselineWeight for starting point calculation) */
   baselineReps?: number;
+
+  /**
+   * Optional cycle-phase protocol. When absent, load progression behaves
+   * exactly as it did before this axis existed (byte-identical). Orthogonal
+   * to self-tuning (which flows through the config arg).
+   */
+  cyclePhase?: CyclePhaseConfig;
 }
 
 export interface VolumeInput {

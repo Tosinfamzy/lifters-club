@@ -2,7 +2,11 @@
 export const ENGINE_VERSION = "1.1.0";
 
 // Core decision functions
-export { calculateLoadProgression, applyProgressionModifier } from "./progression";
+export {
+  calculateLoadProgression,
+  applyProgressionModifier,
+  defaultCyclePhaseConfig,
+} from "./progression";
 export { calculateVolumeAdjustment, applyVolumeModifier } from "./volume";
 export { calculateExerciseRotation } from "./rotation";
 export { calculateDeloadNeed } from "./deload";

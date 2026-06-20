@@ -1,6 +1,83 @@
-import type { LoadDecision } from "@gymapp/types";
+import type { CyclePhase, CyclePhaseConfig, LoadDecision } from "@gymapp/types";
 import type { ProgressionInput } from "./types";
-import { calculateWorkingWeight, estimateOneRepMax } from "./estimation";
+import { calculateWorkingWeight, estimateOneRepMax, roundToHalfKg } from "./estimation";
+
+/**
+ * Default per-phase load modifiers for cycle-phase load modification.
+ *
+ * WHY these values: the strongest reviews find no/weak influence of cycle phase
+ * on strength (poor phase-detection methodology), so this is an opt-in,
+ * overridable tool — not a performance claim. The ENFORCED lever is the
+ * `allowNewWeightTests` veto (a conservative no-new-max choice during menses);
+ * the `loadModifier` % is an advisory soft default. Where a directional signal
+ * exists it matches these defaults: early follicular [≈ menses] is "unfavorable
+ * for all strength classes" → menstrual hold + no new maxes (0.90, false);
+ * late follicular/ovulatory = best for strength (estrogen) → progress freely
+ * (1.00, true); luteal = progesterone fatigue, "lower load" proposed → a mild
+ * conservative taper (0.95, true). Overridable per athlete (some exceed the
+ * menstrual hold at high readiness).
+ */
+export const defaultCyclePhaseConfig: Record<
+  CyclePhase,
+  { loadModifier: number; allowNewWeightTests: boolean }
+> = {
+  menstrual: { loadModifier: 0.9, allowNewWeightTests: false },
+  follicular: { loadModifier: 1.0, allowNewWeightTests: true },
+  ovulatory: { loadModifier: 1.0, allowNewWeightTests: true },
+  luteal: { loadModifier: 0.95, allowNewWeightTests: true },
+};
+
+/**
+ * Apply a resolved cycle-phase protocol to a load decision.
+ *
+ * Sits AFTER self-tuning and the core branch (see {@link calculateLoadProgression}
+ * precedence). Two effects, in order:
+ * 1. Increase-veto: when `allowNewWeightTests === false`, an earned `increase`
+ *    is demoted to `maintain` and pinned to the current weight (no new max).
+ * 2. Load scale: the surviving action's `newWeight` is scaled by `loadModifier`
+ *    (a hold/reduce factor ≤ 1), rounded to 0.5kg. A `loadModifier` of 1 is a
+ *    no-op (no re-rounding).
+ *
+ * The `reason` is rewritten so it agrees with the prescribed weight — e.g. a
+ * vetoed increase under menstrual 0.90 is "no new weight tests, load held at
+ * 90%", not the (false) "holding load" that contradicts the 10% cut.
+ *
+ * Pure: depends only on its arguments.
+ */
+function applyCyclePhase(
+  decision: LoadDecision,
+  cyclePhase: CyclePhaseConfig,
+  currentWeight: number
+): LoadDecision {
+  const { phase, dayOfPhase, loadModifier, allowNewWeightTests } = cyclePhase;
+  let { action, newWeight, reason } = decision;
+
+  // Increase-veto runs first so aggressive self-tuning can't leak an increase
+  // past a phase that forbids new weight tests.
+  const vetoed = action === "increase" && !allowNewWeightTests;
+  if (vetoed) {
+    action = "maintain";
+    newWeight = currentWeight;
+  }
+
+  // Scale only when the modifier actually changes the load (avoids re-rounding
+  // an already-quantized weight when loadModifier === 1).
+  const scaledWeight = loadModifier !== 1 ? roundToHalfKg(newWeight * loadModifier) : newWeight;
+  const pct = Math.round(loadModifier * 100);
+  const phaseLabel = dayOfPhase ? `${phase} phase (day ${dayOfPhase})` : `${phase} phase`;
+
+  // Keep the explanation honest about both the veto and the load level.
+  if (vetoed) {
+    reason =
+      loadModifier !== 1
+        ? `${phaseLabel} — no new weight tests, load held at ${pct}%`
+        : `${phaseLabel} — no new weight tests`;
+  } else if (loadModifier !== 1) {
+    reason = `${reason} (${phaseLabel}: load at ${pct}%)`;
+  }
+
+  return { action, newWeight: scaledWeight, reason };
+}
 
 /**
  * Configuration for load progression decisions
@@ -115,14 +192,32 @@ export function applyProgressionModifier(
 
 /**
  * Calculate whether to increase, maintain, or decrease weight
- * based on recent set performance
+ * based on recent set performance.
+ *
+ * Cycle phase and self-tuning are ORTHOGONAL axes that compose without
+ * colliding: self-tuning flows through `config` (how aggressive the
+ * increment/threshold are) while cycle phase flows through `input.cyclePhase`
+ * (whether an increase is allowed and how the target is scaled). When
+ * `input.cyclePhase` is absent, the result is byte-identical to the pre-cycle
+ * behavior.
+ *
+ * Precedence: self-tuning(config) → core branch → cycle increase-veto →
+ * cycle loadModifier scale. The increase-veto sits AFTER tuning so that
+ * aggressive self-tuning can never leak an `increase` past a phase that forbids
+ * new weight tests (e.g. a menstrual hold).
  */
 export function calculateLoadProgression(
   input: ProgressionInput,
   config: ProgressionConfig = defaultConfig
 ): LoadDecision {
-  const { recentSets, currentWeight, targetRepRange, baselineWeight, baselineReps } = input;
+  const { recentSets, currentWeight, targetRepRange, baselineWeight, baselineReps, cyclePhase } =
+    input;
   const [minReps, maxReps] = targetRepRange;
+
+  // Apply the cycle-phase protocol to the core decision when present. The guard
+  // keeps `cyclePhase === undefined` byte-identical to the pre-cycle behavior.
+  const finalize = (decision: LoadDecision): LoadDecision =>
+    cyclePhase ? applyCyclePhase(decision, cyclePhase, currentWeight) : decision;
 
   // When no recent sets, use baseline if available
   if (recentSets.length === 0) {
@@ -132,18 +227,18 @@ export function calculateLoadProgression(
       const e1rm = estimateOneRepMax(baselineWeight, baselineReps);
       const workingWeight = calculateWorkingWeight(e1rm, targetReps);
 
-      return {
+      return finalize({
         action: "maintain",
         newWeight: workingWeight,
         reason: `Using baseline weight as starting point (${baselineWeight}×${baselineReps} → ${workingWeight}kg for ${targetReps} reps)`,
-      };
+      });
     }
 
-    return {
+    return finalize({
       action: "maintain",
       newWeight: currentWeight,
       reason: "No recent data to base decision on",
-    };
+    });
   }
 
   // Calculate average reps and RPE from recent sets
@@ -162,25 +257,25 @@ export function calculateLoadProgression(
   // Decision logic
   if (avgReps >= maxReps && avgRpe < config.rpeThresholdForIncrease) {
     // Hitting top of rep range with room to spare → increase
-    return {
+    return finalize({
       action: "increase",
       newWeight: currentWeight + increment,
       reason: `Averaging ${avgReps.toFixed(1)} reps at RPE ${avgRpe.toFixed(1)} — ready to progress`,
-    };
+    });
   }
 
   if (avgReps < minReps || avgRpe > config.rpeThresholdForDecrease) {
     // Below rep range or grinding → decrease
-    return {
+    return finalize({
       action: "decrease",
       newWeight: Math.max(0, currentWeight - increment),
       reason: `Averaging ${avgReps.toFixed(1)} reps at RPE ${avgRpe.toFixed(1)} — reduce load to maintain quality`,
-    };
+    });
   }
 
-  return {
+  return finalize({
     action: "maintain",
     newWeight: currentWeight,
     reason: `Averaging ${avgReps.toFixed(1)} reps at RPE ${avgRpe.toFixed(1)} — on track, maintain load`,
-  };
+  });
 }
