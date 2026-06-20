@@ -25,6 +25,7 @@ import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
 import { ConstraintsCard } from "@/components/settings/constraints-card";
 import { SubstitutionsCard } from "@/components/settings/substitutions-card";
+import { EquipmentInstancesCard } from "@/components/settings/equipment-instances-card";
 
 interface NotificationPreferences {
   emailWorkoutReminders: boolean;
@@ -341,6 +342,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <ConstraintsCard />
             <SubstitutionsCard />
+            <EquipmentInstancesCard />
           </div>
         </div>
       </div>

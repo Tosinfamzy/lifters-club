@@ -63,6 +63,17 @@ export function useApi() {
       deleteSubstitution: (userId: string, originalExerciseId: string) =>
         authenticatedRequest((client) => client.deleteSubstitution(userId, originalExerciseId)),
 
+      getEquipmentInstances: (userId: string) =>
+        authenticatedRequest((client) => client.getEquipmentInstances(userId)),
+
+      updateEquipmentInstance: (
+        userId: string,
+        data: Parameters<typeof baseApi.updateEquipmentInstance>[1]
+      ) => authenticatedRequest((client) => client.updateEquipmentInstance(userId, data)),
+
+      deleteEquipmentInstance: (userId: string, exerciseId: string) =>
+        authenticatedRequest((client) => client.deleteEquipmentInstance(userId, exerciseId)),
+
       getTrainingBlocks: (userId: string, status?: string) =>
         authenticatedRequest((client) => client.getTrainingBlocks(userId, status)),
 

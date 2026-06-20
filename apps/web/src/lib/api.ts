@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { MovementPattern, AthleteConstraints, PermanentSubstitution } from "@gymapp/types";
 import type { CalibrationPath } from "@gymapp/types";
-import type { AthleteConstraintsInput, PermanentSubstitutionInput } from "@gymapp/validation";
+import type {
+  AthleteConstraintsInput,
+  PermanentSubstitutionInput,
+  EquipmentInstanceInput,
+} from "@gymapp/validation";
 
 // Server-side (Docker): use internal service name; Client-side (browser): use public URL
 export const API_BASE_URL =
@@ -499,6 +503,27 @@ class ApiClient {
   async deleteSubstitution(userId: string, originalExerciseId: string) {
     return this.request<ApiResponse<{ message: string }>>(
       `/api/users/${userId}/substitutions/${originalExerciseId}`,
+      { method: "DELETE" }
+    );
+  }
+
+  // Per-machine equipment instances (increment / min / confirmed working weight)
+  async getEquipmentInstances(userId: string) {
+    return this.request<ApiResponse<EquipmentInstanceInput[]>>(
+      `/api/users/${userId}/equipment-instances`
+    );
+  }
+
+  async updateEquipmentInstance(userId: string, data: EquipmentInstanceInput) {
+    return this.request<ApiResponse<EquipmentInstanceInput>>(
+      `/api/users/${userId}/equipment-instances`,
+      { method: "PUT", body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteEquipmentInstance(userId: string, exerciseId: string) {
+    return this.request<ApiResponse<{ message: string }>>(
+      `/api/users/${userId}/equipment-instances/${exerciseId}`,
       { method: "DELETE" }
     );
   }
