@@ -26,6 +26,7 @@ const DECISION_TYPE_CONFIG: Record<
   session_recovery: { label: "Recovery", icon: "~", color: "#6366F1" },
   missed_session: { label: "Missed Session", icon: "⟳", color: "#EC4899" },
   weekly_plan_update: { label: "Plan Update", icon: "📋", color: "#14B8A6" },
+  within_session: { label: "Live Set Coaching", icon: "⚡", color: "#10B981" },
 };
 
 /**

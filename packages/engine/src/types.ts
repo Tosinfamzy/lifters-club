@@ -1,4 +1,4 @@
-import type { CyclePhaseConfig, LoggedSet } from "@gymapp/types";
+import type { CyclePhaseConfig, EquipmentInstance, LoggedSet } from "@gymapp/types";
 
 export interface ProgressionInput {
   exerciseId: string;
@@ -17,6 +17,14 @@ export interface ProgressionInput {
    * to self-tuning (which flows through the config arg).
    */
   cyclePhase?: CyclePhaseConfig;
+
+  /**
+   * Optional physical-machine context. When present, the prescribed weight is
+   * snapped DOWN to a load this machine can actually make, and a confirmed
+   * working weight (if any) is preferred as the cold-start baseline. Absent →
+   * byte-identical to the pre-equipment behavior.
+   */
+  equipment?: EquipmentInstance;
 }
 
 export interface VolumeInput {

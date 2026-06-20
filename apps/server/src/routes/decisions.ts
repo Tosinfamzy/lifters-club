@@ -12,6 +12,7 @@ import {
   calculateExerciseRotation,
   calculateSessionRecovery,
   calculateMissedSessionHandling,
+  calculateWithinSessionAdjustment,
   generateWeeklyPlan,
   calculatePerformanceTrend,
   getProgressionModifier,
@@ -422,6 +423,15 @@ const loadProgressionSchema = z.object({
   targetRepRange: z.tuple([z.number().int().min(1), z.number().int().min(1)]),
   // Optional: self-reported cycle phase for transient load modification.
   cyclePhase: cyclePhaseSchema.optional(),
+  // Optional: physical-machine context. Bounds are validated here at the
+  // boundary so a malformed instance can never reach the engine's snap.
+  equipment: z
+    .object({
+      incrementConstraint: z.number().positive().optional(),
+      minWeight: z.number().min(0).optional(),
+      confirmedWorkingWeight: z.number().min(0).optional(),
+    })
+    .optional(),
   // Optional: for persistence
   userId: z.string().min(1).optional(),
   workoutId: z.string().min(1).optional(),
@@ -546,6 +556,62 @@ decisionRoutes.post(
 
     if (userId) {
       logger.info({ exerciseId: input.exerciseId, action: result.action, newWeight: result.newWeight, userId: verifiedUserId }, "Load progression decided");
+    }
+
+    return c.json({ data: result });
+  }
+);
+
+// ============ Within-Session Adjustment ============
+
+const withinSessionSchema = z.object({
+  exerciseId: z.string().min(1),
+  completedSet: z.object({
+    weight: z.number().min(0),
+    reps: z.number().int().min(0),
+    rpe: z.number().min(1).max(10).optional(),
+  }),
+  targetRepRange: z.tuple([z.number().int().min(1), z.number().int().min(1)]),
+  plannedWeight: z.number().min(0),
+  remainingSets: z.number().int().min(0),
+  targetRpe: z.number().min(1).max(10).optional(),
+  // Optional: for persistence
+  userId: z.string().min(1).optional(),
+  workoutId: z.string().min(1).optional(),
+});
+
+decisionRoutes.post(
+  "/within-session",
+  zValidator("json", withinSessionSchema),
+  async (c) => {
+    const { userId, workoutId, exerciseId, ...sessionInput } = c.req.valid("json");
+
+    const verifiedUserId = verifyRequestUserId(c, userId);
+    const logger = c.get("logger") ?? globalLogger;
+
+    // Within-session is its own short feedback loop — no self-tuning/cycle wiring.
+    const result = calculateWithinSessionAdjustment(sessionInput);
+
+    await persistDecision(
+      "within_session",
+      { exerciseId, ...sessionInput },
+      result as unknown as Record<string, unknown>,
+      result.reason,
+      userId ? verifiedUserId : undefined,
+      workoutId
+    );
+
+    if (userId) {
+      logger.info(
+        {
+          exerciseId,
+          action: result.action,
+          nextSetWeight: result.nextSetWeight,
+          newBaseline: result.newBaselineIfConfirmed ?? null,
+          userId: verifiedUserId,
+        },
+        "Within-session adjustment decided"
+      );
     }
 
     return c.json({ data: result });

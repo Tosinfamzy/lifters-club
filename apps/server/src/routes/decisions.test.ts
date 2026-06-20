@@ -284,4 +284,110 @@ describe("Decisions API - self-tuning", () => {
       expect(stats.byType.load_progression!.total).toBe(5);
     });
   });
+
+  describe("POST /api/decisions/load-progression — equipment snap (Issue 5)", () => {
+    it("snaps the prescribed weight down to the machine increment end-to-end", async () => {
+      const res = await app.request("/api/decisions/load-progression", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...increaseBody,
+          // Core would increase 100 → 105; a 4kg-step machine can't make 105.
+          equipment: { incrementConstraint: 4 },
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<LoadDecisionResult>;
+      // Achievable = k*4 → 104 is the largest ≤ 105.
+      expect(body.data!.newWeight).toBe(104);
+      expect(body.data!.reason).toMatch(/snapped/);
+    });
+
+    it("rejects a non-positive increment at the boundary", async () => {
+      const res = await app.request("/api/decisions/load-progression", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...increaseBody,
+          equipment: { incrementConstraint: 0 },
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("POST /api/decisions/within-session (Issue 4)", () => {
+    const baseBody = {
+      exerciseId: "seated-leg-curl",
+      completedSet: { weight: 25, reps: 12, rpe: 6 },
+      targetRepRange: [8, 12] as [number, number],
+      plannedWeight: 25,
+      remainingSets: 2,
+      userId: TEST_USER_ID,
+    };
+
+    it("prescribes a heavier next set when the set was easy and reps maxed out", async () => {
+      const res = await app.request("/api/decisions/within-session", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(baseBody),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<{
+        action: string;
+        nextSetWeight: number;
+        newBaselineIfConfirmed?: { weight: number; reps: number };
+      }>;
+      expect(body.data!.action).toBe("increase");
+      expect(body.data!.nextSetWeight).toBe(27.5); // 25 < 50 → +2.5
+    });
+
+    it("persists the decision as type within_session", async () => {
+      await app.request("/api/decisions/within-session", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(baseBody),
+      });
+
+      const rows = await db
+        .select()
+        .from(decisions)
+        .where(eq(decisions.userId, TEST_USER_ID));
+      const persisted = rows.find((r) => r.type === "within_session");
+      expect(persisted).toBeDefined();
+      expect((persisted!.input as Record<string, unknown>).exerciseId).toBe("seated-leg-curl");
+    });
+
+    it("flags a new baseline when an over-plan set is sustained at RPE <= 8", async () => {
+      const res = await app.request("/api/decisions/within-session", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...baseBody,
+          completedSet: { weight: 30, reps: 10, rpe: 8 },
+          plannedWeight: 25,
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<{
+        newBaselineIfConfirmed?: { weight: number; reps: number };
+      }>;
+      expect(body.data!.newBaselineIfConfirmed).toEqual({ weight: 30, reps: 10 });
+    });
+
+    it("rejects an out-of-range RPE at the boundary", async () => {
+      const res = await app.request("/api/decisions/within-session", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...baseBody,
+          completedSet: { weight: 25, reps: 12, rpe: 11 },
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+  });
 });

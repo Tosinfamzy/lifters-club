@@ -1,6 +1,44 @@
-import type { CyclePhase, CyclePhaseConfig, LoadDecision } from "@gymapp/types";
+import type { CyclePhase, CyclePhaseConfig, EquipmentInstance, LoadDecision } from "@gymapp/types";
 import type { ProgressionInput } from "./types";
 import { calculateWorkingWeight, estimateOneRepMax, roundToHalfKg } from "./estimation";
+
+/**
+ * Snap a target weight DOWN to a load the given machine can actually make.
+ *
+ * Achievable weights are `{ minWeight + k·incrementConstraint : k ≥ 0 }`. We
+ * round DOWN (signed-off default) so the engine never prescribes a weight the
+ * machine can't load — prescribing an unachievable-high weight forces the
+ * athlete to guess, which is worse than a hair lighter. No constraint → no-op.
+ *
+ * The `* 1000` round kills floating-point drift from the multiply (the result
+ * is a real plate weight, not an arbitrary float).
+ */
+function snapDownToEquipment(target: number, equipment: EquipmentInstance): number {
+  const min = equipment.minWeight ?? 0;
+  const inc = equipment.incrementConstraint;
+  if (inc === undefined || inc <= 0) return target;
+  if (target <= min) return min;
+  const steps = Math.floor((target - min) / inc);
+  return Math.round((min + steps * inc) * 1000) / 1000;
+}
+
+/**
+ * Apply the machine's increment constraint to a decision's `newWeight`. Runs
+ * LAST (after cycle-phase scaling) — it is the physical reality of the
+ * equipment, applied to whatever load the other axes settled on. Annotates the
+ * reason only when the snap actually changed the weight.
+ *
+ * Pure: depends only on its arguments.
+ */
+function applyEquipmentSnap(decision: LoadDecision, equipment: EquipmentInstance): LoadDecision {
+  const snapped = snapDownToEquipment(decision.newWeight, equipment);
+  if (snapped === decision.newWeight) return decision;
+  return {
+    ...decision,
+    newWeight: snapped,
+    reason: `${decision.reason} (snapped to ${snapped}kg for this machine)`,
+  };
+}
 
 /**
  * Default per-phase load modifiers for cycle-phase load modification.
@@ -210,17 +248,38 @@ export function calculateLoadProgression(
   input: ProgressionInput,
   config: ProgressionConfig = defaultConfig
 ): LoadDecision {
-  const { recentSets, currentWeight, targetRepRange, baselineWeight, baselineReps, cyclePhase } =
-    input;
+  const {
+    recentSets,
+    currentWeight,
+    targetRepRange,
+    baselineWeight,
+    baselineReps,
+    cyclePhase,
+    equipment,
+  } = input;
   const [minReps, maxReps] = targetRepRange;
 
-  // Apply the cycle-phase protocol to the core decision when present. The guard
-  // keeps `cyclePhase === undefined` byte-identical to the pre-cycle behavior.
-  const finalize = (decision: LoadDecision): LoadDecision =>
-    cyclePhase ? applyCyclePhase(decision, cyclePhase, currentWeight) : decision;
+  // Finalize a core decision through the post-processing axes, in precedence
+  // order: cycle-phase (veto + load scale) → equipment snap (physical reality,
+  // last). Each guard keeps an absent axis byte-identical to pre-axis behavior.
+  const finalize = (decision: LoadDecision): LoadDecision => {
+    const afterCycle = cyclePhase
+      ? applyCyclePhase(decision, cyclePhase, currentWeight)
+      : decision;
+    return equipment ? applyEquipmentSnap(afterCycle, equipment) : afterCycle;
+  };
 
-  // When no recent sets, use baseline if available
+  // When no recent sets, prefer this machine's confirmed working weight, then a
+  // supplied baseline, then hold the current weight.
   if (recentSets.length === 0) {
+    if (equipment?.confirmedWorkingWeight !== undefined) {
+      return finalize({
+        action: "maintain",
+        newWeight: equipment.confirmedWorkingWeight,
+        reason: `Using confirmed working weight on this machine (${equipment.confirmedWorkingWeight}kg)`,
+      });
+    }
+
     if (baselineWeight !== undefined && baselineReps !== undefined) {
       // Calculate working weight from baseline for target rep range
       const targetReps = Math.floor((minReps + maxReps) / 2);

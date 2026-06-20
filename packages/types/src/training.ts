@@ -44,6 +44,24 @@ export interface CyclePhaseConfig {
 }
 
 /**
+ * A specific physical machine/implement the athlete is using for an exercise.
+ *
+ * The exercise taxonomy treats all machines of a type as equivalent, but real
+ * machines have fixed weight increments and different working weights, so a
+ * computed target can be physically unachievable (e.g. 16 kg on a cable stack
+ * that only moves in 5 kg steps). This optional context lets the engine snap a
+ * target to a weight the machine can actually make.
+ */
+export interface EquipmentInstance {
+  /** Smallest achievable weight step on this machine, in kg (e.g. 5 for a 5 kg stack). */
+  incrementConstraint?: number;
+  /** Lowest achievable weight, in kg (e.g. an empty carriage). Defaults to 0. */
+  minWeight?: number;
+  /** A confirmed real working weight on this specific machine; preferred as baseline. */
+  confirmedWorkingWeight?: number;
+}
+
+/**
  * User preferences for training
  */
 export interface UserPreferences {
@@ -261,7 +279,8 @@ export type DecisionType =
   | "deload_recommendation"
   | "session_recovery"
   | "missed_session"
-  | "weekly_plan_update";
+  | "weekly_plan_update"
+  | "within_session";
 
 /**
  * Decision audit record
