@@ -195,15 +195,19 @@ Same input always produces the same output. The server's service layer handles a
 
 | Document | Purpose |
 |----------|---------|
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes by date — features, fixes, infra |
+| [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md) | Current state: what's built, how it fits together, what's wired vs incomplete |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritized backlog + banked plans (observability, decision engine, coaching gaps) |
+| [docs/plans/](docs/plans/) | Detailed, signed-off implementation plans for in-flight / upcoming work |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System overview, data flows, offline strategy, database design, API surface |
 | [CLAUDE.md](CLAUDE.md) | Coding standards, SOLID principles, TypeScript conventions, testing strategy |
-| [docs/adr/](docs/adr/) | 9 Architecture Decision Records (monorepo, schemas, ORM, auth, offline, testing, code quality) |
+| [docs/adr/](docs/adr/) | 10 Architecture Decision Records (monorepo, schemas, ORM, auth, offline, testing, code quality, observability) |
 | [apps/web/README.md](apps/web/README.md) | Web app: route map, patterns, auth flow, how to add pages |
 | [apps/mobile/README.md](apps/mobile/README.md) | Mobile app: screen map, offline architecture, hooks, how to add screens |
 | [apps/server/README.md](apps/server/README.md) | API server: middleware stack, route handlers, decision flow, how to add endpoints |
 | [packages/types/README.md](packages/types/README.md) | Type system: module map, conventions, how to add types |
 | [packages/db/README.md](packages/db/README.md) | Database: schema design, commands, migrations, how to modify schema |
-| [packages/engine/README.md](packages/engine/README.md) | Decision engine: 7 decision functions, config pattern, how to add decisions |
+| [packages/engine/README.md](packages/engine/README.md) | Decision engine: 7 core decisions + calibration, feedback-driven self-tuning, and athlete-constraint filtering; config pattern, how to add decisions |
 | [packages/validation/README.md](packages/validation/README.md) | Validation: schema map, usage at API + form boundaries |
 | [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) | Docker configuration and container setup |
 
