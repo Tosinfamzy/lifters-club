@@ -21,6 +21,7 @@ import type {
 } from "@gymapp/types";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
+import { ExercisePicker, type ExerciseOption } from "@/components/exercise-picker";
 
 const EQUIPMENT_OPTIONS: { value: EquipmentConstraint; label: string }[] = [
   { value: "no_barbell", label: "No barbell" },
@@ -85,6 +86,54 @@ function ChipGroup<T extends string>({ label, options, selected, onToggle }: Chi
  * unchanged — the PUT is delete-then-insert, so dropping them here would wipe
  * data this UI doesn't yet edit (those need the exercise picker, a later PR).
  */
+interface ExerciseListFieldProps {
+  label: string;
+  description: string;
+  ids: string[];
+  exercises: ExerciseOption[];
+  onChange: (ids: string[]) => void;
+}
+
+/** A removable-chip list of exercises with an add-picker. Used for the banned
+ *  and corrective-priority lists (both hold exercise ids on the profile). */
+function ExerciseListField({ label, description, ids, exercises, onChange }: ExerciseListFieldProps) {
+  const nameOf = (id: string) => exercises.find((e) => e.id === id)?.name ?? id;
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <p className="text-xs text-muted-foreground">{description}</p>
+      {ids.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {ids.map((id) => (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
+            >
+              {nameOf(id)}
+              <button
+                type="button"
+                onClick={() => onChange(ids.filter((x) => x !== id))}
+                aria-label={`Remove ${nameOf(id)}`}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <ExercisePicker
+        exercises={exercises}
+        exclude={ids}
+        placeholder="Add an exercise…"
+        onChange={(id) => {
+          if (!ids.includes(id)) onChange([...ids, id]);
+        }}
+      />
+    </div>
+  );
+}
+
 export function ConstraintsCard() {
   const { appUser } = useAppUser();
   const api = useApi();
@@ -97,9 +146,9 @@ export function ConstraintsCard() {
   const [mobility, setMobility] = useState<MobilityConstraint[]>([]);
   const [grip, setGrip] = useState<GripRestriction[]>([]);
   const [injuries, setInjuries] = useState<InjuryFlag[]>([]);
-  // Preserved across saves (not edited here yet).
   const [bannedExerciseIds, setBannedExerciseIds] = useState<string[]>([]);
   const [correctivePriorityExerciseIds, setCorrectivePriorityExerciseIds] = useState<string[]>([]);
+  const [exercises, setExercises] = useState<ExerciseOption[]>([]);
 
   const [newRegion, setNewRegion] = useState("");
   const [newNote, setNewNote] = useState("");
@@ -110,16 +159,18 @@ export function ConstraintsCard() {
     if (!userId) return;
     let active = true;
     setLoading(true);
-    api
-      .getConstraints(userId)
-      .then((res) => {
-        if (!active || !res.data) return;
-        setEquipment(res.data.equipment ?? []);
-        setMobility(res.data.mobility ?? []);
-        setGrip(res.data.grip ?? []);
-        setInjuries(res.data.injuries ?? []);
-        setBannedExerciseIds(res.data.bannedExerciseIds ?? []);
-        setCorrectivePriorityExerciseIds(res.data.correctivePriorityExerciseIds ?? []);
+    Promise.all([api.getConstraints(userId), api.getExercises({ limit: 200 })])
+      .then(([cRes, exRes]) => {
+        if (!active) return;
+        if (cRes.data) {
+          setEquipment(cRes.data.equipment ?? []);
+          setMobility(cRes.data.mobility ?? []);
+          setGrip(cRes.data.grip ?? []);
+          setInjuries(cRes.data.injuries ?? []);
+          setBannedExerciseIds(cRes.data.bannedExerciseIds ?? []);
+          setCorrectivePriorityExerciseIds(cRes.data.correctivePriorityExerciseIds ?? []);
+        }
+        setExercises(exRes.data ?? []);
       })
       .catch((err) => {
         console.error("Failed to load constraints:", err);
@@ -253,6 +304,22 @@ export function ConstraintsCard() {
                 </Button>
               </div>
             </div>
+
+            <ExerciseListField
+              label="Banned exercises"
+              description="Never program these — they're hard-excluded from recommendations and plans."
+              ids={bannedExerciseIds}
+              exercises={exercises}
+              onChange={setBannedExerciseIds}
+            />
+
+            <ExerciseListField
+              label="Corrective priority"
+              description="Protected from volume reduction — the engine keeps these in even when cutting back."
+              ids={correctivePriorityExerciseIds}
+              exercises={exercises}
+              onChange={setCorrectivePriorityExerciseIds}
+            />
 
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving}>
