@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { MovementPattern, AthleteConstraints } from "@gymapp/types";
+import type { MovementPattern, AthleteConstraints, PermanentSubstitution } from "@gymapp/types";
 import type { CalibrationPath } from "@gymapp/types";
-import type { AthleteConstraintsInput } from "@gymapp/validation";
+import type { AthleteConstraintsInput, PermanentSubstitutionInput } from "@gymapp/validation";
 
 // Server-side (Docker): use internal service name; Client-side (browser): use public URL
 export const API_BASE_URL =
@@ -479,6 +479,27 @@ class ApiClient {
     return this.request<ApiResponse<AthleteConstraints & { userId: string }>>(
       `/api/users/${userId}/constraints`,
       { method: "PUT", body: JSON.stringify(data) }
+    );
+  }
+
+  // Permanent exercise substitutions
+  async getSubstitutions(userId: string) {
+    return this.request<ApiResponse<PermanentSubstitution[]>>(
+      `/api/users/${userId}/substitutions`
+    );
+  }
+
+  async updateSubstitution(userId: string, data: PermanentSubstitutionInput) {
+    return this.request<ApiResponse<PermanentSubstitution>>(
+      `/api/users/${userId}/substitutions`,
+      { method: "PUT", body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteSubstitution(userId: string, originalExerciseId: string) {
+    return this.request<ApiResponse<{ message: string }>>(
+      `/api/users/${userId}/substitutions/${originalExerciseId}`,
+      { method: "DELETE" }
     );
   }
 
