@@ -15,13 +15,31 @@ data confirms `constraints` is loose/untyped at rest (`requires_mobility`, `squa
 **→ Introduce a NEW `AthleteConstraints` vocabulary; do NOT overload `Constraint`.** Reuse the
 existing *filtering primitives* (`availableEquipment`, `excludeExerciseIds`) via a resolver.
 
-## 1. Types (`@gymapp/types`, new — keep `Constraint` untouched)
-`AthleteConstraints { equipmentRestrictions?, gripRestrictions?, movementRestrictions?,
-injuryFlags?, bannedExerciseIds?, correctivePriorityExerciseIds? }` with enums:
-- `EquipmentRestriction`: `no_barbell | no_machine | no_cable | …`
-- `MovementRestriction`: `no_wrist_extension | no_overhead | no_spinal_loading | no_deep_knee_flexion | …`
-- `GripRestriction`: `no_pronated | no_supinated | neutral_grip_only | …`
-- `InjuryRegion`: `wrist | elbow | shoulder | knee | lower_back | …` (reasoning/audit only)
+## 1. Types (`@gymapp/types`, new — keep `Constraint` untouched) — SIGNED OFF
+Two **category-distinct** constraint axes (equipment vs mobility/injury) + structured injury
+context:
+
+```typescript
+// Axis 1 — EQUIPMENT: apparatus the athlete avoids → filters by exercise.equipment
+type EquipmentConstraint = "no_barbell" | "no_machine" | "no_cable" | "no_dumbbell";
+
+// Axis 2 — MOBILITY/INJURY: movements the body can't safely do → filters by exercise.movementPatterns
+type MobilityConstraint =
+  | "no_overhead" | "no_wrist_extension" | "no_deep_knee_flexion"
+  | "no_spinal_loading" | "no_lumbar_flexion";
+
+// Structured injury context — reasoning/audit (the "why"); does NOT hard-filter in MVP
+interface InjuryFlag { region: string; note?: string; reviewDate?: string; }
+
+interface AthleteConstraints {
+  equipment: EquipmentConstraint[];            // category 1
+  mobility: MobilityConstraint[];              // category 2
+  injuries?: InjuryFlag[];                      // context, e.g. {region:"wrist", note:"ganglion cyst"}
+  bannedExerciseIds?: string[];                // hard per-exercise exclusion
+  correctivePriorityExerciseIds?: string[];    // protected from volume reduction
+  // grip restrictions → phase 2, slots under the mobility/injury axis
+}
+```
 
 ## 2. The mapping (the crux) — new pure resolver `packages/engine/src/constraints.ts`
 `isExerciseAllowed(exercise, constraints, config?) → { allowed, reason? }`, blocking maps held in
