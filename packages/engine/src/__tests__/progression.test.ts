@@ -225,6 +225,10 @@ describe("calculateLoadProgression", () => {
       expect(result.action).toBe("maintain");
       expect(result.newWeight).toBe(90); // 100 (held) * 0.90
       expect(result.reason).toContain("menstrual");
+      // Reason must agree with the prescribed weight — it's reduced to 90%, not
+      // a true "hold". (Regression: the reason previously claimed "holding load".)
+      expect(result.reason).toContain("90%");
+      expect(result.reason).not.toContain("holding load");
     });
 
     it("scales a maintain decision by the menstrual loadModifier", () => {

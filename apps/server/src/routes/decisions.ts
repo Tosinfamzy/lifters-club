@@ -438,17 +438,31 @@ function resolveCyclePhaseConfig(
   preferences?: UserPreferences
 ): CyclePhaseConfig {
   const engineDefault = defaultCyclePhaseConfig[requestPhase.phase];
-  const athleteOverride = preferences?.cyclePhaseOverrides?.[requestPhase.phase];
+  const rawOverride = preferences?.cyclePhaseOverrides?.[requestPhase.phase];
+
+  // Validate the override at the boundary: `preferences` is untyped jsonb, so a
+  // malformed `loadModifier` (0, >1, NaN, non-number) must never reach the
+  // engine — the cycle axis can only hold/reduce load, never increase it. The
+  // request path is already bounded by `cyclePhaseSchema`; this guards the
+  // stored-override path that bypasses it.
+  const overrideLoad =
+    typeof rawOverride?.loadModifier === "number" &&
+    Number.isFinite(rawOverride.loadModifier) &&
+    rawOverride.loadModifier >= 0.5 &&
+    rawOverride.loadModifier <= 1
+      ? rawOverride.loadModifier
+      : undefined;
+  const overrideAllow =
+    typeof rawOverride?.allowNewWeightTests === "boolean"
+      ? rawOverride.allowNewWeightTests
+      : undefined;
 
   return {
     phase: requestPhase.phase,
     dayOfPhase: requestPhase.dayOfPhase,
-    loadModifier:
-      requestPhase.loadModifier ?? athleteOverride?.loadModifier ?? engineDefault.loadModifier,
+    loadModifier: requestPhase.loadModifier ?? overrideLoad ?? engineDefault.loadModifier,
     allowNewWeightTests:
-      requestPhase.allowNewWeightTests ??
-      athleteOverride?.allowNewWeightTests ??
-      engineDefault.allowNewWeightTests,
+      requestPhase.allowNewWeightTests ?? overrideAllow ?? engineDefault.allowNewWeightTests,
   };
 }
 
@@ -463,22 +477,28 @@ decisionRoutes.post(
 
     const logger = c.get("logger") ?? globalLogger;
 
+    // Resolve the authenticated user once — both self-tuning (decision history)
+    // and cycle-phase overrides (preferences) read from it; this avoids a
+    // duplicate user lookup when both axes are active.
+    const authResult =
+      userId && (isSelfTuningEnabled() || rawCyclePhase)
+        ? await getAuthenticatedUserFromContext(c)
+        : undefined;
+    const authedUser = authResult?.authorized ? authResult.user : undefined;
+
     // Self-tune from the user's decision history. Anonymous calls (no userId)
     // and the kill switch both skip the stats query and use today's behavior.
     let appliedModifier = 1.0;
     let tunedConfig: ProgressionConfig | undefined;
-    if (userId && isSelfTuningEnabled()) {
-      const authResult = await getAuthenticatedUserFromContext(c);
-      if (authResult.authorized) {
-        const stats = await getDecisionAccuracyStats(authResult.user.id);
-        appliedModifier = getProgressionModifier(stats, "load_progression");
-        if (appliedModifier !== 1.0) {
-          tunedConfig = applyProgressionModifier(appliedModifier);
-          logger.info(
-            { userId: authResult.user.id, decisionType: "load_progression", modifier: appliedModifier },
-            "Self-tuning applied"
-          );
-        }
+    if (authedUser && isSelfTuningEnabled()) {
+      const stats = await getDecisionAccuracyStats(authedUser.id);
+      appliedModifier = getProgressionModifier(stats, "load_progression");
+      if (appliedModifier !== 1.0) {
+        tunedConfig = applyProgressionModifier(appliedModifier);
+        logger.info(
+          { userId: authedUser.id, decisionType: "load_progression", modifier: appliedModifier },
+          "Self-tuning applied"
+        );
       }
     }
 
@@ -488,13 +508,9 @@ decisionRoutes.post(
     // it on the input. Absent → skip entirely (byte-identical to pre-cycle).
     let resolvedInput: ProgressionInput = input;
     if (rawCyclePhase) {
-      let preferences: UserPreferences | undefined;
-      if (userId) {
-        const authResult = await getAuthenticatedUserFromContext(c);
-        if (authResult.authorized) {
-          preferences = authResult.user.preferences as unknown as UserPreferences;
-        }
-      }
+      const preferences = authedUser
+        ? (authedUser.preferences as unknown as UserPreferences)
+        : undefined;
       const resolvedCyclePhase = resolveCyclePhaseConfig(rawCyclePhase, preferences);
       resolvedInput = { ...input, cyclePhase: resolvedCyclePhase };
       logger.info(

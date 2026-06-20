@@ -1,6 +1,6 @@
 import type { CyclePhase, CyclePhaseConfig, LoadDecision } from "@gymapp/types";
 import type { ProgressionInput } from "./types";
-import { calculateWorkingWeight, estimateOneRepMax } from "./estimation";
+import { calculateWorkingWeight, estimateOneRepMax, roundToHalfKg } from "./estimation";
 
 /**
  * Default per-phase load modifiers for cycle-phase load modification.
@@ -27,20 +27,20 @@ export const defaultCyclePhaseConfig: Record<
   luteal: { loadModifier: 0.95, allowNewWeightTests: true },
 };
 
-/** Round a weight to the nearest 0.5kg (matches the deload convention). */
-function roundToHalfKg(weight: number): number {
-  return Math.round(weight * 2) / 2;
-}
-
 /**
  * Apply a resolved cycle-phase protocol to a load decision.
  *
  * Sits AFTER self-tuning and the core branch (see {@link calculateLoadProgression}
  * precedence). Two effects, in order:
- * 1. Increase-veto: when `allowNewWeightTests === false`, an `increase` is
- *    demoted to `maintain` (a `decrease` that independently held is untouched).
- * 2. Load scale: the surviving action's `newWeight` is scaled by `loadModifier`,
- *    rounded to 0.5kg.
+ * 1. Increase-veto: when `allowNewWeightTests === false`, an earned `increase`
+ *    is demoted to `maintain` and pinned to the current weight (no new max).
+ * 2. Load scale: the surviving action's `newWeight` is scaled by `loadModifier`
+ *    (a hold/reduce factor ≤ 1), rounded to 0.5kg. A `loadModifier` of 1 is a
+ *    no-op (no re-rounding).
+ *
+ * The `reason` is rewritten so it agrees with the prescribed weight — e.g. a
+ * vetoed increase under menstrual 0.90 is "no new weight tests, load held at
+ * 90%", not the (false) "holding load" that contradicts the 10% cut.
  *
  * Pure: depends only on its arguments.
  */
@@ -49,22 +49,33 @@ function applyCyclePhase(
   cyclePhase: CyclePhaseConfig,
   currentWeight: number
 ): LoadDecision {
+  const { phase, loadModifier, allowNewWeightTests } = cyclePhase;
   let { action, newWeight, reason } = decision;
 
   // Increase-veto runs first so aggressive self-tuning can't leak an increase
-  // past a phase that forbids new weight tests. An earned increase is held at
-  // the current weight (no new max), not reduced.
-  if (action === "increase" && !cyclePhase.allowNewWeightTests) {
+  // past a phase that forbids new weight tests.
+  const vetoed = action === "increase" && !allowNewWeightTests;
+  if (vetoed) {
     action = "maintain";
     newWeight = currentWeight;
-    reason = `${cyclePhase.phase} phase — holding load, no new weight tests`;
   }
 
-  return {
-    action,
-    newWeight: roundToHalfKg(newWeight * cyclePhase.loadModifier),
-    reason,
-  };
+  // Scale only when the modifier actually changes the load (avoids re-rounding
+  // an already-quantized weight when loadModifier === 1).
+  const scaledWeight = loadModifier !== 1 ? roundToHalfKg(newWeight * loadModifier) : newWeight;
+  const pct = Math.round(loadModifier * 100);
+
+  // Keep the explanation honest about both the veto and the load level.
+  if (vetoed) {
+    reason =
+      loadModifier !== 1
+        ? `${phase} phase — no new weight tests, load held at ${pct}%`
+        : `${phase} phase — no new weight tests`;
+  } else if (loadModifier !== 1) {
+    reason = `${reason} (${phase} phase: load at ${pct}%)`;
+  }
+
+  return { action, newWeight: scaledWeight, reason };
 }
 
 /**

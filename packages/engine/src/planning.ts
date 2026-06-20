@@ -123,6 +123,7 @@ import { calculateLoadProgression } from "./progression";
 import { calculateVolumeAdjustment } from "./volume";
 import { calculateDeloadNeed } from "./deload";
 import { calculateExerciseRotation } from "./rotation";
+import { roundToHalfKg } from "./estimation";
 
 /**
  * Generate next week's training plan with all adjustments
@@ -231,7 +232,7 @@ export function generateWeeklyPlan(
 
     // Apply deload modifications
     if (isDeloadWeek) {
-      finalWeight = Math.round(finalWeight * config.deloadIntensityMultiplier * 2) / 2; // Round to nearest 0.5
+      finalWeight = roundToHalfKg(finalWeight * config.deloadIntensityMultiplier);
       finalSets = Math.max(2, Math.ceil(finalSets * config.deloadVolumeMultiplier));
       // Increase rep range slightly for deload
       finalRepRange = [
@@ -502,12 +503,12 @@ function calculateExerciseWeight(
 
     // If they hit high reps at low RPE, suggest a slight increase
     if (reps >= 10 && (rpe === undefined || rpe < 7)) {
-      return Math.round(weight * 1.05 * 2) / 2; // Round to nearest 0.5
+      return roundToHalfKg(weight * 1.05);
     }
 
     // If they were at high RPE, keep same or reduce slightly
     if (rpe && rpe >= 9) {
-      return Math.round(weight * 0.95 * 2) / 2;
+      return roundToHalfKg(weight * 0.95);
     }
 
     // Otherwise maintain
@@ -518,7 +519,7 @@ function calculateExerciseWeight(
   if (exercise.baseline) {
     // Adjust baseline based on goal
     const goalMultiplier = goal === "strength" ? 0.9 : goal === "hypertrophy" ? 0.75 : 0.6;
-    return Math.round(exercise.baseline.weight * goalMultiplier * 2) / 2;
+    return roundToHalfKg(exercise.baseline.weight * goalMultiplier);
   }
 
   // No history - return 0 to indicate user should set weight

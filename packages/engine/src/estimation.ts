@@ -91,6 +91,11 @@ export function calculateWorkingWeight(
   return Math.round(weight / 2.5) * 2.5;
 }
 
+/** Round a weight to the nearest 0.5kg (microplate increment). */
+export function roundToHalfKg(weight: number): number {
+  return Math.round(weight * 2) / 2;
+}
+
 /**
  * Calculate percentage of 1RM for a given rep count
  *
