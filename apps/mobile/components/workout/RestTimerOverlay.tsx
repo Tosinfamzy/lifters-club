@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Timer, Plus, X } from "lucide-react-native";
 import { styles } from "./workout.styles";
@@ -7,6 +8,8 @@ interface RestTimerOverlayProps {
   targetTime: number;
   onAddTime: (seconds: number) => void;
   onSkip: () => void;
+  /** Optional live coaching content rendered beneath the timer controls. */
+  coach?: ReactNode;
 }
 
 function formatTime(seconds: number): string {
@@ -20,6 +23,7 @@ export function RestTimerOverlay({
   targetTime,
   onAddTime,
   onSkip,
+  coach,
 }: RestTimerOverlayProps) {
   return (
     <View style={styles.restOverlay}>
@@ -53,6 +57,7 @@ export function RestTimerOverlay({
             <Text style={styles.restActionText}>Skip</Text>
           </TouchableOpacity>
         </View>
+        {coach}
       </View>
     </View>
   );

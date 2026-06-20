@@ -27,8 +27,14 @@ import { ExerciseSetLogger } from "../../components/workout/ExerciseSetLogger";
 import { RestTimerOverlay } from "../../components/workout/RestTimerOverlay";
 import { LoadRecommendationModal } from "../../components/workout/LoadRecommendationModal";
 import { WorkoutCompletionView } from "../../components/workout/WorkoutCompletionView";
+import { WithinSessionCoachCard } from "../../components/workout/WithinSessionCoachCard";
+import { buildWithinSessionInput } from "../../components/workout/within-session";
 import { styles } from "../../components/workout/workout.styles";
-import type { ExerciseProgress, LoadRecommendation } from "../../components/workout/workout.types";
+import type {
+  ExerciseProgress,
+  LoadRecommendation,
+  WithinSessionSuggestion,
+} from "../../components/workout/workout.types";
 
 type ExerciseAction = "info" | "alternatives" | "skip" | "mark_done";
 
@@ -66,6 +72,8 @@ export default function WorkoutScreen() {
   // Load progression recommendations
   const [loadRecommendations, setLoadRecommendations] = useState<Map<string, LoadRecommendation>>(new Map());
   const [showRecommendation, setShowRecommendation] = useState<string | null>(null);
+  // Live per-set coaching shown in the rest overlay (cleared when the next set starts).
+  const [activeSuggestion, setActiveSuggestion] = useState<WithinSessionSuggestion | null>(null);
 
   // Extracted hooks
   const { restTimeRemaining, isResting, targetRestTime, startRest, skipRest, addTime } =
@@ -239,6 +247,38 @@ export default function WorkoutScreen() {
     }
   };
 
+  // Fetch a live next-set suggestion from the set just completed. Non-blocking:
+  // the rest timer starts regardless; the card pops into the overlay when this
+  // lands. Only meaningful when another set follows (caller guards on that).
+  const fetchWithinSessionSuggestion = async (
+    exercise: ExerciseProgress,
+    setIndex: number
+  ) => {
+    const input = buildWithinSessionInput(exercise, setIndex);
+    if (!input) return;
+
+    try {
+      const response = await api.getWithinSessionAdjustment({
+        ...input,
+        userId: appUser?.id,
+        workoutId: id,
+      });
+
+      setActiveSuggestion({
+        exerciseId: exercise.exerciseId,
+        setIndex,
+        action: response.data.action,
+        nextSetWeight: response.data.nextSetWeight,
+        previousWeight: input.completedSet.weight,
+        reason: response.data.reason,
+        decisionId: response.data.decisionId,
+        newBaselineIfConfirmed: response.data.newBaselineIfConfirmed,
+      });
+    } catch (error) {
+      console.error("Failed to fetch within-session suggestion:", error);
+    }
+  };
+
   const handleExerciseAction = useCallback(
     (action: ExerciseAction) => {
       setShowExerciseActions(false);
@@ -358,6 +398,9 @@ export default function WorkoutScreen() {
       return;
     }
 
+    // Clear any prior suggestion as this set is logged; a fresh one is fetched below.
+    setActiveSuggestion(null);
+
     setExercises((prev) => {
       const updated = [...prev];
       updated[exerciseIndex]!.sets[setIndex]!.completed = true;
@@ -401,6 +444,13 @@ export default function WorkoutScreen() {
 
     if (hasMoreSetsInExercise || hasMoreExercises) {
       startRest(exercise.restSeconds);
+    }
+
+    // Live coaching for the next set of this exercise. Online-only (the engine is
+    // server-side; a stale prescription is useless) and non-blocking — the card
+    // pops into the rest overlay when it lands.
+    if (hasMoreSetsInExercise && isOnline) {
+      void fetchWithinSessionSuggestion(updatedExercise, setIndex);
     }
   };
 
@@ -466,6 +516,11 @@ export default function WorkoutScreen() {
             targetTime={targetRestTime}
             onAddTime={addTime}
             onSkip={skipRest}
+            coach={
+              activeSuggestion ? (
+                <WithinSessionCoachCard suggestion={activeSuggestion} />
+              ) : null
+            }
           />
         )}
 
