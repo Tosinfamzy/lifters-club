@@ -1,4 +1,5 @@
-import type { Exercise, MuscleGroup, MovementPattern, EquipmentType, Difficulty } from "@gymapp/types";
+import type { Exercise, MuscleGroup, MovementPattern, EquipmentType, Difficulty, AthleteConstraints } from "@gymapp/types";
+import { isExerciseAllowed } from "./constraints";
 
 /**
  * Input for finding exercise substitutes
@@ -16,6 +17,8 @@ export interface SubstitutionInput {
   excludeExerciseIds?: string[];
   /** User constraints (e.g., injuries) */
   constraints?: string[];
+  /** Athlete capability profile — drops candidates the athlete can't safely perform */
+  athleteConstraints?: AthleteConstraints;
 }
 
 /**
@@ -199,6 +202,7 @@ export function findSubstitutes(
     maxDifficulty = "advanced",
     excludeExerciseIds = [],
     constraints = [],
+    athleteConstraints,
   } = input;
 
   const scoredCandidates: ScoredSubstitute[] = [];
@@ -222,8 +226,13 @@ export function findSubstitutes(
       continue;
     }
 
-    // Filter by user constraints
+    // Filter by user constraints (apparatus the exercise requires)
     if (constraints.length > 0 && hasConstraintConflict(candidate.constraints ?? [], constraints)) {
+      continue;
+    }
+
+    // Filter by athlete capability profile (injuries/mobility/equipment/banned)
+    if (athleteConstraints && !isExerciseAllowed(candidate, athleteConstraints).allowed) {
       continue;
     }
 

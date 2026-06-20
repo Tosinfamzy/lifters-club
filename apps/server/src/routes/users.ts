@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { users, trainingBlocks, readinessChecks, userBaselines } from "@gymapp/db/schema";
+import { users, trainingBlocks, readinessChecks, userBaselines, athleteConstraints } from "@gymapp/db/schema";
+import { athleteConstraintsSchema } from "@gymapp/validation";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import {
@@ -535,6 +536,89 @@ userRoutes.patch(
     logger.info({ userId, onboardingComplete: data.onboardingComplete, baselineComplete: data.baselineComplete }, "Onboarding status updated");
 
     return c.json({ data: result[0] });
+  }
+);
+
+// ============ Athlete Constraint Profile ============
+
+// Empty profile returned when a user has no saved constraints yet.
+const EMPTY_CONSTRAINT_PROFILE = {
+  equipment: [],
+  mobility: [],
+  injuries: [],
+  bannedExerciseIds: [],
+  correctivePriorityExerciseIds: [],
+} as const;
+
+// GET /:id/constraints - Get the athlete's constraint profile (requires ownership)
+userRoutes.get("/:id/constraints", async (c) => {
+  const userId = c.req.param("id");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  const existing = await db
+    .select()
+    .from(athleteConstraints)
+    .where(eq(athleteConstraints.userId, userId))
+    .limit(1);
+
+  if (existing.length === 0) {
+    // No profile yet — return an empty default so clients always get a shape.
+    return c.json({ data: { userId, ...EMPTY_CONSTRAINT_PROFILE } });
+  }
+
+  return c.json({ data: existing[0] });
+});
+
+// PUT /:id/constraints - Upsert the athlete's constraint profile (requires ownership)
+userRoutes.put(
+  "/:id/constraints",
+  zValidator("json", athleteConstraintsSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    // Upsert by userId via delete-then-insert (one row per user), mirroring
+    // the baselines handler. Keeps the write idempotent.
+    const now = new Date();
+    await db.delete(athleteConstraints).where(eq(athleteConstraints.userId, userId));
+
+    const [inserted] = await db
+      .insert(athleteConstraints)
+      .values({
+        id: `ac_${nanoid(12)}`,
+        userId,
+        equipment: data.equipment,
+        mobility: data.mobility,
+        injuries: data.injuries,
+        bannedExerciseIds: data.bannedExerciseIds,
+        correctivePriorityExerciseIds: data.correctivePriorityExerciseIds,
+        updatedAt: now,
+      })
+      .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info(
+      {
+        userId,
+        equipmentCount: data.equipment.length,
+        mobilityCount: data.mobility.length,
+        bannedCount: data.bannedExerciseIds.length,
+      },
+      "Athlete constraint profile saved"
+    );
+
+    return c.json({ data: inserted });
   }
 );
 

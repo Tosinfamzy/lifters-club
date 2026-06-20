@@ -123,6 +123,16 @@ export function calculateVolumeAdjustment(
 
   // If struggling to complete sets or very high RPE → reduce
   if ((avgCompletion < 0.8 || avgRpe > config.rpeThresholdForReduce) && currentSetCount > minSets) {
+    // Corrective-priority exercises hold their volume — these are rehab/
+    // movement-quality work the athlete should not cut, even when fatigued.
+    if (input.isCorrectivePriority) {
+      return {
+        action: "maintain",
+        newSetCount: currentSetCount,
+        reason: `Corrective-priority exercise — volume held at ${currentSetCount} sets`,
+      };
+    }
+
     return {
       action: "reduce_set",
       newSetCount: currentSetCount - 1,

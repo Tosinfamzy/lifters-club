@@ -207,6 +207,26 @@ export const userBaselines = training.table("user_baselines", {
   index("user_baselines_exercise_id_idx").on(table.exerciseId),
 ]);
 
+// Athlete constraint profile - one row per user. Persists capability
+// restrictions (injuries, mobility, equipment the athlete avoids) so the
+// engine never recommends an unsafe movement. Distinct from the exercise-level
+// `constraints` field, which describes apparatus an exercise requires.
+export const athleteConstraints = training.table("athlete_constraints", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  equipment: jsonb("equipment").$type<string[]>().notNull().default([]), // EquipmentConstraint[]
+  mobility: jsonb("mobility").$type<string[]>().notNull().default([]), // MobilityConstraint[]
+  injuries: jsonb("injuries").$type<Record<string, unknown>[]>().notNull().default([]), // InjuryFlag[]
+  bannedExerciseIds: jsonb("banned_exercise_ids").$type<string[]>().notNull().default([]),
+  correctivePriorityExerciseIds: jsonb("corrective_priority_exercise_ids").$type<string[]>().notNull().default([]),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("athlete_constraints_user_id_idx").on(table.userId),
+]);
+
 // Workout templates - reusable workout blueprints (e.g., "Back Day", "Push Day")
 export const workoutTemplates = training.table("workout_templates", {
   id: varchar("id", { length: 64 }).primaryKey(),

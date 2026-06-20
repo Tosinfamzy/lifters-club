@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { decisions, decisionOutcomes } from "@gymapp/db/schema";
+import { decisions, decisionOutcomes, athleteConstraints } from "@gymapp/db/schema";
 import { eq, desc, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
@@ -497,31 +497,47 @@ decisionRoutes.post(
   "/volume",
   zValidator("json", volumeAdjustmentSchema),
   async (c) => {
-    const { userId, workoutId, ...input } = c.req.valid("json");
+    const { userId, workoutId, ...rawInput } = c.req.valid("json");
 
     // Verify userId matches authenticated user if provided
     const verifiedUserId = verifyRequestUserId(c, userId);
 
     const logger = c.get("logger") ?? globalLogger;
 
-    // Self-tune from the user's decision history. Anonymous calls (no userId)
-    // and the kill switch both skip the stats query and use today's behavior.
+    // Mark the exercise as corrective-priority if the authed user has it in
+    // their saved constraint profile. Anonymous calls skip this lookup.
+    let isCorrectivePriority = false;
     let appliedModifier = 1.0;
     let tunedConfig: VolumeConfig | undefined;
-    if (userId && isSelfTuningEnabled()) {
+    if (userId) {
       const authResult = await getAuthenticatedUserFromContext(c);
       if (authResult.authorized) {
-        const stats = await getDecisionAccuracyStats(authResult.user.id);
-        appliedModifier = getProgressionModifier(stats, "volume_adjustment");
-        if (appliedModifier !== 1.0) {
-          tunedConfig = applyVolumeModifier(appliedModifier);
-          logger.info(
-            { userId: authResult.user.id, decisionType: "volume_adjustment", modifier: appliedModifier },
-            "Self-tuning applied"
-          );
+        const profile = await db
+          .select({ ids: athleteConstraints.correctivePriorityExerciseIds })
+          .from(athleteConstraints)
+          .where(eq(athleteConstraints.userId, authResult.user.id))
+          .limit(1);
+
+        isCorrectivePriority =
+          profile[0]?.ids?.includes(rawInput.exerciseId) ?? false;
+
+        // Self-tune from the user's decision history. The kill switch skips the
+        // stats query and uses today's behavior.
+        if (isSelfTuningEnabled()) {
+          const stats = await getDecisionAccuracyStats(authResult.user.id);
+          appliedModifier = getProgressionModifier(stats, "volume_adjustment");
+          if (appliedModifier !== 1.0) {
+            tunedConfig = applyVolumeModifier(appliedModifier);
+            logger.info(
+              { userId: authResult.user.id, decisionType: "volume_adjustment", modifier: appliedModifier },
+              "Self-tuning applied"
+            );
+          }
         }
       }
     }
+
+    const input = { ...rawInput, isCorrectivePriority };
 
     const result = tunedConfig
       ? calculateVolumeAdjustment(input, tunedConfig)

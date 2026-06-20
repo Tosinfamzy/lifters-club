@@ -2,14 +2,54 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { exercises } from "@gymapp/db/schema";
+import { exercises, users, athleteConstraints } from "@gymapp/db/schema";
 import { eq, ilike, or, sql } from "drizzle-orm";
 import { getTopSubstitutes } from "@gymapp/engine";
-import type { Exercise, EquipmentType, Difficulty } from "@gymapp/types";
+import type { Exercise, EquipmentType, Difficulty, AthleteConstraints } from "@gymapp/types";
+import { optionalAuthMiddleware } from "../middleware/auth";
+import type { Env } from "../types";
 import { logger } from "../lib/logger";
 import { buildPatchData } from "../lib/patch-utils";
 
-const exerciseRoutes = new Hono();
+/**
+ * Load the saved constraint profile for the authenticated user, if any.
+ *
+ * The substitutes route is public, so callers may be anonymous (no clerkId in
+ * context). Returns undefined when anonymous or when no profile is saved, so
+ * the route behaves exactly as before for public traffic.
+ */
+async function loadAthleteConstraintsForClerkId(
+  clerkId: string | undefined
+): Promise<AthleteConstraints | undefined> {
+  if (!clerkId) return undefined;
+
+  const user = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.clerkId, clerkId))
+    .limit(1);
+
+  if (user.length === 0) return undefined;
+
+  const profile = await db
+    .select()
+    .from(athleteConstraints)
+    .where(eq(athleteConstraints.userId, user[0]!.id))
+    .limit(1);
+
+  if (profile.length === 0) return undefined;
+
+  const row = profile[0]!;
+  return {
+    equipment: row.equipment as AthleteConstraints["equipment"],
+    mobility: row.mobility as AthleteConstraints["mobility"],
+    injuries: row.injuries as unknown as AthleteConstraints["injuries"],
+    bannedExerciseIds: row.bannedExerciseIds,
+    correctivePriorityExerciseIds: row.correctivePriorityExerciseIds,
+  };
+}
+
+const exerciseRoutes = new Hono<Env>();
 
 // Query schema for list endpoint
 const listQuerySchema = z.object({
@@ -240,9 +280,13 @@ const substitutionQuerySchema = z.object({
   exclude: z.string().optional(), // Comma-separated exercise IDs to exclude
 });
 
-// GET /exercises/:id/substitutes - Find substitutes for an exercise
+// GET /exercises/:id/substitutes - Find substitutes for an exercise.
+// Public route: anonymous callers get unfiltered substitutes. When a valid
+// Clerk token is present and the user has a saved constraint profile, the
+// engine drops candidates the athlete can't safely perform.
 exerciseRoutes.get(
   "/:id/substitutes",
+  optionalAuthMiddleware,
   zValidator("query", substitutionQuerySchema),
   async (c) => {
     const exerciseId = c.req.param("id");
@@ -306,6 +350,11 @@ exerciseRoutes.get(
       updatedAt: row.updatedAt,
     });
 
+    // Apply the athlete's constraint profile when an authed user has one saved.
+    const athleteConstraintsProfile = await loadAthleteConstraintsForClerkId(
+      c.get("clerkId") as string | undefined
+    );
+
     // Find substitutes using the engine algorithm
     const substitutes = getTopSubstitutes(
       {
@@ -314,6 +363,7 @@ exerciseRoutes.get(
         availableEquipment,
         maxDifficulty: query.maxDifficulty,
         excludeExerciseIds,
+        athleteConstraints: athleteConstraintsProfile,
       },
       query.limit
     );
