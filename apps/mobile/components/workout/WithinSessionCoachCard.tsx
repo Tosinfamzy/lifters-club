@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { TrendingUp, TrendingDown, Minus, Sparkles, Check } from "lucide-react-native";
 import type { WithinSessionSuggestion } from "./workout.types";
@@ -8,6 +9,8 @@ interface WithinSessionCoachCardProps {
   onAccept: () => void;
   /** Dismiss: record "overridden" and hide. */
   onDismiss: () => void;
+  /** Promote a flagged mid-session PR to next session's baseline (explicit tap). */
+  onPromoteBaseline?: () => void;
 }
 
 const ACTION_META = {
@@ -33,10 +36,17 @@ export function WithinSessionCoachCard({
   suggestion,
   onAccept,
   onDismiss,
+  onPromoteBaseline,
 }: WithinSessionCoachCardProps) {
   const meta = ACTION_META[suggestion.action];
   const { Icon } = meta;
   const delta = formatDelta(suggestion.nextSetWeight, suggestion.previousWeight);
+
+  const [promoted, setPromoted] = useState(false);
+  const handlePromote = () => {
+    setPromoted(true);
+    onPromoteBaseline?.();
+  };
 
   return (
     <View style={[styles.card, { borderColor: meta.color }]}>
@@ -58,7 +68,18 @@ export function WithinSessionCoachCard({
       {suggestion.newBaselineIfConfirmed && (
         <View style={styles.prHint}>
           <Sparkles size={13} color="#FACC15" />
-          <Text style={styles.prHintText}>New best weight — nice work</Text>
+          {promoted ? (
+            <Text style={styles.prHintText}>New best saved as baseline ✓</Text>
+          ) : (
+            <>
+              <Text style={styles.prHintText}>New best weight</Text>
+              {onPromoteBaseline && (
+                <TouchableOpacity style={styles.prButton} onPress={handlePromote}>
+                  <Text style={styles.prButtonText}>Set as baseline</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       )}
 
@@ -133,6 +154,18 @@ const styles = StyleSheet.create({
     color: "#FACC15",
     fontSize: 12,
     fontWeight: "600",
+  },
+  prButton: {
+    borderWidth: 1,
+    borderColor: "#FACC15",
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  prButtonText: {
+    color: "#FACC15",
+    fontSize: 12,
+    fontWeight: "700",
   },
   actions: {
     flexDirection: "row",
