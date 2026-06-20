@@ -103,6 +103,18 @@ heavier alternative — decide which path.)
 
 ## 4. Infra / ops polish
 
+- **Vercel Preview builds (web) — FIXED 2026-06-20.** Every *Preview* build had
+  been failing at `/_not-found` prerender (`@clerk/clerk-react: Missing
+  publishableKey`) because `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` lived only in the
+  **Production** scope. Added the public `pk_test_` (Clerk dev-instance) key to the
+  Preview scope. Validated by the next web PR's preview build. *Note:* for preview
+  *login* to work, that Clerk dev instance must also allow `*.vercel.app` preview
+  origins (Clerk dashboard) — separate, not yet done.
+- **Expired Sentry release token** — `SENTRY_AUTH_TOKEN` (Preview + Production,
+  ~41d old) returns `401 Token expired`, so the `@sentry/nextjs` release +
+  sourcemap-upload step fails on every web build (non-fatal — the build proceeds —
+  but no sourcemaps/releases). Rotate the token in Sentry and update both Vercel
+  scopes. **S**
 - **Pin base image digests** — `node:22-alpine` carries upstream CVEs; pin a
   patched digest in both Dockerfiles to silence image-scan warnings. **S**
 - **Production deploy polish** — domain/DNS hardening, blue-green or health-gated
