@@ -79,6 +79,45 @@ POST /load-progression (userId)
 4. **Feedback latency**: `successRate` only populates after `evaluatePendingDecisions` runs on
    completion, and only for the two types `evaluateDecision` handles today (see §2b plan).
 
+## Mitigations & safety nets
+
+Per-risk:
+1. **Hot-path query** — anonymous calls skip it entirely; the stats fetch is a reusable
+   `getDecisionAccuracyStats(userId)` service so multi-decision callers fetch once; log the
+   query timing and add a short-TTL per-user cache **only if** profiling shows it hot
+   (don't pre-optimize).
+2. **Tuning semantics** — kept **gentle** (±20% max), **fully clamped**, and **exact no-op at
+   1.0**, so worst case is bounded and cold-start behavior is byte-identical to today. Mapping
+   + clamps live in named constants with JSDoc so the numbers are reviewable/tweakable without
+   a rewrite (see table below).
+3. **Weekly-plan gap** — explicitly out of v1 scope; tracked as a ROADMAP follow-up and noted
+   in the PR. It's a coverage gap, not a correctness bug.
+4. **Feedback latency** — inherent (can't tune on absent data); the ≥5-outcome gate avoids
+   tuning on noise. §2b broadens the signal to the other decision types.
+
+Cross-cutting safety nets (added to scope):
+- **Kill switch** — `SELF_TUNING_ENABLED` env flag (default on) to disable tuning instantly in
+  prod, no revert-and-redeploy.
+- **Audit trail** — persist the applied modifier into the decision's stored `input` so every
+  tuned decision is inspectable via `/history`.
+- **Observability** — log each tuning event (`userId`, `type`, `modifier`, config delta) so it
+  surfaces in Sentry Logs; self-tuning is visible, not a black box.
+
+### Tuning constants — proposed defaults (set/adjust before build)
+Modifier thresholds mirror the existing `getProgressionModifier` (`feedback.ts:161`):
+
+| Modifier | Trigger (per decision type) | Effect on `ProgressionConfig` |
+|----------|-----------------------------|-------------------------------|
+| `1.0` (no-op) | `total < 5` **or** `0.6 ≤ successRate ≤ 0.85` | config unchanged (exact) |
+| `0.8` (conservative) | `successRate < 0.6` | increments ×0.8; `rpeThresholdForIncrease` −0.5 |
+| `1.1` (aggressive) | `successRate > 0.85` | increments ×1.1; `rpeThresholdForIncrease` +0.5 |
+
+**Clamps (guardrails):** increment ∈ `[1.0 kg, 2× default]`; `rpeThresholdForIncrease` ∈ `[6, 9]`.
+Volume path mirrors this on `rpeThresholdForAdd`/`rpeThresholdForReduce` (no increment field).
+
+> These deltas (−0.5 RPE, ×0.8/×1.1) and the clamp ranges are the **product/algorithm
+> decision to sign off** — they're proposals, easy to change since they're isolated constants.
+
 ## Critical files
 - `apps/server/src/routes/decisions.ts`
 - `packages/engine/src/feedback.ts`, `progression.ts`, `volume.ts`, `index.ts`
