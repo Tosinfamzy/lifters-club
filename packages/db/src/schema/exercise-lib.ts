@@ -16,6 +16,9 @@ export const exercises = exerciseLib.table("exercises", {
   isUnilateral: boolean("is_unilateral").notNull().default(false),
   difficulty: varchar("difficulty", { length: 20 }).notNull(),
 
+  // Grip enum (nullable): null/none is never grip-filtered. See `Grip` in @gymapp/types.
+  grip: varchar("grip", { length: 16 }),
+
   constraints: jsonb("constraints").$type<string[]>().default([]),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -30,6 +30,18 @@ export type MobilityConstraint =
   | "no_lumbar_flexion";
 
 /**
+ * Grip positions the athlete must avoid → filters by `Exercise.grip`.
+ *
+ * - `neutral_grip_only` — only neutral/none-grip exercises are safe (e.g. a
+ *   wrist that tolerates only a parallel grip).
+ * - `no_pronated` / `no_supinated` — the single position the athlete can't load.
+ */
+export type GripRestriction =
+  | "neutral_grip_only"
+  | "no_pronated"
+  | "no_supinated";
+
+/**
  * Structured injury context for reasoning/audit (the "why").
  * Does NOT hard-filter exercises in the MVP — carried for context only.
  */
@@ -50,6 +62,11 @@ export interface AthleteConstraints {
   equipment: EquipmentConstraint[];
   /** Movement restrictions the athlete's body can't safely perform. */
   mobility: MobilityConstraint[];
+  /**
+   * Grip positions the athlete must avoid. Optional — the resolver treats a
+   * missing value as no grip restrictions.
+   */
+  grip?: GripRestriction[];
   /** Structured injury context (reasoning/audit; does not hard-filter in MVP). */
   injuries?: InjuryFlag[];
   /** Specific exercise IDs to hard-exclude. */

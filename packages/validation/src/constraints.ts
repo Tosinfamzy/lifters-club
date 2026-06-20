@@ -24,6 +24,16 @@ export const mobilityConstraintSchema = z.enum([
 ]);
 
 /**
+ * Grip positions an athlete must avoid. Matches the `GripRestriction` union
+ * in `@gymapp/types`.
+ */
+export const gripRestrictionSchema = z.enum([
+  "neutral_grip_only",
+  "no_pronated",
+  "no_supinated",
+]);
+
+/**
  * Structured injury context (the "why"). Does not hard-filter in the MVP.
  */
 export const injuryFlagSchema = z.object({
@@ -38,6 +48,7 @@ export const injuryFlagSchema = z.object({
 export const athleteConstraintsSchema = z.object({
   equipment: z.array(equipmentConstraintSchema).default([]),
   mobility: z.array(mobilityConstraintSchema).default([]),
+  grip: z.array(gripRestrictionSchema).default([]),
   injuries: z.array(injuryFlagSchema).default([]),
   bannedExerciseIds: z.array(z.string().min(1)).default([]),
   correctivePriorityExerciseIds: z.array(z.string().min(1)).default([]),
