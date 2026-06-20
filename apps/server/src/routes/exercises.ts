@@ -2,89 +2,19 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { exercises, users, athleteConstraints, permanentSubstitutions } from "@gymapp/db/schema";
+import { exercises } from "@gymapp/db/schema";
 import { eq, ilike, or, sql } from "drizzle-orm";
 import { getTopSubstitutes } from "@gymapp/engine";
-import type { Exercise, EquipmentType, Difficulty, AthleteConstraints, PermanentSubstitution, SubstitutionReason } from "@gymapp/types";
+import type { EquipmentType } from "@gymapp/types";
 import { optionalAuthMiddleware } from "../middleware/auth";
 import type { Env } from "../types";
 import { logger } from "../lib/logger";
 import { buildPatchData } from "../lib/patch-utils";
-
-/**
- * Load the saved constraint profile for the authenticated user, if any.
- *
- * The substitutes route is public, so callers may be anonymous (no clerkId in
- * context). Returns undefined when anonymous or when no profile is saved, so
- * the route behaves exactly as before for public traffic.
- */
-async function loadAthleteConstraintsForClerkId(
-  clerkId: string | undefined
-): Promise<AthleteConstraints | undefined> {
-  if (!clerkId) return undefined;
-
-  const user = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.clerkId, clerkId))
-    .limit(1);
-
-  if (user.length === 0) return undefined;
-
-  const profile = await db
-    .select()
-    .from(athleteConstraints)
-    .where(eq(athleteConstraints.userId, user[0]!.id))
-    .limit(1);
-
-  if (profile.length === 0) return undefined;
-
-  const row = profile[0]!;
-  return {
-    equipment: row.equipment as AthleteConstraints["equipment"],
-    mobility: row.mobility as AthleteConstraints["mobility"],
-    injuries: row.injuries as unknown as AthleteConstraints["injuries"],
-    bannedExerciseIds: row.bannedExerciseIds,
-    correctivePriorityExerciseIds: row.correctivePriorityExerciseIds,
-  };
-}
-
-/**
- * Load the authenticated user's persisted exercise swaps, if any.
- *
- * Like {@link loadAthleteConstraintsForClerkId}, the substitutes route is
- * public — anonymous callers (no clerkId) or users with no saved swaps get
- * undefined, so public traffic behaves exactly as before.
- */
-async function loadPermanentSubstitutionsForClerkId(
-  clerkId: string | undefined
-): Promise<PermanentSubstitution[] | undefined> {
-  if (!clerkId) return undefined;
-
-  const user = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.clerkId, clerkId))
-    .limit(1);
-
-  if (user.length === 0) return undefined;
-
-  const rows = await db
-    .select()
-    .from(permanentSubstitutions)
-    .where(eq(permanentSubstitutions.userId, user[0]!.id));
-
-  if (rows.length === 0) return undefined;
-
-  return rows.map((row) => ({
-    originalExerciseId: row.originalExerciseId,
-    substituteExerciseId: row.substituteExerciseId,
-    reason: row.reason as SubstitutionReason,
-    note: row.note ?? undefined,
-    confirmedAt: row.confirmedAt.toISOString(),
-    weightCarries: row.weightCarries,
-  }));
-}
+import {
+  loadAthleteConstraintsForClerkId,
+  loadPermanentSubstitutionsForClerkId,
+  mapToExercise,
+} from "../lib/athlete-profile";
 
 const exerciseRoutes = new Hono<Env>();
 
@@ -366,26 +296,6 @@ exerciseRoutes.get(
     const excludeExerciseIds = query.exclude
       ? query.exclude.split(",")
       : [];
-
-    // Define the row type from the query result
-    type ExerciseRow = (typeof allExercises)[number];
-
-    // Map database rows to Exercise type
-    const mapToExercise = (row: ExerciseRow): Exercise => ({
-      id: row.id,
-      name: row.name,
-      aliases: row.aliases as string[],
-      equipment: row.equipment as EquipmentType[],
-      movementPatterns: row.movementPatterns as Exercise["movementPatterns"],
-      primaryMuscles: row.primaryMuscles as Exercise["primaryMuscles"],
-      secondaryMuscles: row.secondaryMuscles as Exercise["secondaryMuscles"],
-      isCompound: row.isCompound,
-      isUnilateral: row.isUnilateral,
-      difficulty: row.difficulty as Difficulty,
-      constraints: row.constraints as Exercise["constraints"],
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    });
 
     // Apply the athlete's constraint profile and persisted swaps when an authed
     // user has them saved.

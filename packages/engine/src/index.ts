@@ -77,6 +77,7 @@ export type {
 // Planning types
 export type {
   ExercisePerformance,
+  ConstraintDecision,
   WeeklyPlanInput,
   PlannedExerciseUpdate,
   WeeklyPlanDecision,

@@ -17,18 +17,38 @@ import {
   workoutLogs,
   loggedSets,
   userBaselines,
+  exercises,
 } from "@gymapp/db/schema";
-import { eq, and, desc, gte, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, inArray, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   generateWeeklyPlan,
   calculatePerformanceTrend,
+  getTopSubstitutes,
+  isExerciseAllowed,
   type WeeklyPlanInput,
   type ExercisePerformance,
 } from "@gymapp/engine";
-import type { DecisionType } from "@gymapp/types";
+import type {
+  DecisionType,
+  Exercise,
+  PermanentSubstitution,
+  EquipmentType,
+  MovementPattern,
+} from "@gymapp/types";
 import { logger as globalLogger } from "../lib/logger";
 import { MS_PER_WEEK } from "../constants";
+import {
+  loadAthleteConstraintsForUserId,
+  loadPermanentSubstitutionsForUserId,
+  mapToExercise,
+} from "../lib/athlete-profile";
+
+/** Max candidate exercises to pull for constraint substitution. Mirrors the
+ * substitutes route's pre-filter cap. */
+const CANDIDATE_POOL_LIMIT = 200;
+/** How many constraint-filtered substitutes to expose for rotation. */
+const AVAILABLE_SUBSTITUTES_LIMIT = 5;
 
 interface PlannedExercise {
   exerciseId: string;
@@ -176,21 +196,25 @@ export async function generateNextWeek(
     const workoutDate = new Date(weekStartDate);
     workoutDate.setDate(workoutDate.getDate() + session.dayNumber - 1);
 
-    // Apply exercise updates to each planned exercise
-    const adjustedExercises = session.exercises.map((exercise) => {
-      const update = updateMap.get(exercise.exerciseId);
-      if (update) {
-        return {
-          exerciseId: update.newExerciseId ?? exercise.exerciseId,
-          sets: update.sets,
-          repRange: update.repRange,
-          restSeconds: exercise.restSeconds,
-          notes: exercise.notes,
-        };
-      }
-      // No update available, use original values
-      return exercise;
-    });
+    // Apply exercise updates to each planned exercise. Constraint-omitted
+    // exercises are dropped entirely so the built workout never schedules an
+    // unsafe movement.
+    const adjustedExercises = session.exercises
+      .filter((exercise) => !updateMap.get(exercise.exerciseId)?.omitted)
+      .map((exercise) => {
+        const update = updateMap.get(exercise.exerciseId);
+        if (update) {
+          return {
+            exerciseId: update.newExerciseId ?? exercise.exerciseId,
+            sets: update.sets,
+            repRange: update.repRange,
+            restSeconds: exercise.restSeconds,
+            notes: exercise.notes,
+          };
+        }
+        // No update available, use original values
+        return exercise;
+      });
 
     return {
       id: `${trainingBlockId}-w${nextWeek}-d${session.dayNumber}`,
@@ -263,8 +287,14 @@ export async function generateNextWeek(
       });
     }
 
-    // Rotation decision
-    if (update.decisions.rotation && update.newExerciseId) {
+    // Rotation decision. Only persist for genuine rotation swaps — constraint
+    // substitutions are surfaced via plan changes[] + structured logs, not
+    // formal decision rows (no new DecisionType).
+    if (
+      update.decisions.rotation &&
+      update.newExerciseId &&
+      update.substitutionSource === "rotation"
+    ) {
       decisionRecords.push({
         id: `dec_${nanoid(12)}`,
         userId,
@@ -530,11 +560,201 @@ async function gatherExercisePerformance(
       recentSets: recentSetData,
       recentPerformance: sessionPerf,
       performanceTrend: trend,
-      availableSubstitutes: [], // Would need exercise library integration
+      availableSubstitutes: [],
     });
   }
 
+  // Resolve each exercise against the athlete's constraint profile + persisted
+  // swaps. When the athlete has neither, this is a no-op fast path that avoids
+  // the library query and leaves performanceData byte-identical to before.
+  await applyConstraintResolution(userId, performanceData);
+
   return performanceData;
+}
+
+/**
+ * Resolve every planned exercise against the athlete's constraint profile and
+ * persisted swaps, mutating each `ExercisePerformance` in place with a
+ * `constraintDecision`, equipment/movement metadata, and a constraint-filtered
+ * `availableSubstitutes` pool (which fixes the previously-dead rotation path).
+ *
+ * Fast path: if the athlete has no constraints and no permanent subs, returns
+ * immediately without touching the exercise library — preserving exact parity
+ * (and performance) for unconstrained users.
+ */
+async function applyConstraintResolution(
+  userId: string,
+  performanceData: ExercisePerformance[]
+): Promise<void> {
+  if (performanceData.length === 0) return;
+
+  const constraints = await loadAthleteConstraintsForUserId(userId);
+  const permanentSubs = await loadPermanentSubstitutionsForUserId(userId);
+
+  // Fast path: nothing to enforce → leave output exactly as today.
+  if (!constraints && !permanentSubs) return;
+
+  const plannedIds = performanceData.map((p) => p.exerciseId);
+
+  // Fetch metadata for the planned exercises themselves.
+  const plannedRows = await db
+    .select()
+    .from(exercises)
+    .where(inArray(exercises.id, plannedIds));
+  const metadataById = new Map<string, Exercise>(
+    plannedRows.map((row) => [row.id, mapToExercise(row)])
+  );
+
+  // Build a constraint-aware candidate pool, pre-filtered to exercises that
+  // overlap a planned exercise's movement patterns or primary muscles. Mirrors
+  // the substitutes route's containment pre-filter.
+  const candidatePool = await loadCandidatePool(
+    Array.from(metadataById.values()),
+    permanentSubs
+  );
+
+  for (const perf of performanceData) {
+    const exercise = metadataById.get(perf.exerciseId);
+
+    // Missing metadata: we can't reason about safety, so allow and warn rather
+    // than silently dropping the exercise.
+    if (!exercise) {
+      perf.constraintDecision = { action: "allow" };
+      globalLogger.warn(
+        { userId, exerciseId: perf.exerciseId },
+        "Constraint resolution skipped: exercise metadata not found"
+      );
+      continue;
+    }
+
+    perf.equipment = exercise.equipment as EquipmentType[];
+    perf.movementPatterns = exercise.movementPatterns as MovementPattern[];
+
+    const allowed = constraints
+      ? isExerciseAllowed(exercise, constraints)
+      : { allowed: true as const };
+
+    if (allowed.allowed) {
+      // Populate a constraint-filtered substitute pool so rotation can only
+      // rotate into exercises the athlete can safely perform.
+      const subs = getTopSubstitutes(
+        {
+          exercise,
+          candidateExercises: candidatePool,
+          athleteConstraints: constraints,
+          permanentSubstitutions: permanentSubs,
+        },
+        AVAILABLE_SUBSTITUTES_LIMIT
+      );
+      perf.availableSubstitutes = subs.map((s) => s.exercise.id);
+      perf.constraintDecision = { action: "allow" };
+      continue;
+    }
+
+    // Blocked: try to resolve a safe substitute (permanent-sub-first, then
+    // constraint-filtered ranking — both handled inside the engine).
+    const subs = getTopSubstitutes({
+      exercise,
+      candidateExercises: candidatePool,
+      athleteConstraints: constraints,
+      permanentSubstitutions: permanentSubs,
+    });
+
+    const best = subs[0];
+    if (best) {
+      const reason = `${allowed.reason}; substituted with ${best.exercise.id} (${best.matchReasons[0] ?? "best match"})`;
+      perf.constraintDecision = {
+        action: "substitute",
+        substituteExerciseId: best.exercise.id,
+        isPermanent: best.isPermanent ?? false,
+        reason,
+      };
+      globalLogger.info(
+        {
+          userId,
+          originalExerciseId: perf.exerciseId,
+          action: "substitute",
+          substituteExerciseId: best.exercise.id,
+          isPermanent: best.isPermanent ?? false,
+          reason,
+        },
+        "Constraint substitution resolved"
+      );
+    } else {
+      const reason = allowed.reason ?? "Blocked by constraint profile";
+      perf.constraintDecision = { action: "omit", reason };
+      globalLogger.info(
+        {
+          userId,
+          originalExerciseId: perf.exerciseId,
+          action: "omit",
+          reason,
+        },
+        "Constraint omission resolved"
+      );
+    }
+  }
+}
+
+/**
+ * Build a candidate exercise pool for constraint substitution. Pre-filters the
+ * library to exercises overlapping any planned exercise's movement patterns or
+ * primary muscles (the same containment strategy the substitutes route uses),
+ * then tops up with any permanent-substitute targets that the pre-filter missed
+ * so the engine's permanent-sub short-circuit can honor them.
+ */
+async function loadCandidatePool(
+  plannedExercises: Exercise[],
+  permanentSubs: PermanentSubstitution[] | undefined
+): Promise<Exercise[]> {
+  const movementPatterns = new Set<string>();
+  const primaryMuscles = new Set<string>();
+  for (const exercise of plannedExercises) {
+    exercise.movementPatterns.forEach((p) => movementPatterns.add(p));
+    exercise.primaryMuscles.forEach((m) => primaryMuscles.add(m));
+  }
+
+  const conditions = [
+    ...Array.from(movementPatterns).map(
+      (pattern) => sql`${exercises.movementPatterns} @> ${JSON.stringify([pattern])}`
+    ),
+    ...Array.from(primaryMuscles).map(
+      (muscle) => sql`${exercises.primaryMuscles} @> ${JSON.stringify([muscle])}`
+    ),
+  ];
+
+  const rows =
+    conditions.length > 0
+      ? await db
+          .select()
+          .from(exercises)
+          .where(or(...conditions))
+          .limit(CANDIDATE_POOL_LIMIT)
+      : [];
+
+  const pool = rows.map(mapToExercise);
+  const present = new Set(pool.map((e) => e.id));
+
+  // Candidate-presence top-up: a permanent substitute may not overlap any
+  // planned exercise's movement/muscle profile, so fetch any missing targets.
+  const missingSubIds = (permanentSubs ?? [])
+    .map((sub) => sub.substituteExerciseId)
+    .filter((id) => !present.has(id));
+
+  if (missingSubIds.length > 0) {
+    const extraRows = await db
+      .select()
+      .from(exercises)
+      .where(inArray(exercises.id, missingSubIds));
+    for (const row of extraRows) {
+      if (!present.has(row.id)) {
+        pool.push(mapToExercise(row));
+        present.add(row.id);
+      }
+    }
+  }
+
+  return pool;
 }
 
 /**
