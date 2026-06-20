@@ -49,7 +49,7 @@ function applyCyclePhase(
   cyclePhase: CyclePhaseConfig,
   currentWeight: number
 ): LoadDecision {
-  const { phase, loadModifier, allowNewWeightTests } = cyclePhase;
+  const { phase, dayOfPhase, loadModifier, allowNewWeightTests } = cyclePhase;
   let { action, newWeight, reason } = decision;
 
   // Increase-veto runs first so aggressive self-tuning can't leak an increase
@@ -64,15 +64,16 @@ function applyCyclePhase(
   // an already-quantized weight when loadModifier === 1).
   const scaledWeight = loadModifier !== 1 ? roundToHalfKg(newWeight * loadModifier) : newWeight;
   const pct = Math.round(loadModifier * 100);
+  const phaseLabel = dayOfPhase ? `${phase} phase (day ${dayOfPhase})` : `${phase} phase`;
 
   // Keep the explanation honest about both the veto and the load level.
   if (vetoed) {
     reason =
       loadModifier !== 1
-        ? `${phase} phase — no new weight tests, load held at ${pct}%`
-        : `${phase} phase — no new weight tests`;
+        ? `${phaseLabel} — no new weight tests, load held at ${pct}%`
+        : `${phaseLabel} — no new weight tests`;
   } else if (loadModifier !== 1) {
-    reason = `${reason} (${phase} phase: load at ${pct}%)`;
+    reason = `${reason} (${phaseLabel}: load at ${pct}%)`;
   }
 
   return { action, newWeight: scaledWeight, reason };

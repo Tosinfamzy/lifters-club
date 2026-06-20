@@ -21,8 +21,8 @@ import {
   ENGINE_VERSION,
 } from "@gymapp/engine";
 import type { ProgressionConfig, ProgressionInput, VolumeConfig } from "@gymapp/engine";
-import type { CyclePhase, CyclePhaseConfig, UserPreferences } from "@gymapp/types";
-import { cyclePhaseSchema } from "@gymapp/validation";
+import type { CyclePhaseConfig, UserPreferences } from "@gymapp/types";
+import { cyclePhaseSchema, type CyclePhaseInput } from "@gymapp/validation";
 import type { Env } from "../types";
 import { getAuthenticatedUserFromContext } from "../middleware/authorize";
 import { verifyUserAccess as verifyRequestUserId } from "../lib/auth";
@@ -434,7 +434,7 @@ const loadProgressionSchema = z.object({
  * specific source wins (request > preference override > engine default).
  */
 function resolveCyclePhaseConfig(
-  requestPhase: { phase: CyclePhase; dayOfPhase?: number; loadModifier?: number; allowNewWeightTests?: boolean },
+  requestPhase: CyclePhaseInput,
   preferences?: UserPreferences
 ): CyclePhaseConfig {
   const engineDefault = defaultCyclePhaseConfig[requestPhase.phase];
@@ -530,10 +530,10 @@ decisionRoutes.post(
 
     // Audit: record the applied modifier in the persisted input when tuned. The
     // resolved cyclePhase already rides in `resolvedInput` for the audit trail.
-    const persistedInput: Record<string, unknown> =
-      appliedModifier !== 1.0
-        ? { ...resolvedInput, appliedModifier }
-        : (resolvedInput as unknown as Record<string, unknown>);
+    const persistedInput: Record<string, unknown> = {
+      ...resolvedInput,
+      ...(appliedModifier !== 1.0 ? { appliedModifier } : {}),
+    };
 
     await persistDecision(
       "load_progression",
