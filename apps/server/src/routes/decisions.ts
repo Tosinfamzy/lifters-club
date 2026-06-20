@@ -14,13 +14,26 @@ import {
   calculateMissedSessionHandling,
   generateWeeklyPlan,
   calculatePerformanceTrend,
+  getProgressionModifier,
+  applyProgressionModifier,
+  applyVolumeModifier,
   ENGINE_VERSION,
 } from "@gymapp/engine";
-import type { DecisionAccuracyStats, OverrideReason, DecisionType } from "@gymapp/types";
+import type { ProgressionConfig, VolumeConfig } from "@gymapp/engine";
 import type { Env } from "../types";
 import { getAuthenticatedUserFromContext } from "../middleware/authorize";
 import { verifyUserAccess as verifyRequestUserId } from "../lib/auth";
 import { logger as globalLogger } from "../lib/logger";
+import { getDecisionAccuracyStats } from "../services/decision-accuracy";
+
+/**
+ * Kill switch for decision self-tuning. Tuning is ON by default; set
+ * `SELF_TUNING_ENABLED=false` to disable instantly in prod without a redeploy.
+ * Read per-request so the flag can flip without a process restart in tests.
+ */
+function isSelfTuningEnabled(): boolean {
+  return process.env.SELF_TUNING_ENABLED !== "false";
+}
 
 const decisionRoutes = new Hono<Env>();
 
@@ -153,34 +166,6 @@ decisionRoutes.get(
   }
 );
 
-// Get single decision by ID (requires ownership)
-decisionRoutes.get("/:id", async (c) => {
-  const id = c.req.param("id");
-
-  // Verify user is authenticated
-  const authResult = await getAuthenticatedUserFromContext(c);
-  if (!authResult.authorized) {
-    return authResult.response;
-  }
-
-  const result = await db
-    .select()
-    .from(decisions)
-    .where(eq(decisions.id, id))
-    .limit(1);
-
-  if (result.length === 0) {
-    return c.json({ error: "Decision not found" }, 404);
-  }
-
-  // Verify the decision belongs to the authenticated user
-  if (result[0]!.userId !== authResult.user.id) {
-    return c.json({ error: "Forbidden: You can only access your own decisions" }, 403);
-  }
-
-  return c.json({ data: result[0] });
-});
-
 // ============ Decision Outcomes ============
 
 // Record outcome after user responds to a decision
@@ -282,69 +267,7 @@ decisionRoutes.get(
 
     const userId = authResult.user.id;
 
-    // Get all outcomes for this user
-    const outcomes = await db
-      .select({
-        outcome: decisionOutcomes.outcome,
-        success: decisionOutcomes.success,
-        overrideReason: decisionOutcomes.overrideReason,
-        decisionType: decisions.type,
-      })
-      .from(decisionOutcomes)
-      .innerJoin(decisions, eq(decisionOutcomes.decisionId, decisions.id))
-      .where(eq(decisionOutcomes.userId, userId));
-
-    // Calculate stats
-    const totalDecisions = outcomes.length;
-    const followed = outcomes.filter(o => o.outcome === "followed").length;
-    const overridden = outcomes.filter(o => o.outcome === "overridden").length;
-    const ignored = outcomes.filter(o => o.outcome === "ignored").length;
-
-    // Success rate of followed decisions that have been evaluated
-    const evaluatedFollowed = outcomes.filter(o => o.outcome === "followed" && o.success !== null);
-    const successfulFollowed = evaluatedFollowed.filter(o => o.success === true).length;
-    const successRate = evaluatedFollowed.length > 0 ? successfulFollowed / evaluatedFollowed.length : 0;
-
-    // Count override reasons
-    const overrideReasons: Partial<Record<OverrideReason, number>> = {};
-    for (const o of outcomes) {
-      if (o.overrideReason) {
-        const reason = o.overrideReason as OverrideReason;
-        overrideReasons[reason] = (overrideReasons[reason] || 0) + 1;
-      }
-    }
-
-    // Stats by decision type
-    const byType: DecisionAccuracyStats["byType"] = {};
-    const typeGroups = new Map<string, typeof outcomes>();
-    for (const o of outcomes) {
-      const existing = typeGroups.get(o.decisionType) || [];
-      existing.push(o);
-      typeGroups.set(o.decisionType, existing);
-    }
-
-    for (const [type, typeOutcomes] of typeGroups) {
-      const typeFollowed = typeOutcomes.filter(o => o.outcome === "followed");
-      const typeEvaluated = typeFollowed.filter(o => o.success !== null);
-      const typeSuccessful = typeEvaluated.filter(o => o.success === true).length;
-
-      byType[type as DecisionType] = {
-        total: typeOutcomes.length,
-        followed: typeFollowed.length,
-        successRate: typeEvaluated.length > 0 ? typeSuccessful / typeEvaluated.length : 0,
-      };
-    }
-
-    const stats: DecisionAccuracyStats = {
-      userId,
-      totalDecisions,
-      followed,
-      overridden,
-      ignored,
-      successRate,
-      overrideReasons,
-      byType,
-    };
+    const stats = await getDecisionAccuracyStats(userId);
 
     return c.json({ data: stats });
   }
@@ -453,6 +376,36 @@ decisionRoutes.patch(
   }
 );
 
+// Get single decision by ID (requires ownership).
+// NOTE: Registered after the static `/...` GET routes (e.g. /accuracy,
+// /pending-evaluation) so the wildcard `:id` does not shadow them.
+decisionRoutes.get("/:id", async (c) => {
+  const id = c.req.param("id");
+
+  // Verify user is authenticated
+  const authResult = await getAuthenticatedUserFromContext(c);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  const result = await db
+    .select()
+    .from(decisions)
+    .where(eq(decisions.id, id))
+    .limit(1);
+
+  if (result.length === 0) {
+    return c.json({ error: "Decision not found" }, 404);
+  }
+
+  // Verify the decision belongs to the authenticated user
+  if (result[0]!.userId !== authResult.user.id) {
+    return c.json({ error: "Forbidden: You can only access your own decisions" }, 403);
+  }
+
+  return c.json({ data: result[0] });
+});
+
 // ============ Load Progression ============
 
 const loadProgressionSchema = z.object({
@@ -478,11 +431,38 @@ decisionRoutes.post(
     // Verify userId matches authenticated user if provided
     const verifiedUserId = verifyRequestUserId(c, userId);
 
-    const result = calculateLoadProgression(input);
+    const logger = c.get("logger") ?? globalLogger;
+
+    // Self-tune from the user's decision history. Anonymous calls (no userId)
+    // and the kill switch both skip the stats query and use today's behavior.
+    let appliedModifier = 1.0;
+    let tunedConfig: ProgressionConfig | undefined;
+    if (userId && isSelfTuningEnabled()) {
+      const authResult = await getAuthenticatedUserFromContext(c);
+      if (authResult.authorized) {
+        const stats = await getDecisionAccuracyStats(authResult.user.id);
+        appliedModifier = getProgressionModifier(stats, "load_progression");
+        if (appliedModifier !== 1.0) {
+          tunedConfig = applyProgressionModifier(appliedModifier);
+          logger.info(
+            { userId: authResult.user.id, decisionType: "load_progression", modifier: appliedModifier },
+            "Self-tuning applied"
+          );
+        }
+      }
+    }
+
+    const result = tunedConfig
+      ? calculateLoadProgression(input, tunedConfig)
+      : calculateLoadProgression(input);
+
+    // Audit: record the applied modifier in the persisted input when tuned.
+    const persistedInput: Record<string, unknown> =
+      appliedModifier !== 1.0 ? { ...input, appliedModifier } : (input as Record<string, unknown>);
 
     await persistDecision(
       "load_progression",
-      input as Record<string, unknown>,
+      persistedInput,
       result as unknown as Record<string, unknown>,
       result.reason,
       userId ? verifiedUserId : undefined,
@@ -490,7 +470,6 @@ decisionRoutes.post(
     );
 
     if (userId) {
-      const logger = c.get("logger") ?? globalLogger;
       logger.info({ exerciseId: input.exerciseId, action: result.action, newWeight: result.newWeight, userId: verifiedUserId }, "Load progression decided");
     }
 
@@ -523,11 +502,38 @@ decisionRoutes.post(
     // Verify userId matches authenticated user if provided
     const verifiedUserId = verifyRequestUserId(c, userId);
 
-    const result = calculateVolumeAdjustment(input);
+    const logger = c.get("logger") ?? globalLogger;
+
+    // Self-tune from the user's decision history. Anonymous calls (no userId)
+    // and the kill switch both skip the stats query and use today's behavior.
+    let appliedModifier = 1.0;
+    let tunedConfig: VolumeConfig | undefined;
+    if (userId && isSelfTuningEnabled()) {
+      const authResult = await getAuthenticatedUserFromContext(c);
+      if (authResult.authorized) {
+        const stats = await getDecisionAccuracyStats(authResult.user.id);
+        appliedModifier = getProgressionModifier(stats, "volume_adjustment");
+        if (appliedModifier !== 1.0) {
+          tunedConfig = applyVolumeModifier(appliedModifier);
+          logger.info(
+            { userId: authResult.user.id, decisionType: "volume_adjustment", modifier: appliedModifier },
+            "Self-tuning applied"
+          );
+        }
+      }
+    }
+
+    const result = tunedConfig
+      ? calculateVolumeAdjustment(input, tunedConfig)
+      : calculateVolumeAdjustment(input);
+
+    // Audit: record the applied modifier in the persisted input when tuned.
+    const persistedInput: Record<string, unknown> =
+      appliedModifier !== 1.0 ? { ...input, appliedModifier } : (input as Record<string, unknown>);
 
     await persistDecision(
       "volume_adjustment",
-      input as Record<string, unknown>,
+      persistedInput,
       result as unknown as Record<string, unknown>,
       result.reason,
       userId ? verifiedUserId : undefined,
@@ -535,7 +541,6 @@ decisionRoutes.post(
     );
 
     if (userId) {
-      const logger = c.get("logger") ?? globalLogger;
       logger.info({ exerciseId: input.exerciseId, action: result.action, newSetCount: result.newSetCount, userId: verifiedUserId }, "Volume adjustment decided");
     }
 

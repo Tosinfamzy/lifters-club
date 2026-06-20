@@ -16,7 +16,7 @@ expects a `ProgressionConfig`. The scalar→config translation does not exist ye
 1. **New pure engine helpers** (translation is pure math → belongs in the engine):
    - `applyProgressionModifier(modifier, config?): ProgressionConfig` in `progression.ts` —
      scales `smallIncrement`/`largeIncrement` by the modifier and nudges
-     `rpeThresholdForIncrease`, **clamped** to a sane range (e.g. [6, 9]). `modifier === 1.0`
+     `rpeThresholdForIncrease`, **clamped** to `[7, 9]` (the evidence-based working range). `modifier === 1.0`
      returns the config unchanged (exact no-op — preserves cold-start behavior byte-for-byte).
    - `applyVolumeModifier(modifier, config?): VolumeConfig` in `volume.ts` — volume has no
      increment (±1 sets), so the lever is `rpeThresholdForAdd`/`rpeThresholdForReduce`
@@ -78,6 +78,56 @@ POST /load-progression (userId)
    follow-up — track separately.
 4. **Feedback latency**: `successRate` only populates after `evaluatePendingDecisions` runs on
    completion, and only for the two types `evaluateDecision` handles today (see §2b plan).
+
+## Mitigations & safety nets
+
+Per-risk:
+1. **Hot-path query** — anonymous calls skip it entirely; the stats fetch is a reusable
+   `getDecisionAccuracyStats(userId)` service so multi-decision callers fetch once; log the
+   query timing and add a short-TTL per-user cache **only if** profiling shows it hot
+   (don't pre-optimize).
+2. **Tuning semantics** — kept **gentle** (±20% max), **fully clamped**, and **exact no-op at
+   1.0**, so worst case is bounded and cold-start behavior is byte-identical to today. Mapping
+   + clamps live in named constants with JSDoc so the numbers are reviewable/tweakable without
+   a rewrite (see table below).
+3. **Weekly-plan gap** — explicitly out of v1 scope; tracked as a ROADMAP follow-up and noted
+   in the PR. It's a coverage gap, not a correctness bug.
+4. **Feedback latency** — inherent (can't tune on absent data); the ≥5-outcome gate avoids
+   tuning on noise. §2b broadens the signal to the other decision types.
+
+Cross-cutting safety nets (added to scope):
+- **Kill switch** — `SELF_TUNING_ENABLED` env flag (default on) to disable tuning instantly in
+  prod, no revert-and-redeploy.
+- **Audit trail** — persist the applied modifier into the decision's stored `input` so every
+  tuned decision is inspectable via `/history`.
+- **Observability** — log each tuning event (`userId`, `type`, `modifier`, config delta) so it
+  surfaces in Sentry Logs; self-tuning is visible, not a black box.
+
+### Tuning constants — proposed defaults (set/adjust before build)
+Modifier thresholds mirror the existing `getProgressionModifier` (`feedback.ts:161`):
+
+| Modifier | Trigger (per decision type) | Effect on `ProgressionConfig` |
+|----------|-----------------------------|-------------------------------|
+| `1.0` (no-op) | `total < 5` **or** `0.6 ≤ successRate ≤ 0.85` | config unchanged (exact) |
+| `0.8` (conservative) | `successRate < 0.6` | increments ×0.8; `rpeThresholdForIncrease` −0.5 |
+| `1.1` (aggressive) | `successRate > 0.85` | increments ×1.1; `rpeThresholdForIncrease` +0.5 |
+
+**Clamps (guardrails):** increment ∈ `[1.0 kg, 2× default]`; `rpeThresholdForIncrease` ∈ `[7, 9]`.
+Volume path mirrors this on `rpeThresholdForAdd`/`rpeThresholdForReduce` (no increment field).
+
+**Grounded in:** RPE 8 ≈ 2 reps-in-reserve; working sets live in the **RPE 7–9** band, so the
+±0.5 nudge stays in-window and the clamp floor is **7** (RPE 6 is below the useful progression
+range). Standard increments are 2.5 kg (upper) / 5 kg (lower); the ×0.8 conservative modifier
+pushes toward the **fractional/microplate** territory the literature endorses for slower
+progressers, and the 1.0 kg floor matches the smallest practical real-world jump. Load/volume
+**autoregulation** (adapting load to real-time performance) is meta-analysis-supported — the
+basis for tuning at all. See sources: autoregulation review (PMC8762534), GymAware RIR,
+StrongLifts increments.
+
+> **Heuristic, not lit-derived:** the ±20% magnitude and the 0.6 / 0.85 success-rate cutoffs are
+> our adaptive-control choices — strength science doesn't prescribe "dial back X% after N misses."
+> That's exactly why they're gentle, clamped, flag-gated (`SELF_TUNING_ENABLED`), and audited.
+> All deltas/cutoffs live in isolated named constants, easy to retune.
 
 ## Critical files
 - `apps/server/src/routes/decisions.ts`

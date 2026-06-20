@@ -1,9 +1,9 @@
 // Engine version - bump when algorithm logic changes
-export const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.1.0";
 
 // Core decision functions
-export { calculateLoadProgression } from "./progression";
-export { calculateVolumeAdjustment } from "./volume";
+export { calculateLoadProgression, applyProgressionModifier } from "./progression";
+export { calculateVolumeAdjustment, applyVolumeModifier } from "./volume";
 export { calculateExerciseRotation } from "./rotation";
 export { calculateDeloadNeed } from "./deload";
 export { calculateSessionRecovery } from "./recovery";
