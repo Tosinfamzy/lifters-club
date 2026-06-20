@@ -7,6 +7,12 @@
 
 Effort key: **S** = hours · **M** = a day or two · **L** = multi-day.
 
+> **★ Engine coaching gaps (real 5-week athlete feedback)** — see
+> [plans/engine-coaching-gaps.md](plans/engine-coaching-gaps.md). Five engine gaps from live
+> coaching use (athlete constraints, cycle-phase loading, permanent substitutions, within-session
+> adjustment, equipment instances). These are the **product differentiators** and reorder
+> priorities — coaching gaps generally outrank offline sync for differentiation.
+
 ---
 
 ## 1. Observability follow-ups (banked)

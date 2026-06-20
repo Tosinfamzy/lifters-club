@@ -22,6 +22,12 @@ export interface VolumeInput {
   }[];
   maxSetsPerExercise?: number;
   minSetsPerExercise?: number;
+  /**
+   * When true, this exercise is corrective-priority and its volume is held
+   * (never reduced). The calling layer sets this from the athlete's
+   * `correctivePriorityExerciseIds`.
+   */
+  isCorrectivePriority?: boolean;
 }
 
 export interface RotationInput {

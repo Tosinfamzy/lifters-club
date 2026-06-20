@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { users, trainingBlocks, readinessChecks, userBaselines } from "@gymapp/db/schema";
+import { users, trainingBlocks, readinessChecks, userBaselines, athleteConstraints, permanentSubstitutions } from "@gymapp/db/schema";
+import { athleteConstraintsSchema, permanentSubstitutionSchema } from "@gymapp/validation";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import {
@@ -14,7 +15,7 @@ import {
   estimateOneRepMax,
 } from "@gymapp/engine";
 import type { Env } from "../types";
-import type { PrimaryGoal, BaselineSource } from "@gymapp/types";
+import type { PrimaryGoal, BaselineSource, PermanentSubstitution, SubstitutionReason } from "@gymapp/types";
 import { verifyUserAccess, verifyBodyUserAccess, getUserByClerkId } from "../middleware/authorize";
 import { logger as globalLogger } from "../lib/logger";
 
@@ -537,5 +538,204 @@ userRoutes.patch(
     return c.json({ data: result[0] });
   }
 );
+
+// ============ Athlete Constraint Profile ============
+
+// Empty profile returned when a user has no saved constraints yet.
+const EMPTY_CONSTRAINT_PROFILE = {
+  equipment: [],
+  mobility: [],
+  injuries: [],
+  bannedExerciseIds: [],
+  correctivePriorityExerciseIds: [],
+} as const;
+
+// GET /:id/constraints - Get the athlete's constraint profile (requires ownership)
+userRoutes.get("/:id/constraints", async (c) => {
+  const userId = c.req.param("id");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  const existing = await db
+    .select()
+    .from(athleteConstraints)
+    .where(eq(athleteConstraints.userId, userId))
+    .limit(1);
+
+  if (existing.length === 0) {
+    // No profile yet — return an empty default so clients always get a shape.
+    return c.json({ data: { userId, ...EMPTY_CONSTRAINT_PROFILE } });
+  }
+
+  return c.json({ data: existing[0] });
+});
+
+// PUT /:id/constraints - Upsert the athlete's constraint profile (requires ownership)
+userRoutes.put(
+  "/:id/constraints",
+  zValidator("json", athleteConstraintsSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    // Upsert by userId via delete-then-insert (one row per user), mirroring
+    // the baselines handler. Keeps the write idempotent.
+    const now = new Date();
+    await db.delete(athleteConstraints).where(eq(athleteConstraints.userId, userId));
+
+    const [inserted] = await db
+      .insert(athleteConstraints)
+      .values({
+        id: `ac_${nanoid(12)}`,
+        userId,
+        equipment: data.equipment,
+        mobility: data.mobility,
+        injuries: data.injuries,
+        bannedExerciseIds: data.bannedExerciseIds,
+        correctivePriorityExerciseIds: data.correctivePriorityExerciseIds,
+        updatedAt: now,
+      })
+      .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info(
+      {
+        userId,
+        equipmentCount: data.equipment.length,
+        mobilityCount: data.mobility.length,
+        bannedCount: data.bannedExerciseIds.length,
+      },
+      "Athlete constraint profile saved"
+    );
+
+    return c.json({ data: inserted });
+  }
+);
+
+// ============ Permanent Substitutions ============
+
+// Map a DB row to the `PermanentSubstitution` shape (one row per swap).
+function toPermanentSubstitution(row: typeof permanentSubstitutions.$inferSelect): PermanentSubstitution {
+  return {
+    originalExerciseId: row.originalExerciseId,
+    substituteExerciseId: row.substituteExerciseId,
+    reason: row.reason as SubstitutionReason,
+    note: row.note ?? undefined,
+    confirmedAt: row.confirmedAt.toISOString(),
+    weightCarries: row.weightCarries,
+  };
+}
+
+// GET /:id/substitutions - List the athlete's persisted swaps (requires ownership)
+userRoutes.get("/:id/substitutions", async (c) => {
+  const userId = c.req.param("id");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  const rows = await db
+    .select()
+    .from(permanentSubstitutions)
+    .where(eq(permanentSubstitutions.userId, userId));
+
+  return c.json({ data: rows.map(toPermanentSubstitution) });
+});
+
+// PUT /:id/substitutions - Upsert one swap, keyed by (userId, originalExerciseId).
+// Repeated saves for the same original replace it (one row per original).
+userRoutes.put(
+  "/:id/substitutions",
+  zValidator("json", permanentSubstitutionSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    // Upsert by (userId, originalExerciseId) via delete-then-insert, mirroring
+    // the constraints/baselines handlers. Keeps the write idempotent.
+    const now = new Date();
+    await db
+      .delete(permanentSubstitutions)
+      .where(
+        and(
+          eq(permanentSubstitutions.userId, userId),
+          eq(permanentSubstitutions.originalExerciseId, data.originalExerciseId)
+        )
+      );
+
+    const [inserted] = await db
+      .insert(permanentSubstitutions)
+      .values({
+        id: `ps_${nanoid(12)}`,
+        userId,
+        originalExerciseId: data.originalExerciseId,
+        substituteExerciseId: data.substituteExerciseId,
+        reason: data.reason,
+        note: data.note ?? null,
+        weightCarries: data.weightCarries,
+        // Default to now when the client omits it (e.g. confirmed server-side).
+        confirmedAt: data.confirmedAt ? new Date(data.confirmedAt) : now,
+        updatedAt: now,
+      })
+      .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info(
+      {
+        userId,
+        originalExerciseId: data.originalExerciseId,
+        substituteExerciseId: data.substituteExerciseId,
+        reason: data.reason,
+      },
+      "Permanent substitution saved"
+    );
+
+    return c.json({ data: toPermanentSubstitution(inserted!) });
+  }
+);
+
+// DELETE /:id/substitutions/:originalExerciseId - The explicit "un-swap".
+userRoutes.delete("/:id/substitutions/:originalExerciseId", async (c) => {
+  const userId = c.req.param("id");
+  const originalExerciseId = c.req.param("originalExerciseId");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  await db
+    .delete(permanentSubstitutions)
+    .where(
+      and(
+        eq(permanentSubstitutions.userId, userId),
+        eq(permanentSubstitutions.originalExerciseId, originalExerciseId)
+      )
+    );
+
+  const logger = c.get("logger") ?? globalLogger;
+  logger.info({ userId, originalExerciseId }, "Permanent substitution removed");
+
+  return c.json({ message: "Permanent substitution removed" });
+});
 
 export { userRoutes };

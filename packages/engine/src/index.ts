@@ -28,6 +28,9 @@ export {
 // Substitution functions
 export { findSubstitutes, getTopSubstitutes, isValidSubstitute } from "./substitution";
 
+// Athlete constraint resolver
+export { isExerciseAllowed, defaultConstraintResolverConfig } from "./constraints";
+
 // 1RM estimation and working weight calculation
 export {
   estimateOneRepMax,
@@ -91,6 +94,9 @@ export type {
   SubstitutionConfig,
   ScoredSubstitute,
 } from "./substitution";
+
+// Constraint resolver types
+export type { ConstraintResolverConfig, ConstraintCheckResult } from "./constraints";
 
 // Readiness types
 export type {

@@ -119,4 +119,58 @@ describe("calculateVolumeAdjustment", () => {
     expect(result.action).toBe("reduce_set");
     expect(result.reason).toContain("Completion rate");
   });
+
+  describe("corrective-priority protection", () => {
+    it("holds volume instead of reducing when isCorrectivePriority is true", () => {
+      const input: VolumeInput = {
+        exerciseId: "face-pull",
+        currentSetCount: 5,
+        recentPerformance: [
+          { completedSets: 4, targetSets: 5, avgRpe: 9.5 },
+          { completedSets: 3, targetSets: 5, avgRpe: 9.5 },
+        ],
+        isCorrectivePriority: true,
+      };
+
+      const result = calculateVolumeAdjustment(input);
+
+      expect(result.action).toBe("maintain");
+      expect(result.newSetCount).toBe(5);
+      expect(result.reason).toContain("Corrective-priority");
+    });
+
+    it("reduces volume normally when isCorrectivePriority is false", () => {
+      const input: VolumeInput = {
+        exerciseId: "squat",
+        currentSetCount: 5,
+        recentPerformance: [
+          { completedSets: 4, targetSets: 5, avgRpe: 9.5 },
+          { completedSets: 3, targetSets: 5, avgRpe: 9.5 },
+        ],
+        isCorrectivePriority: false,
+      };
+
+      const result = calculateVolumeAdjustment(input);
+
+      expect(result.action).toBe("reduce_set");
+      expect(result.newSetCount).toBe(4);
+    });
+
+    it("does not affect add_set decisions for corrective-priority exercises", () => {
+      const input: VolumeInput = {
+        exerciseId: "face-pull",
+        currentSetCount: 3,
+        recentPerformance: [
+          { completedSets: 3, targetSets: 3, avgRpe: 6 },
+          { completedSets: 3, targetSets: 3, avgRpe: 6.5 },
+        ],
+        isCorrectivePriority: true,
+      };
+
+      const result = calculateVolumeAdjustment(input);
+
+      expect(result.action).toBe("add_set");
+      expect(result.newSetCount).toBe(4);
+    });
+  });
 });

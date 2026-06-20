@@ -2,14 +2,91 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { exercises } from "@gymapp/db/schema";
+import { exercises, users, athleteConstraints, permanentSubstitutions } from "@gymapp/db/schema";
 import { eq, ilike, or, sql } from "drizzle-orm";
 import { getTopSubstitutes } from "@gymapp/engine";
-import type { Exercise, EquipmentType, Difficulty } from "@gymapp/types";
+import type { Exercise, EquipmentType, Difficulty, AthleteConstraints, PermanentSubstitution, SubstitutionReason } from "@gymapp/types";
+import { optionalAuthMiddleware } from "../middleware/auth";
+import type { Env } from "../types";
 import { logger } from "../lib/logger";
 import { buildPatchData } from "../lib/patch-utils";
 
-const exerciseRoutes = new Hono();
+/**
+ * Load the saved constraint profile for the authenticated user, if any.
+ *
+ * The substitutes route is public, so callers may be anonymous (no clerkId in
+ * context). Returns undefined when anonymous or when no profile is saved, so
+ * the route behaves exactly as before for public traffic.
+ */
+async function loadAthleteConstraintsForClerkId(
+  clerkId: string | undefined
+): Promise<AthleteConstraints | undefined> {
+  if (!clerkId) return undefined;
+
+  const user = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.clerkId, clerkId))
+    .limit(1);
+
+  if (user.length === 0) return undefined;
+
+  const profile = await db
+    .select()
+    .from(athleteConstraints)
+    .where(eq(athleteConstraints.userId, user[0]!.id))
+    .limit(1);
+
+  if (profile.length === 0) return undefined;
+
+  const row = profile[0]!;
+  return {
+    equipment: row.equipment as AthleteConstraints["equipment"],
+    mobility: row.mobility as AthleteConstraints["mobility"],
+    injuries: row.injuries as unknown as AthleteConstraints["injuries"],
+    bannedExerciseIds: row.bannedExerciseIds,
+    correctivePriorityExerciseIds: row.correctivePriorityExerciseIds,
+  };
+}
+
+/**
+ * Load the authenticated user's persisted exercise swaps, if any.
+ *
+ * Like {@link loadAthleteConstraintsForClerkId}, the substitutes route is
+ * public — anonymous callers (no clerkId) or users with no saved swaps get
+ * undefined, so public traffic behaves exactly as before.
+ */
+async function loadPermanentSubstitutionsForClerkId(
+  clerkId: string | undefined
+): Promise<PermanentSubstitution[] | undefined> {
+  if (!clerkId) return undefined;
+
+  const user = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.clerkId, clerkId))
+    .limit(1);
+
+  if (user.length === 0) return undefined;
+
+  const rows = await db
+    .select()
+    .from(permanentSubstitutions)
+    .where(eq(permanentSubstitutions.userId, user[0]!.id));
+
+  if (rows.length === 0) return undefined;
+
+  return rows.map((row) => ({
+    originalExerciseId: row.originalExerciseId,
+    substituteExerciseId: row.substituteExerciseId,
+    reason: row.reason as SubstitutionReason,
+    note: row.note ?? undefined,
+    confirmedAt: row.confirmedAt.toISOString(),
+    weightCarries: row.weightCarries,
+  }));
+}
+
+const exerciseRoutes = new Hono<Env>();
 
 // Query schema for list endpoint
 const listQuerySchema = z.object({
@@ -240,9 +317,13 @@ const substitutionQuerySchema = z.object({
   exclude: z.string().optional(), // Comma-separated exercise IDs to exclude
 });
 
-// GET /exercises/:id/substitutes - Find substitutes for an exercise
+// GET /exercises/:id/substitutes - Find substitutes for an exercise.
+// Public route: anonymous callers get unfiltered substitutes. When a valid
+// Clerk token is present and the user has a saved constraint profile, the
+// engine drops candidates the athlete can't safely perform.
 exerciseRoutes.get(
   "/:id/substitutes",
+  optionalAuthMiddleware,
   zValidator("query", substitutionQuerySchema),
   async (c) => {
     const exerciseId = c.req.param("id");
@@ -306,14 +387,47 @@ exerciseRoutes.get(
       updatedAt: row.updatedAt,
     });
 
+    // Apply the athlete's constraint profile and persisted swaps when an authed
+    // user has them saved.
+    const clerkId = c.get("clerkId") as string | undefined;
+    const athleteConstraintsProfile = await loadAthleteConstraintsForClerkId(clerkId);
+    const permanentSubs = await loadPermanentSubstitutionsForClerkId(clerkId);
+
+    // Map the candidate rows to engine `Exercise` objects.
+    const candidateExercises = allExercises.map(mapToExercise);
+
+    // Candidate-presence guarantee: the pre-filter only pulls movement/muscle
+    // overlaps, but a permanent substitute may not overlap the queried exercise.
+    // If a matching swap's substitute isn't already a candidate, fetch and
+    // append it so the engine's short-circuit can honor it.
+    const matchingSub = permanentSubs?.find(
+      (sub) => sub.originalExerciseId === exerciseId
+    );
+    if (
+      matchingSub &&
+      !candidateExercises.some((c) => c.id === matchingSub.substituteExerciseId)
+    ) {
+      const substituteRow = await db
+        .select()
+        .from(exercises)
+        .where(eq(exercises.id, matchingSub.substituteExerciseId))
+        .limit(1);
+
+      if (substituteRow.length > 0) {
+        candidateExercises.push(mapToExercise(substituteRow[0]!));
+      }
+    }
+
     // Find substitutes using the engine algorithm
     const substitutes = getTopSubstitutes(
       {
         exercise: mapToExercise(sourceExercise),
-        candidateExercises: allExercises.map(mapToExercise),
+        candidateExercises,
         availableEquipment,
         maxDifficulty: query.maxDifficulty,
         excludeExerciseIds,
+        athleteConstraints: athleteConstraintsProfile,
+        permanentSubstitutions: permanentSubs,
       },
       query.limit
     );
@@ -325,6 +439,7 @@ exerciseRoutes.get(
           exercise: s.exercise,
           score: Math.round(s.score * 100),
           matchReasons: s.matchReasons,
+          isPermanent: s.isPermanent ?? false,
         })),
       },
     });
