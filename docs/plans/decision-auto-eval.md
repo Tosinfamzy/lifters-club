@@ -1,6 +1,10 @@
 # Plan: Auto-evaluate all decision types
 
 > Backlog item [ROADMAP.md](../ROADMAP.md) §2b. Effort: **M/L**. No DB migration.
+>
+> **Status:** `exercise_rotation`, `deload_recommendation`, `session_recovery` **implemented**.
+> `missed_session` **deferred** (weak completion-time signal — kept manual-only to avoid
+> polluting accuracy stats; the narrow MVP can be added later if wanted).
 
 ## Problem
 On workout completion (`POST /api/logs/:id/complete`), `evaluatePendingDecisions`

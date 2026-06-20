@@ -13,6 +13,67 @@ export interface EvaluationResult {
 }
 
 /**
+ * Session-level facts the service gathers for non-exercise-scoped decisions.
+ *
+ * The engine stays pure: it never queries the DB or reads the clock. The
+ * service computes these aggregates (session RPE, recent RPE window, the linked
+ * readiness check) and passes them in. Existing exercise-scoped evaluators
+ * ignore this context (additive "Option A" design — see the plan doc).
+ */
+export interface EvaluationContext {
+  /** Number of sets completed in the evaluated session (all exercises). */
+  completedSetCount: number;
+  /** Overall RPE the user reported for this session, if any. */
+  sessionOverallRpe?: number;
+  /** Overall RPE of recent prior completed sessions — deload baseline. */
+  recentOverallRpe?: number[];
+  /** Readiness check linked to this session, if one was recorded. */
+  readiness?: { score: number; recommendation: string };
+}
+
+/**
+ * Thresholds for evaluating the non-load/volume decision types.
+ *
+ * Kept in one named-constant config (OCP): tweak the numbers without touching
+ * the evaluator logic. RPE is the standard 1-10 scale.
+ */
+export interface FeedbackEvalConfig {
+  /** Above this avg set RPE, training counts as "grinding" (rotation). */
+  rotationGrindRpe: number;
+  /** A session at/above this overall RPE is "maximal" / unsustainable. */
+  maximalRpe: number;
+  /** "light" session ceiling for set count (rest/light recovery recs). */
+  lightSessionMaxSets: number;
+  /** "light" session ceiling for overall RPE (rest/light recovery recs). */
+  lightSessionMaxRpe: number;
+}
+
+const defaultFeedbackConfig: FeedbackEvalConfig = {
+  rotationGrindRpe: 10,
+  maximalRpe: 9,
+  lightSessionMaxSets: 3,
+  lightSessionMaxRpe: 6,
+};
+
+/**
+ * Average RPE across sets that reported one. Returns undefined when no set
+ * carried an RPE, so callers can distinguish "no signal" from "low effort".
+ */
+function averageRpe(sets: LoggedSet[]): number | undefined {
+  const withRpe = sets.filter((s) => s.rpe !== undefined);
+  if (withRpe.length === 0) return undefined;
+  return withRpe.reduce((sum, s) => sum + (s.rpe ?? 0), 0) / withRpe.length;
+}
+
+/**
+ * Mean of a numeric list, or undefined when empty (avoids divide-by-zero).
+ */
+function mean(values: number[]): number | undefined {
+  if (values.length === 0) return undefined;
+  return values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+/**
  * Evaluate if a load progression decision was successful
  *
  * Success criteria:
@@ -131,19 +192,239 @@ export function evaluateVolumeAdjustment(
 }
 
 /**
- * Generic decision evaluation dispatcher
+ * Evaluate if an exercise rotation decision was successful.
+ *
+ * Counterfactual caveat: this measures *adherence + a productive session*, not
+ * whether the swap was the optimal choice (the path not taken is unobservable).
+ *
+ * Success criteria:
+ * - swap: the user trained the recommended `newExerciseId` and did so without
+ *   grinding (avg RPE below the grind threshold) — the swap was adopted.
+ * - keep: the user kept training `input.exerciseId` without grinding.
+ * Missing relevant sets → not successful (mirrors load/volume "no attempt").
+ */
+export function evaluateExerciseRotation(
+  decision: Decision,
+  subsequentSets: LoggedSet[],
+  config: FeedbackEvalConfig = defaultFeedbackConfig
+): EvaluationResult {
+  const output = decision.output as {
+    action?: "keep" | "swap";
+    newExerciseId?: string;
+  };
+  const input = decision.input as { exerciseId?: string };
+
+  const targetExerciseId =
+    output.action === "swap" ? output.newExerciseId : input.exerciseId;
+
+  if (!targetExerciseId) {
+    return { success: false, reason: "Decision missing required data" };
+  }
+
+  const relevantSets = subsequentSets.filter(
+    (s) => s.exerciseId === targetExerciseId
+  );
+
+  if (relevantSets.length === 0) {
+    return output.action === "swap"
+      ? {
+          success: false,
+          reason: "Recommended swap was not adopted — no sets for new exercise",
+        }
+      : {
+          success: false,
+          reason: "Kept exercise was not trained in this session",
+        };
+  }
+
+  const avgRpe = averageRpe(relevantSets);
+  if (avgRpe !== undefined && avgRpe >= config.rotationGrindRpe) {
+    return {
+      success: false,
+      reason: `Trained ${relevantSets.length} sets but grinding at RPE ${avgRpe.toFixed(1)} (adherence only, not proof of optimal choice)`,
+    };
+  }
+
+  const rpeText = avgRpe !== undefined ? ` at RPE ${avgRpe.toFixed(1)}` : "";
+  return output.action === "swap"
+    ? {
+        success: true,
+        reason: `Adopted swap — trained ${relevantSets.length} productive sets${rpeText} (adherence + outcome, not a counterfactual)`,
+      }
+    : {
+        success: true,
+        reason: `Kept exercise trained without grinding — ${relevantSets.length} sets${rpeText}`,
+      };
+}
+
+/**
+ * Evaluate if a deload recommendation was successful.
+ *
+ * Success criteria:
+ * - recommended: the user actually backed off — this session's overall RPE
+ *   dropped below the mean of recent prior sessions.
+ * - not recommended: the user sustained training (overall RPE below maximal).
+ * Empty `recentOverallRpe` is handled gracefully (no divide-by-zero).
+ */
+export function evaluateDeloadRecommendation(
+  decision: Decision,
+  context: EvaluationContext,
+  config: FeedbackEvalConfig = defaultFeedbackConfig
+): EvaluationResult {
+  const output = decision.output as { recommended?: boolean };
+  const sessionRpe = context.sessionOverallRpe;
+
+  if (sessionRpe === undefined) {
+    return {
+      success: false,
+      reason: "No session RPE recorded — cannot evaluate deload adherence",
+    };
+  }
+
+  if (output.recommended) {
+    const baseline = mean(context.recentOverallRpe ?? []);
+    if (baseline === undefined) {
+      return {
+        success: false,
+        reason: "No recent baseline to compare — cannot confirm the deload",
+      };
+    }
+    if (sessionRpe < baseline) {
+      return {
+        success: true,
+        reason: `Deload heeded — session RPE ${sessionRpe.toFixed(1)} dropped vs recent baseline ${baseline.toFixed(1)}`,
+      };
+    }
+    return {
+      success: false,
+      reason: `Deload ignored — session RPE ${sessionRpe.toFixed(1)} did not drop vs baseline ${baseline.toFixed(1)}`,
+    };
+  }
+
+  // Not recommended: success if the session was sustainable.
+  if (sessionRpe < config.maximalRpe) {
+    return {
+      success: true,
+      reason: `No deload needed and confirmed — session sustained at RPE ${sessionRpe.toFixed(1)}`,
+    };
+  }
+  return {
+    success: false,
+    reason: `No deload recommended but session was maximal (RPE ${sessionRpe.toFixed(1)}) — recovery may have been needed`,
+  };
+}
+
+/**
+ * Evaluate if a session recovery recommendation was successful.
+ *
+ * Counterfactual caveat: we measure whether the user's realized session matched
+ * the recommended modulation, not whether that modulation was ideal.
+ *
+ * Success criteria by recommendation:
+ * - rest_day / light_session: the session was actually light (low set count
+ *   and/or low overall RPE).
+ * - full_session: completed at non-maximal RPE.
+ * - reduced_volume / reduced_intensity: session aggregates sit at/below the
+ *   recommended modulation (fewer sets and/or lower RPE than a full effort).
+ */
+export function evaluateSessionRecovery(
+  decision: Decision,
+  context: EvaluationContext,
+  config: FeedbackEvalConfig = defaultFeedbackConfig
+): EvaluationResult {
+  const output = decision.output as {
+    recommendation?: string;
+    volumeModifier?: number;
+    intensityModifier?: number;
+  };
+
+  const recommendation = output.recommendation;
+  const { completedSetCount, sessionOverallRpe } = context;
+
+  if (!recommendation) {
+    return { success: false, reason: "Decision missing recovery recommendation" };
+  }
+
+  const isLight =
+    completedSetCount <= config.lightSessionMaxSets ||
+    (sessionOverallRpe !== undefined && sessionOverallRpe <= config.lightSessionMaxRpe);
+
+  switch (recommendation) {
+    case "rest_day":
+    case "light_session":
+      return isLight
+        ? {
+            success: true,
+            reason: `Recovery heeded — light session (${completedSetCount} sets${sessionOverallRpe !== undefined ? `, RPE ${sessionOverallRpe.toFixed(1)}` : ""})`,
+          }
+        : {
+            success: false,
+            reason: `Recovery ignored — ${completedSetCount} sets${sessionOverallRpe !== undefined ? ` at RPE ${sessionOverallRpe.toFixed(1)}` : ""}, not the recommended light session`,
+          };
+
+    case "full_session":
+      if (sessionOverallRpe === undefined) {
+        return completedSetCount > 0
+          ? { success: true, reason: `Completed full session — ${completedSetCount} sets logged` }
+          : { success: false, reason: "Full session recommended but nothing was logged" };
+      }
+      return sessionOverallRpe < config.maximalRpe
+        ? {
+            success: true,
+            reason: `Completed full session at non-maximal RPE ${sessionOverallRpe.toFixed(1)}`,
+          }
+        : {
+            success: false,
+            reason: `Full session completed but at maximal RPE ${sessionOverallRpe.toFixed(1)} — recovery may have been insufficient`,
+          };
+
+    case "reduced_volume":
+    case "reduced_intensity":
+    default: {
+      // Backed-off session: at/below maximal effort counts as following the
+      // recommended modulation (adherence, not proof of optimal dosing).
+      if (sessionOverallRpe !== undefined && sessionOverallRpe >= config.maximalRpe) {
+        return {
+          success: false,
+          reason: `Reduction recommended but session hit RPE ${sessionOverallRpe.toFixed(1)} — modulation not applied`,
+        };
+      }
+      return {
+        success: true,
+        reason: `Session modulated per recommendation — ${completedSetCount} sets${sessionOverallRpe !== undefined ? ` at RPE ${sessionOverallRpe.toFixed(1)}` : ""} (adherence, not a counterfactual)`,
+      };
+    }
+  }
+}
+
+/**
+ * Generic decision evaluation dispatcher.
+ *
+ * Exercise-scoped types (load/volume/rotation) read from `subsequentSets`.
+ * Non-exercise types (deload/recovery) read session aggregates from `context`,
+ * which the service supplies. `missed_session` and `weekly_plan_update` remain
+ * manual-only for now and fall through to `null`.
  */
 export function evaluateDecision(
   decision: Decision,
-  subsequentSets: LoggedSet[]
+  subsequentSets: LoggedSet[],
+  context?: EvaluationContext
 ): EvaluationResult | null {
   switch (decision.type) {
     case "load_progression":
       return evaluateLoadProgression(decision, subsequentSets);
     case "volume_adjustment":
       return evaluateVolumeAdjustment(decision, subsequentSets);
+    case "exercise_rotation":
+      return evaluateExerciseRotation(decision, subsequentSets);
+    case "deload_recommendation":
+      if (!context) return null;
+      return evaluateDeloadRecommendation(decision, context);
+    case "session_recovery":
+      if (!context) return null;
+      return evaluateSessionRecovery(decision, context);
     default:
-      // Other decision types don't have automatic evaluation yet
+      // missed_session and weekly_plan_update stay manual-only for now.
       return null;
   }
 }

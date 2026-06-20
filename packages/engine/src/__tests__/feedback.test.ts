@@ -1,10 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { getProgressionModifier } from "../feedback";
+import {
+  getProgressionModifier,
+  evaluateDecision,
+  evaluateExerciseRotation,
+  evaluateDeloadRecommendation,
+  evaluateSessionRecovery,
+} from "../feedback";
+import type { EvaluationContext } from "../feedback";
 import { applyProgressionModifier } from "../progression";
 import { applyVolumeModifier } from "../volume";
 import type { ProgressionConfig } from "../progression";
 import type { VolumeConfig } from "../volume";
-import type { DecisionAccuracyStats, DecisionType } from "@gymapp/types";
+import type {
+  DecisionAccuracyStats,
+  DecisionType,
+  Decision,
+  LoggedSet,
+} from "@gymapp/types";
 
 // Mirrors the engine's module-private defaults (not exported).
 const DEFAULT_PROGRESSION_CONFIG: ProgressionConfig = {
@@ -171,5 +183,285 @@ describe("applyVolumeModifier", () => {
     const input = { ...DEFAULT_VOLUME_CONFIG };
     applyVolumeModifier(1.1, input);
     expect(input).toEqual(DEFAULT_VOLUME_CONFIG);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-evaluation for rotation / deload / recovery (and dispatcher behavior)
+// ---------------------------------------------------------------------------
+
+function makeDecision(
+  type: DecisionType,
+  input: Record<string, unknown>,
+  output: Record<string, unknown>
+): Decision {
+  return {
+    id: "decision-1",
+    userId: "user-1",
+    type,
+    input,
+    output,
+    reasoning: "test",
+    algorithmVersion: "1.1.0",
+    createdAt: new Date(),
+  };
+}
+
+function makeSet(
+  exerciseId: string,
+  rpe: number | undefined,
+  overrides: Partial<LoggedSet> = {}
+): LoggedSet {
+  return {
+    id: `set-${Math.random()}`,
+    workoutLogId: "log-1",
+    exerciseId,
+    setNumber: 1,
+    weight: 100,
+    reps: 8,
+    rpe,
+    createdAt: new Date(),
+    ...overrides,
+  };
+}
+
+describe("evaluateExerciseRotation", () => {
+  it("succeeds when a swap is adopted and trained productively", () => {
+    const decision = makeDecision(
+      "exercise_rotation",
+      { exerciseId: "barbell-back-squat" },
+      { action: "swap", newExerciseId: "front-squat" }
+    );
+    const sets = [makeSet("front-squat", 7), makeSet("front-squat", 8)];
+
+    const result = evaluateExerciseRotation(decision, sets);
+    expect(result.success).toBe(true);
+    expect(result.reason).toMatch(/Adopted swap/);
+  });
+
+  it("fails when a swap is not adopted (no sets for the new exercise)", () => {
+    const decision = makeDecision(
+      "exercise_rotation",
+      { exerciseId: "barbell-back-squat" },
+      { action: "swap", newExerciseId: "front-squat" }
+    );
+    // User trained the OLD exercise, not the recommended new one.
+    const sets = [makeSet("barbell-back-squat", 7)];
+
+    const result = evaluateExerciseRotation(decision, sets);
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/not adopted/);
+  });
+
+  it("succeeds when a keep was trained without grinding", () => {
+    const decision = makeDecision(
+      "exercise_rotation",
+      { exerciseId: "barbell-back-squat" },
+      { action: "keep" }
+    );
+    const sets = [makeSet("barbell-back-squat", 7), makeSet("barbell-back-squat", 8)];
+
+    const result = evaluateExerciseRotation(decision, sets);
+    expect(result.success).toBe(true);
+    expect(result.reason).toMatch(/Kept exercise/);
+  });
+
+  it("fails when a kept exercise was grinding at maximal RPE", () => {
+    const decision = makeDecision(
+      "exercise_rotation",
+      { exerciseId: "barbell-back-squat" },
+      { action: "keep" }
+    );
+    const sets = [makeSet("barbell-back-squat", 10), makeSet("barbell-back-squat", 10)];
+
+    const result = evaluateExerciseRotation(decision, sets);
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/grinding/);
+  });
+
+  it("fails a keep that was not trained in the session", () => {
+    const decision = makeDecision(
+      "exercise_rotation",
+      { exerciseId: "barbell-back-squat" },
+      { action: "keep" }
+    );
+    const result = evaluateExerciseRotation(decision, [makeSet("bench-press", 7)]);
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/not trained/);
+  });
+});
+
+describe("evaluateDeloadRecommendation", () => {
+  it("succeeds when a deload was recommended and session RPE dropped vs baseline", () => {
+    const decision = makeDecision("deload_recommendation", {}, { recommended: true });
+    const context: EvaluationContext = {
+      completedSetCount: 6,
+      sessionOverallRpe: 6,
+      recentOverallRpe: [9, 9, 8.5],
+    };
+
+    const result = evaluateDeloadRecommendation(decision, context);
+    expect(result.success).toBe(true);
+    expect(result.reason).toMatch(/heeded/);
+  });
+
+  it("fails when a deload was recommended but RPE stayed high", () => {
+    const decision = makeDecision("deload_recommendation", {}, { recommended: true });
+    const context: EvaluationContext = {
+      completedSetCount: 6,
+      sessionOverallRpe: 9.5,
+      recentOverallRpe: [9, 9, 8.5],
+    };
+
+    const result = evaluateDeloadRecommendation(decision, context);
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/ignored/);
+  });
+
+  it("succeeds when no deload was recommended and the session was sustainable", () => {
+    const decision = makeDecision("deload_recommendation", {}, { recommended: false });
+    const context: EvaluationContext = {
+      completedSetCount: 6,
+      sessionOverallRpe: 7.5,
+      recentOverallRpe: [7, 8],
+    };
+
+    const result = evaluateDeloadRecommendation(decision, context);
+    expect(result.success).toBe(true);
+  });
+
+  it("handles an empty recent-RPE baseline without dividing by zero", () => {
+    const decision = makeDecision("deload_recommendation", {}, { recommended: true });
+    const context: EvaluationContext = {
+      completedSetCount: 6,
+      sessionOverallRpe: 6,
+      recentOverallRpe: [],
+    };
+
+    const result = evaluateDeloadRecommendation(decision, context);
+    // No baseline → cannot confirm; gracefully not-successful, no NaN/crash.
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/baseline/);
+  });
+});
+
+describe("evaluateSessionRecovery", () => {
+  it("succeeds when a rest recommendation was heeded with a light session", () => {
+    const decision = makeDecision(
+      "session_recovery",
+      {},
+      { recommendation: "rest_day", volumeModifier: 0, intensityModifier: 0 }
+    );
+    const context: EvaluationContext = {
+      completedSetCount: 2,
+      sessionOverallRpe: 4,
+      readiness: { score: 2, recommendation: "rest" },
+    };
+
+    const result = evaluateSessionRecovery(decision, context);
+    expect(result.success).toBe(true);
+    expect(result.reason).toMatch(/heeded/);
+  });
+
+  it("fails when a rest recommendation was ignored with a heavy session", () => {
+    const decision = makeDecision(
+      "session_recovery",
+      {},
+      { recommendation: "rest_day", volumeModifier: 0, intensityModifier: 0 }
+    );
+    const context: EvaluationContext = {
+      completedSetCount: 12,
+      sessionOverallRpe: 9.5,
+    };
+
+    const result = evaluateSessionRecovery(decision, context);
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/ignored/);
+  });
+
+  it("succeeds when a full session was completed at non-maximal RPE", () => {
+    const decision = makeDecision(
+      "session_recovery",
+      {},
+      { recommendation: "full_session", volumeModifier: 1, intensityModifier: 1 }
+    );
+    const context: EvaluationContext = {
+      completedSetCount: 10,
+      sessionOverallRpe: 7.5,
+    };
+
+    const result = evaluateSessionRecovery(decision, context);
+    expect(result.success).toBe(true);
+    expect(result.reason).toMatch(/full session/i);
+  });
+
+  it("succeeds when a reduced-volume session was modulated below maximal", () => {
+    const decision = makeDecision(
+      "session_recovery",
+      {},
+      { recommendation: "reduced_volume", volumeModifier: 0.7, intensityModifier: 1 }
+    );
+    const context: EvaluationContext = {
+      completedSetCount: 6,
+      sessionOverallRpe: 7,
+    };
+
+    const result = evaluateSessionRecovery(decision, context);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("evaluateDecision dispatcher", () => {
+  it("returns null for missed_session (manual-only)", () => {
+    const decision = makeDecision("missed_session", {}, { action: "resume" });
+    expect(evaluateDecision(decision, [])).toBeNull();
+  });
+
+  it("returns null for weekly_plan_update (not completion-evaluable)", () => {
+    const decision = makeDecision("weekly_plan_update", {}, {});
+    expect(evaluateDecision(decision, [])).toBeNull();
+  });
+
+  it("returns null for deload/recovery when no context is provided", () => {
+    const deload = makeDecision("deload_recommendation", {}, { recommended: true });
+    const recovery = makeDecision("session_recovery", {}, { recommendation: "rest_day" });
+    expect(evaluateDecision(deload, [])).toBeNull();
+    expect(evaluateDecision(recovery, [])).toBeNull();
+  });
+
+  it("dispatches deload/recovery when context is provided", () => {
+    const context: EvaluationContext = {
+      completedSetCount: 2,
+      sessionOverallRpe: 4,
+      recentOverallRpe: [9],
+    };
+    const deload = makeDecision("deload_recommendation", {}, { recommended: true });
+    const recovery = makeDecision("session_recovery", {}, { recommendation: "rest_day" });
+    expect(evaluateDecision(deload, [], context)).not.toBeNull();
+    expect(evaluateDecision(recovery, [], context)).not.toBeNull();
+  });
+
+  it("evaluates load_progression unchanged when context is omitted", () => {
+    const decision = makeDecision(
+      "load_progression",
+      { exerciseId: "bench-press", targetRepRange: [8, 10] },
+      { action: "increase", newWeight: 100 }
+    );
+    const sets = [makeSet("bench-press", 7, { weight: 100, reps: 9 })];
+    const result = evaluateDecision(decision, sets);
+    expect(result).not.toBeNull();
+    expect(result!.success).toBe(true);
+  });
+
+  it("evaluates volume_adjustment unchanged when context is omitted", () => {
+    const decision = makeDecision(
+      "volume_adjustment",
+      { exerciseId: "bench-press" },
+      { action: "add_set", newSetCount: 2 }
+    );
+    const sets = [makeSet("bench-press", 7), makeSet("bench-press", 7)];
+    const result = evaluateDecision(decision, sets);
+    expect(result).not.toBeNull();
+    expect(result!.success).toBe(true);
   });
 });

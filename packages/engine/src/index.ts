@@ -17,6 +17,9 @@ export { calculateSessionReadiness } from "./readiness";
 export {
   evaluateLoadProgression,
   evaluateVolumeAdjustment,
+  evaluateExerciseRotation,
+  evaluateDeloadRecommendation,
+  evaluateSessionRecovery,
   evaluateDecision,
   getProgressionModifier,
   getDecisionConfidence,
@@ -98,7 +101,7 @@ export type {
 } from "./readiness";
 
 // Feedback types
-export type { EvaluationResult } from "./feedback";
+export type { EvaluationResult, EvaluationContext, FeedbackEvalConfig } from "./feedback";
 
 // Config types for customization
 export type { ProgressionConfig } from "./progression";

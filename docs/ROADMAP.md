@@ -67,7 +67,12 @@ so the engine adjusts aggressiveness based on the user's historical decision
 accuracy (followed + successful → more confident; overridden → more cautious).
 → **Detailed plan: [plans/decision-self-tuning.md](plans/decision-self-tuning.md)**
 
-### 2b. Auto-evaluate remaining decision types — **M**
+### 2b. Auto-evaluate remaining decision types — **mostly done** ✅
+**Done:** `exercise_rotation`, `deload_recommendation`, `session_recovery` now auto-evaluate
+on completion (additive `EvaluationContext`). **Remaining:** `missed_session` (deferred —
+weak completion-time signal; manual-only for now, narrow MVP optional later).
+
+
 `evaluatePendingDecisions` (`apps/server/src/services/decision-eval.ts`) runs on
 workout completion and is generic, but the engine's `evaluateDecision` only
 meaningfully scores `load_progression` and `volume_adjustment`. The other four —
