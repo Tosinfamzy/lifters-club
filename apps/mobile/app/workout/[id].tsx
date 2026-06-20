@@ -305,6 +305,24 @@ export default function WorkoutScreen() {
     setActiveSuggestion(null);
   };
 
+  // Promote a flagged mid-session PR to next session's baseline (explicit tap).
+  // Independent of accept/dismiss — the set is already online (the suggestion
+  // only renders online), so this is a direct write.
+  const handlePromoteBaseline = () => {
+    const s = activeSuggestion;
+    if (!s?.newBaselineIfConfirmed || !appUser) return;
+    void api
+      .saveUserBaselines(appUser.id, [
+        {
+          exerciseId: s.exerciseId,
+          weight: s.newBaselineIfConfirmed.weight,
+          reps: s.newBaselineIfConfirmed.reps,
+          source: "user_input",
+        },
+      ])
+      .catch((error) => console.error("Failed to promote baseline:", error));
+  };
+
   const handleExerciseAction = useCallback(
     (action: ExerciseAction) => {
       setShowExerciseActions(false);
@@ -545,9 +563,11 @@ export default function WorkoutScreen() {
             coach={
               activeSuggestion ? (
                 <WithinSessionCoachCard
+                  key={`${activeSuggestion.exerciseId}-${activeSuggestion.setIndex}`}
                   suggestion={activeSuggestion}
                   onAccept={handleAcceptSuggestion}
                   onDismiss={handleDismissSuggestion}
+                  onPromoteBaseline={handlePromoteBaseline}
                 />
               ) : null
             }
