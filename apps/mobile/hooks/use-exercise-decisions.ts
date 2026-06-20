@@ -185,5 +185,8 @@ export function useExerciseDecisions(
     openDecisionModal,
     handleAcceptDecision,
     handleOverrideDecision,
+    // Exposed so the live within-session coach card can record its own
+    // followed/overridden outcome against the persisted decision id.
+    recordDecisionOutcome,
   };
 }

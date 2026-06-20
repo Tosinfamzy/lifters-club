@@ -36,6 +36,7 @@ export interface LoadRecommendation {
  */
 export interface WithinSessionSuggestion {
   exerciseId: string;
+  exerciseIndex: number;
   setIndex: number;
   action: "increase" | "maintain" | "decrease";
   nextSetWeight: number;

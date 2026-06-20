@@ -87,6 +87,7 @@ export default function WorkoutScreen() {
   const {
     exerciseDecisions, selectedDecision, showDecisionModal, setShowDecisionModal,
     fetchExerciseDecisions, openDecisionModal, handleAcceptDecision, handleOverrideDecision,
+    recordDecisionOutcome,
   } = useExerciseDecisions(workout, isOnline);
 
   const { recentlyCompleted, countdownSeconds, finishWorkout, undoCompletion } =
@@ -252,6 +253,7 @@ export default function WorkoutScreen() {
   // lands. Only meaningful when another set follows (caller guards on that).
   const fetchWithinSessionSuggestion = async (
     exercise: ExerciseProgress,
+    exerciseIndex: number,
     setIndex: number
   ) => {
     const input = buildWithinSessionInput(exercise, setIndex);
@@ -266,6 +268,7 @@ export default function WorkoutScreen() {
 
       setActiveSuggestion({
         exerciseId: exercise.exerciseId,
+        exerciseIndex,
         setIndex,
         action: response.data.action,
         nextSetWeight: response.data.nextSetWeight,
@@ -277,6 +280,29 @@ export default function WorkoutScreen() {
     } catch (error) {
       console.error("Failed to fetch within-session suggestion:", error);
     }
+  };
+
+  // Accept the live suggestion: record it as followed and pre-fill the next
+  // (uncompleted) set's weight so the athlete starts from the prescribed load.
+  const handleAcceptSuggestion = () => {
+    const s = activeSuggestion;
+    if (!s) return;
+    if (s.decisionId) recordDecisionOutcome(s.decisionId, "followed");
+
+    const nextSetIndex = s.setIndex + 1;
+    const nextSet = exercises[s.exerciseIndex]?.sets[nextSetIndex];
+    if (nextSet && !nextSet.completed) {
+      updateSet(s.exerciseIndex, nextSetIndex, "weight", String(s.nextSetWeight));
+    }
+    setActiveSuggestion(null);
+  };
+
+  // Dismiss the suggestion: record it as overridden (feeds self-tuning).
+  const handleDismissSuggestion = () => {
+    const s = activeSuggestion;
+    if (!s) return;
+    if (s.decisionId) recordDecisionOutcome(s.decisionId, "overridden");
+    setActiveSuggestion(null);
   };
 
   const handleExerciseAction = useCallback(
@@ -450,7 +476,7 @@ export default function WorkoutScreen() {
     // server-side; a stale prescription is useless) and non-blocking — the card
     // pops into the rest overlay when it lands.
     if (hasMoreSetsInExercise && isOnline) {
-      void fetchWithinSessionSuggestion(updatedExercise, setIndex);
+      void fetchWithinSessionSuggestion(updatedExercise, exerciseIndex, setIndex);
     }
   };
 
@@ -518,7 +544,11 @@ export default function WorkoutScreen() {
             onSkip={skipRest}
             coach={
               activeSuggestion ? (
-                <WithinSessionCoachCard suggestion={activeSuggestion} />
+                <WithinSessionCoachCard
+                  suggestion={activeSuggestion}
+                  onAccept={handleAcceptSuggestion}
+                  onDismiss={handleDismissSuggestion}
+                />
               ) : null
             }
           />

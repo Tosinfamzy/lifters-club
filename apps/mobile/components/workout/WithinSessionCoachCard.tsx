@@ -1,9 +1,13 @@
-import { View, Text, StyleSheet } from "react-native";
-import { TrendingUp, TrendingDown, Minus, Sparkles } from "lucide-react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { TrendingUp, TrendingDown, Minus, Sparkles, Check } from "lucide-react-native";
 import type { WithinSessionSuggestion } from "./workout.types";
 
 interface WithinSessionCoachCardProps {
   suggestion: WithinSessionSuggestion;
+  /** Accept: record "followed" and pre-fill the next set's weight. */
+  onAccept: () => void;
+  /** Dismiss: record "overridden" and hide. */
+  onDismiss: () => void;
 }
 
 const ACTION_META = {
@@ -25,7 +29,11 @@ function formatDelta(next: number, previous: number): string {
  * reason. Display-only for now — accept/override + baseline promotion land in
  * later PRs.
  */
-export function WithinSessionCoachCard({ suggestion }: WithinSessionCoachCardProps) {
+export function WithinSessionCoachCard({
+  suggestion,
+  onAccept,
+  onDismiss,
+}: WithinSessionCoachCardProps) {
   const meta = ACTION_META[suggestion.action];
   const { Icon } = meta;
   const delta = formatDelta(suggestion.nextSetWeight, suggestion.previousWeight);
@@ -53,6 +61,19 @@ export function WithinSessionCoachCard({ suggestion }: WithinSessionCoachCardPro
           <Text style={styles.prHintText}>New best weight — nice work</Text>
         </View>
       )}
+
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={[styles.acceptButton, { backgroundColor: meta.color }]}
+          onPress={onAccept}
+        >
+          <Check size={15} color="#0F172A" />
+          <Text style={styles.acceptText}>Use it</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.dismissButton} onPress={onDismiss}>
+          <Text style={styles.dismissText}>Dismiss</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -111,6 +132,35 @@ const styles = StyleSheet.create({
   prHintText: {
     color: "#FACC15",
     fontSize: 12,
+    fontWeight: "600",
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 14,
+  },
+  acceptButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 10,
+    paddingVertical: 10,
+  },
+  acceptText: {
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  dismissButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  dismissText: {
+    color: "#94A3B8",
+    fontSize: 14,
     fontWeight: "600",
   },
 });
