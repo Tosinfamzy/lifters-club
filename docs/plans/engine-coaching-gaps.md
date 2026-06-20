@@ -14,7 +14,11 @@ Effort: **S** hours · **M** day or two · **L** multi-day. All are engine-level
 
 ---
 
-## Issue 1 — Athlete constraint profile as a first-class engine input — **High · M–L**
+## Issue 1 — Athlete constraint profile as a first-class engine input — **MVP ✅ SHIPPED · phase 2 pending**
+> MVP shipped: equipment/movement/banned filtering in `findSubstitutes` + corrective-priority
+> volume protection + CRUD. **Phase 2 pending:** weekly-plan enforcement (needs exercise-library
+> wiring into the planning service) + grip handling (needs a `grip` attribute + reseed to close the
+> wrist case). See [issue-1-athlete-constraints.md](issue-1-athlete-constraints.md).
 **Problem:** the engine can recommend movements an injured athlete can't safely do; constraints
 live outside the engine and are applied by a human.
 **Current state (grounded):** *partially scaffolded already* — exercises have a `constraints`
@@ -44,7 +48,10 @@ But the evidence shows the athlete *exceeded* the menstrual "hold" (hit 127.5 kg
 `allowNewWeightTests: false` (no new maxes during menstrual) rather than a forced % cut. Phase
 must be re-evaluated at session level (it can change mid-week), not baked into the weekly plan.
 
-## Issue 3 — Persist permanent substitutions — **Medium · M**
+## Issue 3 — Persist permanent substitutions — **✅ SHIPPED (MVP) · weight-carry pending**
+> Shipped: persistence + CRUD + `findSubstitutes` short-circuit + substitutes-route threading.
+> **Pending:** weight-carry read-through (folds into weekly-plan assembly in Issue 1 phase 2).
+> See [issue-3-permanent-substitutions.md](issue-3-permanent-substitutions.md).
 **Problem:** `findSubstitutes` re-derives every time with no memory; permanent swaps (fit/anatomy/
 injury, not daily equipment) get silently un-applied (real incident: bilateral leg press done in
 error because the permanent BSS swap wasn't enforced).
