@@ -14,6 +14,20 @@ export const userPreferencesSchema = z.object({
   weightUnit: weightUnitSchema.optional(),
 });
 
+/**
+ * Cycle-phase protocol sent transiently in a load-progression request.
+ *
+ * `loadModifier` is bounded to [0.5, 1] so the cycle axis can only hold or
+ * reduce load, never increase it. All tuning fields are optional — the route
+ * merges this partial over the engine's `defaultCyclePhaseConfig[phase]`.
+ */
+export const cyclePhaseSchema = z.object({
+  phase: z.enum(["menstrual", "follicular", "ovulatory", "luteal"]),
+  dayOfPhase: z.number().int().min(1).max(40).optional(),
+  loadModifier: z.number().min(0.5).max(1).optional(),
+  allowNewWeightTests: z.boolean().optional(),
+});
+
 export const plannedExerciseSchema = z.object({
   exerciseId: z.string().min(1),
   sets: z.number().int().min(1).max(10),
@@ -138,6 +152,7 @@ export const generateWeeklyPlanSchema = z.object({
 
 // ============ Type Exports ============
 
+export type CyclePhaseInput = z.infer<typeof cyclePhaseSchema>;
 export type UserPreferencesInput = z.infer<typeof userPreferencesSchema>;
 export type PlannedExerciseInput = z.infer<typeof plannedExerciseSchema>;
 export type CreateProgramInput = z.infer<typeof createProgramSchema>;

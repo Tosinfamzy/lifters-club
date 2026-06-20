@@ -193,7 +193,9 @@ export function generateWeeklyPlan(
         ? constraintDecision.substituteExerciseId
         : undefined;
 
-    // Calculate load progression
+    // Calculate load progression. Cycle phase is intentionally NOT threaded
+    // here: it is a session-time re-evaluation (the plan is generated ahead,
+    // but phase changes mid-week), applied at the /load-progression endpoint.
     const loadDecision = calculateLoadProgression({
       exerciseId: exercise.exerciseId,
       recentSets: exercise.recentSets,
