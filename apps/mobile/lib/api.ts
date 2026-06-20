@@ -287,6 +287,19 @@ export interface LoadRecommendation {
   confidence: string;
 }
 
+/**
+ * Per-set, within-session coaching result from `POST /decisions/within-session`.
+ * Mirrors the engine's `WithinSessionDecision` plus the persisted `decisionId`
+ * (null for anonymous calls) so the client can record an accept/override outcome.
+ */
+export interface WithinSessionRecommendation {
+  action: "increase" | "maintain" | "decrease";
+  nextSetWeight: number;
+  reason: string;
+  newBaselineIfConfirmed?: { weight: number; reps: number };
+  decisionId: string | null;
+}
+
 // Week generation types
 export interface GenerateWeekResponse {
   workouts: Workout[];
@@ -720,6 +733,27 @@ class ApiClient {
   }) {
     return this.request<ApiResponse<LoadRecommendation>>(
       "/api/decisions/load-progression",
+      { method: "POST", body: JSON.stringify(data) }
+    );
+  }
+
+  /**
+   * Per-set live coaching: given the set just completed, get the prescribed next
+   * set's load and (when present) a mid-session PR flag. `userId`/`workoutId`
+   * persist the decision so an accept/override outcome can be recorded against it.
+   */
+  async getWithinSessionAdjustment(data: {
+    exerciseId: string;
+    completedSet: { weight: number; reps: number; rpe?: number };
+    targetRepRange: [number, number];
+    plannedWeight: number;
+    remainingSets: number;
+    targetRpe?: number;
+    userId?: string;
+    workoutId?: string;
+  }) {
+    return this.request<ApiResponse<WithinSessionRecommendation>>(
+      "/api/decisions/within-session",
       { method: "POST", body: JSON.stringify(data) }
     );
   }
