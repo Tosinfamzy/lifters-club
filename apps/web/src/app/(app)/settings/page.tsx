@@ -26,6 +26,7 @@ import { useApi } from "@/lib/use-api";
 import { ConstraintsCard } from "@/components/settings/constraints-card";
 import { SubstitutionsCard } from "@/components/settings/substitutions-card";
 import { EquipmentInstancesCard } from "@/components/settings/equipment-instances-card";
+import { CyclePhaseCard } from "@/components/settings/cycle-phase-card";
 
 interface NotificationPreferences {
   emailWorkoutReminders: boolean;
@@ -343,6 +344,7 @@ export default function SettingsPage() {
             <ConstraintsCard />
             <SubstitutionsCard />
             <EquipmentInstancesCard />
+            <CyclePhaseCard />
           </div>
         </div>
       </div>
