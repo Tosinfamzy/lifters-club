@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import type { WeightUnit } from "@gymapp/types";
 import { useAppUser } from "@/providers/user-provider";
 import { useApi } from "@/lib/use-api";
+import { ConstraintsCard } from "@/components/settings/constraints-card";
 
 interface NotificationPreferences {
   emailWorkoutReminders: boolean;
@@ -328,6 +329,15 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </div>
+        </div>
+
+        {/* Coaching Profile Section */}
+        <div className="pt-4">
+          <h2 className="text-xl font-semibold mb-4">Coaching Profile</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Context the decision engine uses to tailor and keep your training safe.
+          </p>
+          <ConstraintsCard />
         </div>
       </div>
   );

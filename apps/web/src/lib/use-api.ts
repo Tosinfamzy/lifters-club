@@ -44,6 +44,14 @@ export function useApi() {
         data: Parameters<typeof baseApi.recordDecisionOutcome>[1]
       ) => authenticatedRequest((client) => client.recordDecisionOutcome(decisionId, data)),
 
+      getConstraints: (userId: string) =>
+        authenticatedRequest((client) => client.getConstraints(userId)),
+
+      updateConstraints: (
+        userId: string,
+        data: Parameters<typeof baseApi.updateConstraints>[1]
+      ) => authenticatedRequest((client) => client.updateConstraints(userId, data)),
+
       getTrainingBlocks: (userId: string, status?: string) =>
         authenticatedRequest((client) => client.getTrainingBlocks(userId, status)),
 

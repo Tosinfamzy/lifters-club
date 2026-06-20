@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { MovementPattern } from "@gymapp/types";
+import type { MovementPattern, AthleteConstraints } from "@gymapp/types";
 import type { CalibrationPath } from "@gymapp/types";
+import type { AthleteConstraintsInput } from "@gymapp/validation";
 
 // Server-side (Docker): use internal service name; Client-side (browser): use public URL
 export const API_BASE_URL =
@@ -465,6 +466,20 @@ class ApiClient {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  }
+
+  // Athlete constraint profile (injuries / equipment / mobility / grip)
+  async getConstraints(userId: string) {
+    return this.request<ApiResponse<AthleteConstraints & { userId: string }>>(
+      `/api/users/${userId}/constraints`
+    );
+  }
+
+  async updateConstraints(userId: string, data: AthleteConstraintsInput) {
+    return this.request<ApiResponse<AthleteConstraints & { userId: string }>>(
+      `/api/users/${userId}/constraints`,
+      { method: "PUT", body: JSON.stringify(data) }
+    );
   }
 
   // Workout log details
