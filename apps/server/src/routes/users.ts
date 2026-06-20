@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
-import { users, trainingBlocks, readinessChecks, userBaselines, athleteConstraints, permanentSubstitutions } from "@gymapp/db/schema";
-import { athleteConstraintsSchema, permanentSubstitutionSchema } from "@gymapp/validation";
+import { users, trainingBlocks, readinessChecks, userBaselines, athleteConstraints, permanentSubstitutions, gymEquipmentInstances } from "@gymapp/db/schema";
+import { athleteConstraintsSchema, permanentSubstitutionSchema, equipmentInstanceSchema } from "@gymapp/validation";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import {
@@ -738,6 +738,111 @@ userRoutes.delete("/:id/substitutions/:originalExerciseId", async (c) => {
   logger.info({ userId, originalExerciseId }, "Permanent substitution removed");
 
   return c.json({ message: "Permanent substitution removed" });
+});
+
+// ============ Equipment Instances ============
+
+/** Map an equipment-instance row to its API shape (null columns → undefined). */
+function toEquipmentInstance(row: typeof gymEquipmentInstances.$inferSelect) {
+  return {
+    exerciseId: row.exerciseId,
+    incrementConstraint: row.incrementConstraint ?? undefined,
+    minWeight: row.minWeight ?? undefined,
+    confirmedWorkingWeight: row.confirmedWorkingWeight ?? undefined,
+    label: row.label ?? undefined,
+  };
+}
+
+// GET /:id/equipment-instances - List the athlete's saved machines (requires ownership)
+userRoutes.get("/:id/equipment-instances", async (c) => {
+  const userId = c.req.param("id");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  const rows = await db
+    .select()
+    .from(gymEquipmentInstances)
+    .where(eq(gymEquipmentInstances.userId, userId));
+
+  return c.json({ data: rows.map(toEquipmentInstance) });
+});
+
+// PUT /:id/equipment-instances - Upsert one instance, keyed by (userId, exerciseId).
+// Repeated saves for the same exercise replace it (one row per exercise).
+userRoutes.put(
+  "/:id/equipment-instances",
+  zValidator("json", equipmentInstanceSchema),
+  async (c) => {
+    const userId = c.req.param("id");
+    const data = c.req.valid("json");
+
+    // Verify the authenticated user owns this resource
+    const authResult = await verifyUserAccess(c, userId);
+    if (!authResult.authorized) {
+      return authResult.response;
+    }
+
+    // Upsert by (userId, exerciseId) via delete-then-insert, mirroring the
+    // substitutions/constraints handlers. Keeps the write idempotent.
+    const now = new Date();
+    await db
+      .delete(gymEquipmentInstances)
+      .where(
+        and(
+          eq(gymEquipmentInstances.userId, userId),
+          eq(gymEquipmentInstances.exerciseId, data.exerciseId)
+        )
+      );
+
+    const [inserted] = await db
+      .insert(gymEquipmentInstances)
+      .values({
+        id: `eq_${nanoid(12)}`,
+        userId,
+        exerciseId: data.exerciseId,
+        incrementConstraint: data.incrementConstraint ?? null,
+        minWeight: data.minWeight ?? null,
+        confirmedWorkingWeight: data.confirmedWorkingWeight ?? null,
+        label: data.label ?? null,
+        updatedAt: now,
+      })
+      .returning();
+
+    const logger = c.get("logger") ?? globalLogger;
+    logger.info({ userId, exerciseId: data.exerciseId }, "Equipment instance saved");
+
+    return c.json({ data: toEquipmentInstance(inserted!) });
+  }
+);
+
+// DELETE /:id/equipment-instances/:exerciseId - Remove a saved machine.
+userRoutes.delete("/:id/equipment-instances/:exerciseId", async (c) => {
+  const userId = c.req.param("id");
+  const exerciseId = c.req.param("exerciseId");
+
+  // Verify the authenticated user owns this resource
+  const authResult = await verifyUserAccess(c, userId);
+  if (!authResult.authorized) {
+    return authResult.response;
+  }
+
+  await db
+    .delete(gymEquipmentInstances)
+    .where(
+      and(
+        eq(gymEquipmentInstances.userId, userId),
+        eq(gymEquipmentInstances.exerciseId, exerciseId)
+      )
+    );
+
+  const logger = c.get("logger") ?? globalLogger;
+  logger.info({ userId, exerciseId }, "Equipment instance removed");
+
+  return c.json({ message: "Equipment instance removed" });
 });
 
 export { userRoutes };

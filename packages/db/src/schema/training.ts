@@ -256,6 +256,33 @@ export const permanentSubstitutions = training.table("permanent_substitutions", 
   uniqueIndex("permanent_substitutions_user_original_idx").on(table.userId, table.originalExerciseId),
 ]);
 
+// Gym equipment instances - per-(user, exercise) physical-machine data so the
+// engine can snap a prescribed load to a weight the machine can actually make
+// and prefer a confirmed working weight as the cold-start baseline. One row per
+// (user, exercise); the nullable `label` leaves room to relax to named machines
+// later without a destructive migration. Exercise ids are varchar (not
+// cross-schema FKs), mirroring `userBaselines.exerciseId`.
+export const gymEquipmentInstances = training.table("gym_equipment_instances", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+  exerciseId: varchar("exercise_id", { length: 64 }).notNull(),
+
+  // All nullable: the engine treats an absent increment as "no snap", an absent
+  // minWeight as 0, and an absent confirmed weight as "no baseline preference".
+  incrementConstraint: real("increment_constraint"),
+  minWeight: real("min_weight"),
+  confirmedWorkingWeight: real("confirmed_working_weight"),
+
+  // Optional human label for a specific machine (e.g. "blue cable station").
+  label: varchar("label", { length: 255 }),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("gym_equipment_instances_user_id_idx").on(table.userId),
+  uniqueIndex("gym_equipment_instances_user_exercise_idx").on(table.userId, table.exerciseId),
+]);
+
 // Workout templates - reusable workout blueprints (e.g., "Back Day", "Push Day")
 export const workoutTemplates = training.table("workout_templates", {
   id: varchar("id", { length: 64 }).primaryKey(),
