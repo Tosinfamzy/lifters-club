@@ -73,9 +73,18 @@ function skipIfNoSeedData() {
 
 describe("Exercise API", () => {
   beforeAll(async () => {
-    // Check if seed data exists (don't fail, just skip dependent tests)
-    const count = await db.select().from(exercises).limit(1);
-    hasSeededData = count.length > 0;
+    // Check for a SPECIFIC canonical seed exercise the tests actually query —
+    // not a bare row count. Vitest runs test files in parallel against one shared
+    // test DB, so any other file inserting an exercise would flip a `count > 0`
+    // guard true and make these seed-dependent tests RUN (and 404) without real
+    // seed data. Gating on `barbell-back-squat` (the id the :id test fetches, and
+    // a proxy for the all-or-nothing seed) makes the skip deterministic.
+    const seeded = await db
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, "barbell-back-squat"))
+      .limit(1);
+    hasSeededData = seeded.length > 0;
     if (!hasSeededData) {
       console.warn("⚠️  No seed data found - some exercise tests will be skipped. Run 'make seed' to enable all tests.");
     }
