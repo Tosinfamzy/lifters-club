@@ -1,5 +1,5 @@
 // Engine version - bump when algorithm logic changes
-export const ENGINE_VERSION = "1.1.0";
+export const ENGINE_VERSION = "1.2.0";
 
 // Core decision functions
 export {
@@ -12,6 +12,10 @@ export { calculateExerciseRotation } from "./rotation";
 export { calculateDeloadNeed } from "./deload";
 export { calculateSessionRecovery } from "./recovery";
 export { calculateMissedSessionHandling } from "./missed-session";
+export {
+  calculateWithinSessionAdjustment,
+  defaultWithinSessionConfig,
+} from "./within-session";
 export { generateWeeklyPlan, calculatePerformanceTrend, generateQuickWorkout } from "./planning";
 
 // Readiness assessment
@@ -77,6 +81,14 @@ export type {
   MissedSessionDecision,
   MissedSessionConfig,
 } from "./missed-session";
+
+// Within-session types
+export type {
+  WithinSessionInput,
+  WithinSessionAction,
+  WithinSessionDecision,
+  WithinSessionConfig,
+} from "./within-session";
 
 // Planning types
 export type {

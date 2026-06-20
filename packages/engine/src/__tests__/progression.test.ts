@@ -377,4 +377,135 @@ describe("calculateLoadProgression", () => {
       expect(result.newWeight).toBe(100);
     });
   });
+
+  describe("equipment instance (Issue 5)", () => {
+    it("snaps an increase DOWN to the machine's increment", () => {
+      // +2.5 target lands between this cable's 5kg steps → snaps back down.
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [
+          { reps: 12, rpe: 6, weight: 40 },
+          { reps: 12, rpe: 6, weight: 40 },
+        ],
+        currentWeight: 40,
+        targetRepRange: [10, 12],
+        equipment: { incrementConstraint: 5 },
+      };
+
+      const result = calculateLoadProgression(input);
+
+      // Core wants 42.5 (40 + 2.5 small increment); machine snaps to 40.
+      expect(result.newWeight).toBe(40);
+      expect(result.reason).toMatch(/snapped to 40kg/);
+    });
+
+    it("snaps a between-steps target down to the nearest achievable load", () => {
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [
+          { reps: 12, rpe: 6, weight: 47 },
+          { reps: 12, rpe: 6, weight: 47 },
+        ],
+        currentWeight: 47,
+        targetRepRange: [10, 12],
+        equipment: { incrementConstraint: 5, minWeight: 5 },
+      };
+
+      const result = calculateLoadProgression(input);
+
+      // Core wants 47 + 2.5 = 49.5; achievable = 5 + k*5 → 45 is the largest ≤ 49.5.
+      expect(result.newWeight).toBe(45);
+    });
+
+    it("leaves the weight untouched when the target is already achievable", () => {
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [
+          { reps: 12, rpe: 6, weight: 50 },
+          { reps: 12, rpe: 6, weight: 50 },
+        ],
+        currentWeight: 50,
+        targetRepRange: [10, 12],
+        equipment: { incrementConstraint: 5 },
+      };
+
+      const result = calculateLoadProgression(input);
+
+      // 50 >= threshold → +5 increment = 55, a clean multiple of 5 → no snap.
+      expect(result.newWeight).toBe(55);
+      expect(result.reason).not.toMatch(/snapped/);
+    });
+
+    it("floors the snapped weight at minWeight", () => {
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [{ reps: 4, rpe: 10, weight: 7 }],
+        currentWeight: 7,
+        targetRepRange: [10, 12],
+        equipment: { incrementConstraint: 5, minWeight: 5 },
+      };
+
+      const result = calculateLoadProgression(input);
+
+      // Core decreases below the carriage minimum → floored at 5.
+      expect(result.action).toBe("decrease");
+      expect(result.newWeight).toBe(5);
+    });
+
+    it("prefers confirmedWorkingWeight as the cold-start baseline", () => {
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [],
+        currentWeight: 30,
+        targetRepRange: [10, 12],
+        equipment: { confirmedWorkingWeight: 42.5, incrementConstraint: 2.5 },
+      };
+
+      const result = calculateLoadProgression(input);
+
+      expect(result.action).toBe("maintain");
+      expect(result.newWeight).toBe(42.5);
+      expect(result.reason).toMatch(/confirmed working weight/i);
+    });
+
+    it("applies the equipment snap AFTER cycle-phase scaling", () => {
+      // Luteal 0.9 scales 105 → 94.5; machine (5kg steps) snaps down to 90.
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [
+          { reps: 12, rpe: 6, weight: 100 },
+          { reps: 12, rpe: 6, weight: 100 },
+        ],
+        currentWeight: 100,
+        targetRepRange: [10, 12],
+        cyclePhase: {
+          phase: "luteal",
+          loadModifier: 0.9,
+          allowNewWeightTests: true,
+        },
+        equipment: { incrementConstraint: 5 },
+      };
+
+      const result = calculateLoadProgression(input);
+
+      expect(result.newWeight).toBe(90);
+    });
+
+    it("is byte-identical to pre-equipment behavior when no equipment is supplied", () => {
+      const input: ProgressionInput = {
+        exerciseId: "cable-row",
+        recentSets: [
+          { reps: 12, rpe: 6, weight: 40 },
+          { reps: 12, rpe: 6, weight: 40 },
+        ],
+        currentWeight: 40,
+        targetRepRange: [10, 12],
+      };
+
+      const result = calculateLoadProgression(input);
+
+      expect(result.newWeight).toBe(42.5); // unchanged 2.5kg increment
+      expect(result.reason).not.toMatch(/snapped/);
+    });
+  });
 });

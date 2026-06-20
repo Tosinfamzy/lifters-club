@@ -61,7 +61,12 @@ the stored sub; **working weight carries** to the substitute when `weightCarries
 progression). Pairs with Issue 1 (a constraint-omitted exercise needs a stored substitute).
 **Take:** self-contained, clear DoD, removes a real error class. Good medium-effort win.
 
-## Issue 4 — Within-session, set-by-set load adjustment — **Medium · M (engine) + L (mobile)**
+## Issue 4 — Within-session, set-by-set load adjustment — **ENGINE + API ✅ SHIPPED · mobile pending**
+> Shipped: pure `calculateWithinSessionAdjustment` (deviation-from-target-RPE model, reuse-existing-
+> increment step, `newBaselineIfConfirmed` mid-session PR flag) + `POST /api/decisions/within-session`.
+> **Phase B pending:** the mobile in-session live-coaching UI (the L) that surfaces the suggestion
+> live and captures accept/override + baseline-promotion. See
+> [issue-4-within-session.md](issue-4-within-session.md).
 **Problem:** the engine is weekly; live coaching is per-set. A weight that moved fast on set 1
 should trigger an increase on set 2 — and can establish a new baseline mid-session (real example:
 hamstring curl 25→27.5→30 kg in one session set a new working weight).
@@ -74,7 +79,12 @@ achieved weight, not the planned one.
 is a clean M, **but the value is unlocked by mobile in-session UI** (accept set feedback, surface
 reasoning live) — that's the L, and a product-mode decision. Biggest bet here.
 
-## Issue 5 — Equipment-instance data — **Low–Medium · M**
+## Issue 5 — Equipment-instance data — **SNAP SLICE ✅ SHIPPED · data-entry pending**
+> Shipped: `EquipmentInstance` input on `calculateLoadProgression` — increment-snap (rounds DOWN, never
+> prescribes an unachievable load) + `confirmedWorkingWeight` preferred as the cold-start baseline,
+> threaded through the load-progression route. **Phase B pending:** the `gym_equipment_instances` table +
+> CRUD + per-machine data-entry UI (the friction), plus `weightOffset`/`setupNotes`. See
+> [issue-5-equipment-instances.md](issue-5-equipment-instances.md).
 **Problem:** the taxonomy treats all machines of a type as equivalent; real machines differ in
 geometry (different working weights) and have fixed increments, so a target can be unachievable
 (16 kg target on a cable that only does 15 kg).

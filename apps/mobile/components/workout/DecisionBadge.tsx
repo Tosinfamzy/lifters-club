@@ -16,6 +16,7 @@ const DECISION_BADGES: Record<
   session_recovery: { icon: "~", color: "#6366F1", bgColor: "#6366F120" },
   missed_session: { icon: "⟳", color: "#EC4899", bgColor: "#EC489920" },
   weekly_plan_update: { icon: "📋", color: "#14B8A6", bgColor: "#14B8A620" },
+  within_session: { icon: "⚡", color: "#10B981", bgColor: "#10B98120" },
 };
 
 export interface DecisionBadgeProps {
