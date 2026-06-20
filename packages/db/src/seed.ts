@@ -13,7 +13,7 @@ const db = drizzle(client);
 
 type ExerciseInsert = typeof exercises.$inferInsert;
 
-const exerciseSeedData: ExerciseInsert[] = [
+export const exerciseSeedData: ExerciseInsert[] = [
   // ============ SQUAT PATTERNS ============
   {
     id: "barbell-back-squat",
@@ -279,6 +279,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -292,6 +293,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -305,6 +307,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -318,6 +321,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -385,6 +389,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -398,6 +403,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -411,6 +417,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -452,6 +459,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -465,6 +473,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: true,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -478,6 +487,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -491,6 +501,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -504,6 +515,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -517,6 +529,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "advanced",
+    grip: "pronated",
     constraints: [],
   },
 
@@ -532,6 +545,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -545,6 +559,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -558,6 +573,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -571,6 +587,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "pronated",
     constraints: [],
   },
 
@@ -694,6 +711,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "supinated",
     constraints: [],
   },
   {
@@ -707,6 +725,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "supinated",
     constraints: [],
   },
   {
@@ -720,6 +739,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -906,6 +926,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "pronated",
     constraints: [],
   },
 
@@ -975,6 +996,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
 
@@ -990,6 +1012,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: true,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -1016,6 +1039,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
   {
@@ -1029,6 +1053,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
 
@@ -1044,6 +1069,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -1085,6 +1111,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: true,
     difficulty: "beginner",
+    grip: "supinated",
     constraints: [],
   },
   {
@@ -1098,6 +1125,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "supinated",
     constraints: [],
   },
   {
@@ -1111,6 +1139,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "supinated",
     constraints: [],
   },
   {
@@ -1124,6 +1153,9 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    // Cambered bar = semi-supinated; tag neutral so a no_supinated/neutral_grip_only
+    // athlete keeps it (the wrist-friendly bar is the whole point of the EZ bar).
+    grip: "neutral",
     constraints: [],
   },
 
@@ -1182,6 +1214,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -1210,6 +1243,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -1292,6 +1326,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "intermediate",
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -1333,6 +1368,8 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    // Overhand (reverse) grip loads wrist extension despite the EZ bar — pronated.
+    grip: "pronated",
     constraints: [],
   },
   {
@@ -1346,6 +1383,7 @@ const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "neutral",
     constraints: [],
   },
 
@@ -1466,4 +1504,8 @@ async function seed() {
   }
 }
 
-seed();
+// Only auto-run when executed directly (e.g. `tsx src/seed.ts`), not when this
+// module is imported (e.g. the seed-sanity test imports `exerciseSeedData`).
+if (import.meta.url === `file://${process.argv[1]}`) {
+  seed();
+}

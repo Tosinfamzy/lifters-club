@@ -46,6 +46,8 @@ export function mapToExercise(row: ExerciseRow): Exercise {
     isCompound: row.isCompound,
     isUnilateral: row.isUnilateral,
     difficulty: row.difficulty as Difficulty,
+    // CRITICAL: carry grip through or the resolver's grip filtering no-ops.
+    grip: (row.grip ?? undefined) as Exercise["grip"],
     constraints: (row.constraints ?? []) as Exercise["constraints"],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -73,6 +75,7 @@ export async function loadAthleteConstraintsForUserId(
   return {
     equipment: row.equipment as AthleteConstraints["equipment"],
     mobility: row.mobility as AthleteConstraints["mobility"],
+    grip: row.grip as AthleteConstraints["grip"],
     injuries: row.injuries as unknown as AthleteConstraints["injuries"],
     bannedExerciseIds: row.bannedExerciseIds,
     correctivePriorityExerciseIds: row.correctivePriorityExerciseIds,

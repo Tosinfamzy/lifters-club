@@ -49,6 +49,22 @@ export type MuscleGroup =
 
 export type Difficulty = "beginner" | "intermediate" | "advanced";
 
+/**
+ * Grip Taxonomy
+ *
+ * The hand/forearm position an exercise loads. Part of exercise identity
+ * (close-grip-bench is its own row), so each exercise has at most one grip.
+ *
+ * `none` and an absent grip are NEVER blocked by the constraint resolver — an
+ * untagged exercise is treated as grip-agnostic and is never wrongly excluded.
+ */
+export type Grip =
+  | "pronated"    // overhand (palms away/down) — loads wrist extension
+  | "supinated"   // underhand (palms toward/up)
+  | "neutral"     // palms facing each other (hammer/parallel)
+  | "mixed"       // one pronated, one supinated (e.g. heavy deadlift)
+  | "none";       // grip-agnostic (machines, bodyweight without a bar)
+
 export type Constraint =
   | "rack"
   | "bench"
@@ -73,6 +89,9 @@ export interface Exercise {
   isCompound: boolean;
   isUnilateral: boolean;
   difficulty: Difficulty;
+
+  /** Hand/forearm position. Absent or `none` is never grip-filtered. */
+  grip?: Grip;
 
   constraints?: Constraint[];
 

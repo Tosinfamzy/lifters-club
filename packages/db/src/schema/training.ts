@@ -217,6 +217,7 @@ export const athleteConstraints = training.table("athlete_constraints", {
 
   equipment: jsonb("equipment").$type<string[]>().notNull().default([]), // EquipmentConstraint[]
   mobility: jsonb("mobility").$type<string[]>().notNull().default([]), // MobilityConstraint[]
+  grip: jsonb("grip").$type<string[]>().notNull().default([]), // GripRestriction[]
   injuries: jsonb("injuries").$type<Record<string, unknown>[]>().notNull().default([]), // InjuryFlag[]
   bannedExerciseIds: jsonb("banned_exercise_ids").$type<string[]>().notNull().default([]),
   correctivePriorityExerciseIds: jsonb("corrective_priority_exercise_ids").$type<string[]>().notNull().default([]),

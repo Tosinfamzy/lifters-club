@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Exercise, AthleteConstraints } from "@gymapp/types";
+import type { Exercise, AthleteConstraints, Grip } from "@gymapp/types";
 import { isExerciseAllowed, defaultConstraintResolverConfig } from "../constraints";
 
 function createExercise(overrides: Partial<Exercise> = {}): Exercise {
@@ -132,7 +132,7 @@ describe("isExerciseAllowed", () => {
       expect(result.allowed).toBe(true);
     });
 
-    it("treats no_wrist_extension as context-only (does not filter) in the MVP", () => {
+    it("allows an untagged exercise under no_wrist_extension (no grip to block)", () => {
       const result = isExerciseAllowed(
         createExercise(),
         createConstraints({ mobility: ["no_wrist_extension"] })
@@ -178,6 +178,169 @@ describe("isExerciseAllowed", () => {
     });
   });
 
+  describe("grip restrictions", () => {
+    describe("neutral_grip_only", () => {
+      it("blocks a pronated exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "pull-up", grip: "pronated" }),
+          createConstraints({ grip: ["neutral_grip_only"] })
+        );
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain("pronated");
+        expect(result.reason).toContain("neutral_grip_only");
+      });
+
+      it("blocks a supinated exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "barbell-curl", grip: "supinated" }),
+          createConstraints({ grip: ["neutral_grip_only"] })
+        );
+        expect(result.allowed).toBe(false);
+      });
+
+      it("allows a neutral exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "hammer-curl", grip: "neutral" }),
+          createConstraints({ grip: ["neutral_grip_only"] })
+        );
+        expect(result.allowed).toBe(true);
+      });
+
+      it("allows a none-grip exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "leg-press", grip: "none" }),
+          createConstraints({ grip: ["neutral_grip_only"] })
+        );
+        expect(result.allowed).toBe(true);
+      });
+
+      it("allows an untagged exercise (grip undefined)", () => {
+        const result = isExerciseAllowed(
+          createExercise({ grip: undefined }),
+          createConstraints({ grip: ["neutral_grip_only"] })
+        );
+        expect(result.allowed).toBe(true);
+      });
+    });
+
+    describe("no_pronated", () => {
+      it("blocks a pronated exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "barbell-row", grip: "pronated" }),
+          createConstraints({ grip: ["no_pronated"] })
+        );
+        expect(result.allowed).toBe(false);
+      });
+
+      it("blocks a mixed-grip exercise (conservative over-exclusion)", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "deadlift-mixed", grip: "mixed" }),
+          createConstraints({ grip: ["no_pronated"] })
+        );
+        expect(result.allowed).toBe(false);
+      });
+
+      it("allows a supinated exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "barbell-curl", grip: "supinated" }),
+          createConstraints({ grip: ["no_pronated"] })
+        );
+        expect(result.allowed).toBe(true);
+      });
+    });
+
+    describe("no_supinated", () => {
+      it("blocks a supinated exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "barbell-curl", grip: "supinated" }),
+          createConstraints({ grip: ["no_supinated"] })
+        );
+        expect(result.allowed).toBe(false);
+      });
+
+      it("blocks a mixed-grip exercise (conservative over-exclusion)", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "deadlift-mixed", grip: "mixed" }),
+          createConstraints({ grip: ["no_supinated"] })
+        );
+        expect(result.allowed).toBe(false);
+      });
+
+      it("allows a pronated exercise", () => {
+        const result = isExerciseAllowed(
+          createExercise({ id: "barbell-row", grip: "pronated" }),
+          createConstraints({ grip: ["no_supinated"] })
+        );
+        expect(result.allowed).toBe(true);
+      });
+    });
+
+    it("allows an untagged exercise under every grip restriction", () => {
+      for (const restriction of ["neutral_grip_only", "no_pronated", "no_supinated"] as const) {
+        const result = isExerciseAllowed(
+          createExercise({ grip: undefined }),
+          createConstraints({ grip: [restriction] })
+        );
+        expect(result.allowed).toBe(true);
+      }
+    });
+  });
+
+  describe("no_wrist_extension → grip (closes the deferred case)", () => {
+    it("blocks a pronated exercise", () => {
+      const result = isExerciseAllowed(
+        createExercise({ id: "barbell-row", grip: "pronated" }),
+        createConstraints({ mobility: ["no_wrist_extension"] })
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("pronated");
+      expect(result.reason).toContain("no_wrist_extension");
+    });
+
+    it("blocks a mixed-grip exercise", () => {
+      const result = isExerciseAllowed(
+        createExercise({ id: "deadlift-mixed", grip: "mixed" }),
+        createConstraints({ mobility: ["no_wrist_extension"] })
+      );
+      expect(result.allowed).toBe(false);
+    });
+
+    it("allows a supinated exercise", () => {
+      const result = isExerciseAllowed(
+        createExercise({ id: "barbell-curl", grip: "supinated" }),
+        createConstraints({ mobility: ["no_wrist_extension"] })
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows a neutral exercise", () => {
+      const result = isExerciseAllowed(
+        createExercise({ id: "hammer-curl", grip: "neutral" }),
+        createConstraints({ mobility: ["no_wrist_extension"] })
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows an untagged (null grip) exercise", () => {
+      const result = isExerciseAllowed(
+        createExercise({ grip: undefined }),
+        createConstraints({ mobility: ["no_wrist_extension"] })
+      );
+      expect(result.allowed).toBe(true);
+    });
+  });
+
+  describe("precedence", () => {
+    it("bannedExerciseIds wins over a grip block", () => {
+      const result = isExerciseAllowed(
+        createExercise({ id: "pull-up", grip: "pronated" }),
+        createConstraints({ bannedExerciseIds: ["pull-up"], grip: ["neutral_grip_only"] })
+      );
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("banned");
+    });
+  });
+
   describe("custom config", () => {
     it("respects a tuned mobility map", () => {
       const config = {
@@ -190,6 +353,22 @@ describe("isExerciseAllowed", () => {
       const result = isExerciseAllowed(
         createExercise({ id: "ohp", movementPatterns: ["push_vertical"] }),
         createConstraints({ mobility: ["no_overhead"] }),
+        config
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it("respects a tuned grip map (override loosens neutral_grip_only)", () => {
+      const config = {
+        ...defaultConstraintResolverConfig,
+        gripMap: {
+          ...defaultConstraintResolverConfig.gripMap,
+          neutral_grip_only: ["pronated"] as Grip[],
+        },
+      };
+      const result = isExerciseAllowed(
+        createExercise({ id: "barbell-curl", grip: "supinated" }),
+        createConstraints({ grip: ["neutral_grip_only"] }),
         config
       );
       expect(result.allowed).toBe(true);

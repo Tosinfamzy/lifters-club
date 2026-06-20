@@ -545,6 +545,7 @@ userRoutes.patch(
 const EMPTY_CONSTRAINT_PROFILE = {
   equipment: [],
   mobility: [],
+  grip: [],
   injuries: [],
   bannedExerciseIds: [],
   correctivePriorityExerciseIds: [],
@@ -600,6 +601,7 @@ userRoutes.put(
         userId,
         equipment: data.equipment,
         mobility: data.mobility,
+        grip: data.grip,
         injuries: data.injuries,
         bannedExerciseIds: data.bannedExerciseIds,
         correctivePriorityExerciseIds: data.correctivePriorityExerciseIds,

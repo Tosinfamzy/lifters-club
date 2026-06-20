@@ -34,7 +34,7 @@ function makeRow(overrides: Partial<ExerciseRow> = {}): ExerciseRow {
 
 describe("mapToExercise", () => {
   it("maps a fully-populated row to the engine Exercise shape", () => {
-    const exercise = mapToExercise(makeRow());
+    const exercise = mapToExercise(makeRow({ grip: "pronated" }));
 
     expect(exercise).toEqual({
       id: "barbell-back-squat",
@@ -47,6 +47,7 @@ describe("mapToExercise", () => {
       isCompound: true,
       isUnilateral: false,
       difficulty: "intermediate",
+      grip: "pronated",
       constraints: [],
       createdAt: now,
       updatedAt: now,
@@ -61,5 +62,10 @@ describe("mapToExercise", () => {
     expect(exercise.aliases).toEqual([]);
     expect(exercise.secondaryMuscles).toEqual([]);
     expect(exercise.constraints).toEqual([]);
+  });
+
+  it("maps a null grip to undefined (untagged exercise is never grip-filtered)", () => {
+    const exercise = mapToExercise(makeRow({ grip: null }));
+    expect(exercise.grip).toBeUndefined();
   });
 });

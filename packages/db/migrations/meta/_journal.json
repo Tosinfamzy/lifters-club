@@ -43,6 +43,20 @@
       "when": 1781939535364,
       "tag": "0005_confused_ink",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781954606331,
+      "tag": "0006_needy_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781954606332,
+      "tag": "0007_grip_backfill",
+      "breakpoints": true
     }
   ]
 }

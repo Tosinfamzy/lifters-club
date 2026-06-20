@@ -26,7 +26,8 @@
     "db:seed": "tsx src/seed.ts",
     "db:seed:programs": "tsx src/seed-programs.ts",
     "db:seed:training": "tsx src/seed-training-data.ts",
-    "db:seed:all": "tsx src/seed.ts && tsx src/seed-programs.ts"
+    "db:seed:all": "tsx src/seed.ts && tsx src/seed-programs.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "dotenv": "^16.4.0",
@@ -37,6 +38,7 @@
     "@gymapp/types": "workspace:*",
     "drizzle-kit": "^0.30.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
   }
 }
