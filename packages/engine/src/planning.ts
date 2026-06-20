@@ -13,7 +13,26 @@ import type {
   MuscleGroup,
   PlannedExercise,
   EquipmentType,
+  MovementPattern,
 } from "@gymapp/types";
+
+/**
+ * Pre-resolved constraint outcome for a planned exercise.
+ *
+ * The pure engine never fetches the library or evaluates constraints itself
+ * (DIP — it depends on data passed in). The service resolves each exercise
+ * against the athlete's profile and hands the engine this decision to apply.
+ */
+export interface ConstraintDecision {
+  /** What the engine should do with this exercise. */
+  action: "allow" | "substitute" | "omit";
+  /** Substitute target id — required when `action === "substitute"`. */
+  substituteExerciseId?: string;
+  /** True when the substitute comes from the athlete's persisted swaps. */
+  isPermanent?: boolean;
+  /** Human-readable explanation for the substitution/omission. */
+  reason?: string;
+}
 
 export interface ExercisePerformance {
   exerciseId: string;
@@ -25,6 +44,15 @@ export interface ExercisePerformance {
   recentPerformance: { completedSets: number; targetSets: number; avgRpe: number }[];
   performanceTrend: "improving" | "stagnant" | "declining";
   availableSubstitutes: string[];
+  /** Equipment used by this exercise (carried for audit/context). */
+  equipment?: EquipmentType[];
+  /** Movement patterns for this exercise (carried for audit/context). */
+  movementPatterns?: MovementPattern[];
+  /**
+   * Pre-resolved constraint outcome. Absent or `action: "allow"` → unchanged
+   * behavior. The service populates this; the engine only applies it.
+   */
+  constraintDecision?: ConstraintDecision;
 }
 
 export interface WeeklyPlanInput {
@@ -45,7 +73,7 @@ export interface WeeklyPlanInput {
 
 export interface PlannedExerciseUpdate {
   exerciseId: string;
-  /** New exercise ID if swapped */
+  /** New exercise ID if swapped (by rotation OR constraint substitution) */
   newExerciseId?: string;
   /** Updated weight */
   weight: number;
@@ -53,6 +81,12 @@ export interface PlannedExerciseUpdate {
   sets: number;
   /** Target rep range (unchanged or adjusted for deload) */
   repRange: [number, number];
+  /** True when a constraint forced this exercise out of the plan entirely. */
+  omitted?: boolean;
+  /** Why the exercise was omitted (present only when `omitted`). */
+  omissionReason?: string;
+  /** What drove the swap when `newExerciseId` is set. */
+  substitutionSource?: "rotation" | "constraint";
   /** All decisions that affected this exercise */
   decisions: {
     load?: LoadDecision;
@@ -129,6 +163,36 @@ export function generateWeeklyPlan(
   for (const exercise of exercises) {
     const decisions: PlannedExerciseUpdate["decisions"] = {};
 
+    // Constraint enforcement runs first and is unconditional (safety beats
+    // progression — applies even on deload weeks). Precedence:
+    // omit > constraint-substitute > rotation-swap.
+    const constraintDecision = exercise.constraintDecision;
+
+    // Omit: the athlete can't safely perform this and no candidate fit.
+    // Drop it from the plan with no progression changes.
+    if (constraintDecision?.action === "omit") {
+      const reason = constraintDecision.reason ?? "Constraint omission";
+      changes.push(`OMITTED ${exercise.exerciseId}: ${reason}`);
+      exerciseUpdates.push({
+        exerciseId: exercise.exerciseId,
+        weight: exercise.currentWeight,
+        sets: exercise.currentSets,
+        repRange: exercise.targetRepRange,
+        omitted: true,
+        omissionReason: reason,
+        decisions,
+      });
+      continue;
+    }
+
+    // Constraint substitution: swap to the resolved safe exercise. Load/volume/
+    // deload still apply below (to the substitute), but the rotation swap is
+    // suppressed so the constraint choice wins.
+    const constraintSubstituteId =
+      constraintDecision?.action === "substitute"
+        ? constraintDecision.substituteExerciseId
+        : undefined;
+
     // Calculate load progression
     const loadDecision = calculateLoadProgression({
       exerciseId: exercise.exerciseId,
@@ -161,6 +225,7 @@ export function generateWeeklyPlan(
     let finalRepRange = exercise.targetRepRange;
     let finalExerciseId = exercise.exerciseId;
     let newExerciseId: string | undefined;
+    let substitutionSource: PlannedExerciseUpdate["substitutionSource"];
 
     // Apply deload modifications
     if (isDeloadWeek) {
@@ -173,10 +238,24 @@ export function generateWeeklyPlan(
       ];
     }
 
-    // Apply rotation (only if not deload week - keep exercises stable during deload)
-    if (!isDeloadWeek && rotationDecision.action === "swap" && rotationDecision.newExerciseId) {
+    if (constraintSubstituteId) {
+      // Constraint substitution wins over rotation. The swap is unconditional
+      // (safety applies even on deload weeks).
+      newExerciseId = constraintSubstituteId;
+      finalExerciseId = constraintSubstituteId;
+      substitutionSource = "constraint";
+      const reason = constraintDecision?.reason ?? "Constraint substitution";
+      changes.push(`${exercise.exerciseId} → ${newExerciseId}: ${reason}`);
+    } else if (
+      // Apply rotation (only if not deload week - keep exercises stable during
+      // deload, and only when a constraint substitution didn't already fire)
+      !isDeloadWeek &&
+      rotationDecision.action === "swap" &&
+      rotationDecision.newExerciseId
+    ) {
       newExerciseId = rotationDecision.newExerciseId;
       finalExerciseId = rotationDecision.newExerciseId;
+      substitutionSource = "rotation";
       changes.push(`${exercise.exerciseId} → ${newExerciseId}: ${rotationDecision.reason}`);
     }
 
@@ -200,20 +279,26 @@ export function generateWeeklyPlan(
       weight: finalWeight,
       sets: finalSets,
       repRange: finalRepRange,
+      substitutionSource,
       decisions,
     });
   }
 
-  // Generate summary
-  const loadChanges = exerciseUpdates.filter((e) => e.decisions.load?.action !== "maintain").length;
-  const volumeChanges = exerciseUpdates.filter((e) => e.decisions.volume?.action !== "maintain").length;
+  // Generate summary. Omitted exercises have no decisions, so they're naturally
+  // excluded from the load/volume/rotation tallies.
+  const loadChanges = exerciseUpdates.filter((e) => e.decisions.load?.action !== "maintain" && !e.omitted).length;
+  const volumeChanges = exerciseUpdates.filter((e) => e.decisions.volume?.action !== "maintain" && !e.omitted).length;
   const rotationChanges = exerciseUpdates.filter((e) => e.newExerciseId).length;
+  const omittedChanges = exerciseUpdates.filter((e) => e.omitted).length;
 
   let summary = `Week ${weekNumber + 1}`;
   if (isDeloadWeek) {
     summary += " (DELOAD)";
   }
   summary += `: ${loadChanges} load, ${volumeChanges} volume, ${rotationChanges} rotation changes`;
+  if (omittedChanges > 0) {
+    summary += `, ${omittedChanges} omitted`;
+  }
 
   return {
     weekNumber: weekNumber + 1,
