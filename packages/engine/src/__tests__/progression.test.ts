@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateLoadProgression } from "../progression";
+import { calculateLoadProgression, applyProgressionModifier } from "../progression";
 import type { ProgressionInput } from "../types";
 
 describe("calculateLoadProgression", () => {
@@ -147,5 +147,54 @@ describe("calculateLoadProgression", () => {
     });
 
     expect(result.action).toBe("maintain");
+  });
+
+  describe("self-tuned config (applyProgressionModifier)", () => {
+    // An "increase" scenario at a heavy weight (uses the large increment).
+    const increaseInput: ProgressionInput = {
+      exerciseId: "bench-press",
+      recentSets: [
+        { reps: 10, rpe: 7, weight: 100 },
+        { reps: 10, rpe: 7, weight: 100 },
+      ],
+      currentWeight: 100,
+      targetRepRange: [8, 10],
+    };
+
+    it("takes a smaller weight step under a conservative (0.8) config", () => {
+      const defaultResult = calculateLoadProgression(increaseInput);
+      const conservativeResult = calculateLoadProgression(
+        increaseInput,
+        applyProgressionModifier(0.8)
+      );
+
+      const defaultStep = defaultResult.newWeight - increaseInput.currentWeight;
+      const conservativeStep = conservativeResult.newWeight - increaseInput.currentWeight;
+
+      expect(conservativeResult.action).toBe("increase");
+      expect(conservativeStep).toBeLessThan(defaultStep);
+      expect(conservativeStep).toBeCloseTo(4.0); // 5 * 0.8
+    });
+
+    it("takes a larger weight step under an aggressive (1.1) config", () => {
+      const defaultResult = calculateLoadProgression(increaseInput);
+      const aggressiveResult = calculateLoadProgression(
+        increaseInput,
+        applyProgressionModifier(1.1)
+      );
+
+      const defaultStep = defaultResult.newWeight - increaseInput.currentWeight;
+      const aggressiveStep = aggressiveResult.newWeight - increaseInput.currentWeight;
+
+      expect(aggressiveResult.action).toBe("increase");
+      expect(aggressiveStep).toBeGreaterThan(defaultStep);
+      expect(aggressiveStep).toBeCloseTo(5.5); // 5 * 1.1
+    });
+
+    it("is identical to the default under a 1.0 (no-op) config", () => {
+      const defaultResult = calculateLoadProgression(increaseInput);
+      const noopResult = calculateLoadProgression(increaseInput, applyProgressionModifier(1.0));
+      expect(noopResult).toEqual(defaultResult);
+    });
   });
 });
