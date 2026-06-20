@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { db } from "@gymapp/db";
 import { users, decisions, decisionOutcomes } from "@gymapp/db/schema";
+import { ENGINE_VERSION } from "@gymapp/engine";
 import { eq, like } from "drizzle-orm";
 
 // Mock Clerk's verifyToken before importing the app.
@@ -148,7 +149,7 @@ describe("Decisions API - self-tuning", () => {
         .from(decisions)
         .where(eq(decisions.userId, TEST_USER_ID))
         .orderBy(decisions.createdAt);
-      expect(row!.algorithmVersion).toBe("1.1.0");
+      expect(row!.algorithmVersion).toBe(ENGINE_VERSION);
       expect((row!.input as Record<string, unknown>).appliedModifier).toBeUndefined();
     });
 
@@ -176,7 +177,7 @@ describe("Decisions API - self-tuning", () => {
         (r) => (r.input as Record<string, unknown>).appliedModifier === 0.8
       );
       expect(tuned).toBeDefined();
-      expect(tuned!.algorithmVersion).toBe("1.1.0");
+      expect(tuned!.algorithmVersion).toBe(ENGINE_VERSION);
     });
 
     it("tunes aggressively when the user has a high success rate", async () => {
