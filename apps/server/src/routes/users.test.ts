@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { db } from "@gymapp/db";
-import { users, readinessChecks, userBaselines, athleteConstraints } from "@gymapp/db/schema";
+import { users, readinessChecks, userBaselines, athleteConstraints, permanentSubstitutions } from "@gymapp/db/schema";
 import { eq, like } from "drizzle-orm";
 
 // Mock Clerk's verifyToken before importing the app
@@ -80,6 +80,7 @@ interface ReadinessData {
 describe("Users API", () => {
   beforeAll(async () => {
     // Clean up test data
+    await db.delete(permanentSubstitutions).where(like(permanentSubstitutions.userId, "test-user-users-%"));
     await db.delete(athleteConstraints).where(like(athleteConstraints.userId, "test-user-users-%"));
     await db.delete(userBaselines).where(like(userBaselines.userId, "test-user-users-%"));
     await db.delete(readinessChecks).where(like(readinessChecks.userId, "test-user-users-%"));
@@ -88,6 +89,7 @@ describe("Users API", () => {
 
   afterAll(async () => {
     // Final cleanup
+    await db.delete(permanentSubstitutions).where(like(permanentSubstitutions.userId, "test-user-users-%"));
     await db.delete(athleteConstraints).where(like(athleteConstraints.userId, "test-user-users-%"));
     await db.delete(userBaselines).where(like(userBaselines.userId, "test-user-users-%"));
     await db.delete(readinessChecks).where(like(readinessChecks.userId, "test-user-users-%"));
@@ -103,6 +105,7 @@ describe("Users API", () => {
     vi.mocked(verifyToken).mockResolvedValue({ sub: TEST_CLERK_ID } as never);
 
     // Clean up test users
+    await db.delete(permanentSubstitutions).where(like(permanentSubstitutions.userId, "test-user-users-%"));
     await db.delete(athleteConstraints).where(like(athleteConstraints.userId, "test-user-users-%"));
     await db.delete(userBaselines).where(like(userBaselines.userId, "test-user-users-%"));
     await db.delete(readinessChecks).where(like(readinessChecks.userId, "test-user-users-%"));
@@ -896,6 +899,188 @@ describe("Users API", () => {
         method: "PUT",
         headers: authHeaders(),
         body: JSON.stringify({ equipment: ["no_barbell"], mobility: [] }),
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("Permanent Substitutions", () => {
+    interface SubstitutionData {
+      originalExerciseId: string;
+      substituteExerciseId: string;
+      reason: string;
+      note?: string;
+      confirmedAt: string;
+      weightCarries: boolean;
+    }
+
+    it("GET returns an empty list when none are saved", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        headers: authHeaders(),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<SubstitutionData[]>;
+      expect(body.data).toEqual([]);
+    });
+
+    it("PUT persists a swap that GET then round-trips", async () => {
+      await db.insert(users).values(testUser);
+
+      const swap = {
+        originalExerciseId: "leg-press",
+        substituteExerciseId: "bulgarian-split-squat",
+        reason: "injury",
+        note: "left knee",
+        weightCarries: false,
+      };
+
+      const putRes = await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify(swap),
+      });
+      expect(putRes.status).toBe(200);
+
+      const getRes = await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        headers: authHeaders(),
+      });
+      const body = (await getRes.json()) as ApiResponse<SubstitutionData[]>;
+      expect(body.data!).toHaveLength(1);
+      expect(body.data![0]!.originalExerciseId).toBe("leg-press");
+      expect(body.data![0]!.substituteExerciseId).toBe("bulgarian-split-squat");
+      expect(body.data![0]!.reason).toBe("injury");
+      expect(body.data![0]!.note).toBe("left knee");
+      expect(body.data![0]!.weightCarries).toBe(false);
+      expect(typeof body.data![0]!.confirmedAt).toBe("string");
+    });
+
+    it("defaults weightCarries to true when omitted", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "leg-press",
+          substituteExerciseId: "hack-squat",
+          reason: "fit_preference",
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<SubstitutionData>;
+      expect(body.data!.weightCarries).toBe(true);
+    });
+
+    it("PUT twice for the same original upserts to a single row", async () => {
+      await db.insert(users).values(testUser);
+
+      await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "leg-press",
+          substituteExerciseId: "hack-squat",
+          reason: "other",
+        }),
+      });
+      await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "leg-press",
+          substituteExerciseId: "bulgarian-split-squat",
+          reason: "injury",
+        }),
+      });
+
+      const rows = await db
+        .select()
+        .from(permanentSubstitutions)
+        .where(eq(permanentSubstitutions.userId, TEST_USER_ID));
+      expect(rows.length).toBe(1);
+      expect(rows[0]!.substituteExerciseId).toBe("bulgarian-split-squat");
+    });
+
+    it("keeps separate rows for different originals", async () => {
+      await db.insert(users).values(testUser);
+
+      await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "leg-press",
+          substituteExerciseId: "hack-squat",
+          reason: "other",
+        }),
+      });
+      await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "barbell-bench-press",
+          substituteExerciseId: "dumbbell-bench-press",
+          reason: "fit_preference",
+        }),
+      });
+
+      const rows = await db
+        .select()
+        .from(permanentSubstitutions)
+        .where(eq(permanentSubstitutions.userId, TEST_USER_ID));
+      expect(rows.length).toBe(2);
+    });
+
+    it("DELETE removes one swap by original exercise id", async () => {
+      await db.insert(users).values(testUser);
+
+      await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "leg-press",
+          substituteExerciseId: "hack-squat",
+          reason: "other",
+        }),
+      });
+
+      const delRes = await app.request(
+        `/api/users/${TEST_USER_ID}/substitutions/leg-press`,
+        { method: "DELETE", headers: authHeaders() }
+      );
+      expect(delRes.status).toBe(200);
+
+      const rows = await db
+        .select()
+        .from(permanentSubstitutions)
+        .where(eq(permanentSubstitutions.userId, TEST_USER_ID));
+      expect(rows.length).toBe(0);
+    });
+
+    it("rejects a self-map with 400", async () => {
+      await db.insert(users).values(testUser);
+
+      const res = await app.request(`/api/users/${TEST_USER_ID}/substitutions`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          originalExerciseId: "leg-press",
+          substituteExerciseId: "leg-press",
+          reason: "other",
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("GET returns 403 for non-owner", async () => {
+      await db.insert(users).values(testUser);
+      await db.insert(users).values(otherUser);
+
+      const res = await app.request(`/api/users/${OTHER_USER_ID}/substitutions`, {
+        headers: authHeaders(),
       });
       expect(res.status).toBe(403);
     });

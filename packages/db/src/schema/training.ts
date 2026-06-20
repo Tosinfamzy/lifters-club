@@ -1,4 +1,4 @@
-import { pgSchema, varchar, text, jsonb, integer, timestamp, date, real, boolean, index } from "drizzle-orm/pg-core";
+import { pgSchema, varchar, text, jsonb, integer, timestamp, date, real, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const training = pgSchema("training");
 
@@ -225,6 +225,34 @@ export const athleteConstraints = training.table("athlete_constraints", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("athlete_constraints_user_id_idx").on(table.userId),
+]);
+
+// Permanent substitutions - persisted exercise swaps (multiple rows per user,
+// one per original exercise). When set, the engine returns the chosen
+// substitute directly instead of re-deriving one, fixing the "un-apply" error
+// class. Exercise ids are varchar (not cross-schema FKs), mirroring
+// `userBaselines.exerciseId`.
+export const permanentSubstitutions = training.table("permanent_substitutions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 64 }).notNull().references(() => users.id),
+
+  originalExerciseId: varchar("original_exercise_id", { length: 64 }).notNull(),
+  substituteExerciseId: varchar("substitute_exercise_id", { length: 64 }).notNull(),
+
+  reason: varchar("reason", { length: 32 }).notNull(), // SubstitutionReason
+  note: text("note"),
+
+  // Whether load progression should carry over from the original's history.
+  // Stored for the phase-2 weight-carry read-through; not yet consumed.
+  weightCarries: boolean("weight_carries").notNull().default(true),
+
+  confirmedAt: timestamp("confirmed_at").notNull(),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("permanent_substitutions_user_id_idx").on(table.userId),
+  uniqueIndex("permanent_substitutions_user_original_idx").on(table.userId, table.originalExerciseId),
 ]);
 
 // Workout templates - reusable workout blueprints (e.g., "Back Day", "Push Day")

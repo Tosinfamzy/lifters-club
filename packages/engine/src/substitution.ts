@@ -1,4 +1,4 @@
-import type { Exercise, MuscleGroup, MovementPattern, EquipmentType, Difficulty, AthleteConstraints } from "@gymapp/types";
+import type { Exercise, MuscleGroup, MovementPattern, EquipmentType, Difficulty, AthleteConstraints, PermanentSubstitution } from "@gymapp/types";
 import { isExerciseAllowed } from "./constraints";
 
 /**
@@ -19,6 +19,13 @@ export interface SubstitutionInput {
   constraints?: string[];
   /** Athlete capability profile — drops candidates the athlete can't safely perform */
   athleteConstraints?: AthleteConstraints;
+  /**
+   * Persisted exercise swaps. When one matches the queried exercise (and its
+   * substitute is an allowed candidate), `findSubstitutes` returns that single
+   * stored choice instead of ranking. Pass the full list so callers can reuse
+   * it across exercises. Absent → unchanged ranking behavior.
+   */
+  permanentSubstitutions?: PermanentSubstitution[];
 }
 
 /**
@@ -28,6 +35,8 @@ export interface ScoredSubstitute {
   exercise: Exercise;
   score: number;
   matchReasons: string[];
+  /** True when this result is the athlete's persisted swap, not a ranked match. */
+  isPermanent?: boolean;
 }
 
 /**
@@ -203,7 +212,40 @@ export function findSubstitutes(
     excludeExerciseIds = [],
     constraints = [],
     athleteConstraints,
+    permanentSubstitutions,
   } = input;
+
+  // Permanent substitution short-circuit: if the athlete has persisted a swap
+  // for this exercise, return exactly that one (no ranking). Kills the
+  // "un-apply" error class where a deliberate swap kept getting re-derived away.
+  //
+  // Safety valve: only honor it when the chosen substitute is an actual
+  // candidate AND (when a constraint profile is present) it passes the profile.
+  // Otherwise a stale swap to a now-banned exercise would resurrect it — so we
+  // fall through to the normal algorithm instead.
+  const permanent = permanentSubstitutions?.find(
+    (sub) => sub.originalExerciseId === exercise.id
+  );
+  if (permanent) {
+    const chosen = candidateExercises.find(
+      (c) => c.id === permanent.substituteExerciseId
+    );
+    const constraintBlocks =
+      chosen !== undefined &&
+      athleteConstraints !== undefined &&
+      !isExerciseAllowed(chosen, athleteConstraints).allowed;
+
+    if (chosen && !constraintBlocks) {
+      return [
+        {
+          exercise: chosen,
+          score: 1,
+          matchReasons: [`Permanent substitution (${permanent.reason})`],
+          isPermanent: true,
+        },
+      ];
+    }
+  }
 
   const scoredCandidates: ScoredSubstitute[] = [];
 
