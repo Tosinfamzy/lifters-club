@@ -609,7 +609,9 @@ decisionRoutes.post(
     // Within-session is its own short feedback loop — no self-tuning/cycle wiring.
     const result = calculateWithinSessionAdjustment(sessionInput);
 
-    await persistDecision(
+    // Capture the persisted row so the client can record an accept/override
+    // outcome against this decision (the mobile coach card needs its id).
+    const persisted = await persistDecision(
       "within_session",
       { exerciseId, ...sessionInput },
       result as unknown as Record<string, unknown>,
@@ -631,7 +633,8 @@ decisionRoutes.post(
       );
     }
 
-    return c.json({ data: result });
+    // `decisionId` is null for anonymous calls (nothing is persisted without a userId).
+    return c.json({ data: { ...result, decisionId: persisted?.id ?? null } });
   }
 );
 

@@ -103,6 +103,9 @@ export function useApi() {
       getLoadProgression: (
         data: Parameters<typeof baseApi.getLoadProgression>[0]
       ) => authenticatedRequest((c) => c.getLoadProgression(data)),
+      getWithinSessionAdjustment: (
+        data: Parameters<typeof baseApi.getWithinSessionAdjustment>[0]
+      ) => authenticatedRequest((c) => c.getWithinSessionAdjustment(data)),
 
       // Workouts (protected)
       getWorkouts: (params: Parameters<typeof baseApi.getWorkouts>[0]) =>

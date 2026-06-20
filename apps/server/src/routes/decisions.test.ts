@@ -409,6 +409,39 @@ describe("Decisions API - self-tuning", () => {
       expect((persisted!.input as Record<string, unknown>).exerciseId).toBe("seated-leg-curl");
     });
 
+    it("returns the persisted decisionId so the client can record an outcome", async () => {
+      const res = await app.request("/api/decisions/within-session", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(baseBody),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<{ decisionId: string | null }>;
+      expect(body.data!.decisionId).toEqual(expect.any(String));
+
+      // The id matches the actual persisted row.
+      const rows = await db
+        .select()
+        .from(decisions)
+        .where(eq(decisions.userId, TEST_USER_ID));
+      const persisted = rows.find((r) => r.type === "within_session");
+      expect(body.data!.decisionId).toBe(persisted!.id);
+    });
+
+    it("returns a null decisionId for an anonymous call (no userId)", async () => {
+      const { userId: _userId, ...anon } = baseBody;
+      const res = await app.request("/api/decisions/within-session", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(anon),
+      });
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as ApiResponse<{ decisionId: string | null }>;
+      expect(body.data!.decisionId).toBeNull();
+    });
+
     it("flags a new baseline when an over-plan set is sustained at RPE <= 8", async () => {
       const res = await app.request("/api/decisions/within-session", {
         method: "POST",
