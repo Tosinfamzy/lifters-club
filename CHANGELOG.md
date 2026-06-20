@@ -31,13 +31,13 @@ release, so entries are grouped by date. PR numbers link the change to its revie
 - **Auto-evaluation for more decision types** (#10) — `exercise_rotation`, `deload_recommendation`,
   and `session_recovery` decisions are now scored automatically on workout completion (previously
   only load/volume). `missed_session` deferred (weak completion-time signal).
-- **Within-session set-by-set coaching — engine + API** (#15) — new pure
+- **Within-session set-by-set coaching — engine + API** (#18) — new pure
   `calculateWithinSessionAdjustment`: given the set just completed, it prescribes the next set's
   load by deviation from a target RPE (grounded in autoregulation literature), reusing the engine's
   existing increment, and flags a mid-session PR (`newBaselineIfConfirmed`) when a set clears the
   planned weight at a sustainable effort — to seed next session's baseline from the achieved weight.
   New `POST /api/decisions/within-session`. The live mobile UI is Phase B.
-- **Equipment increment-snap — engine + API** (#15) — `calculateLoadProgression` accepts an optional
+- **Equipment increment-snap — engine + API** (#18) — `calculateLoadProgression` accepts an optional
   `EquipmentInstance` (per-machine increment / min weight / confirmed working weight) and snaps the
   prescribed load *down* to a weight the machine can actually make (never prescribes an unachievable
   load), preferring a confirmed working weight as the cold-start baseline. Applied after cycle-phase
