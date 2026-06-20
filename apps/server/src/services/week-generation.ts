@@ -50,6 +50,19 @@ const CANDIDATE_POOL_LIMIT = 200;
 /** How many constraint-filtered substitutes to expose for rotation. */
 const AVAILABLE_SUBSTITUTES_LIMIT = 5;
 
+/** A logged set joined with its parent workout log. */
+type LoggedSetRow = {
+  set: typeof loggedSets.$inferSelect;
+  log: typeof workoutLogs.$inferSelect;
+};
+
+/** Load-progression history for a single exercise (the subset of fields the
+ * engine's load decision consumes). */
+interface LoadHistory {
+  currentWeight: number;
+  recentSets: { reps: number; rpe?: number; weight: number }[];
+}
+
 interface PlannedExercise {
   exerciseId: string;
   sets: number;
@@ -428,14 +441,27 @@ async function gatherExercisePerformance(
     return [];
   }
 
-  // Fetch user baselines for these exercises
+  // Load the athlete's persisted swaps up front so each permanent-sub target's
+  // own baseline + logged-set history can be fetched in the SAME batched
+  // queries below (no N+1, no per-substitute follow-up reads). This also lets
+  // constraint resolution honor the `weightCarries` flag without re-querying.
+  const permanentSubs = await loadPermanentSubstitutionsForUserId(userId);
+
+  // History batch covers planned exercises AND every permanent-sub target, so a
+  // substituted exercise can progress on the substitute's own logged sets.
+  const historyIds = new Set(exerciseIds);
+  for (const sub of permanentSubs ?? []) {
+    historyIds.add(sub.substituteExerciseId);
+  }
+
+  // Fetch user baselines for the planned exercises and their substitute targets.
   const baselines = await db
     .select()
     .from(userBaselines)
     .where(
       and(
         eq(userBaselines.userId, userId),
-        inArray(userBaselines.exerciseId, Array.from(exerciseIds))
+        inArray(userBaselines.exerciseId, Array.from(historyIds))
       )
     );
 
@@ -458,17 +484,14 @@ async function gatherExercisePerformance(
     .where(
       and(
         eq(workoutLogs.userId, userId),
-        inArray(loggedSets.exerciseId, Array.from(exerciseIds)),
+        inArray(loggedSets.exerciseId, Array.from(historyIds)),
         gte(workoutLogs.startedAt, thirtyDaysAgo)
       )
     )
     .orderBy(desc(workoutLogs.startedAt), loggedSets.setNumber);
 
   // Group sets by exercise
-  const setsByExercise = new Map<
-    string,
-    { set: typeof loggedSets.$inferSelect; log: typeof workoutLogs.$inferSelect }[]
-  >();
+  const setsByExercise = new Map<string, LoggedSetRow[]>();
 
   for (const row of recentSets) {
     const existing = setsByExercise.get(row.set.exerciseId) ?? [];
@@ -567,9 +590,94 @@ async function gatherExercisePerformance(
   // Resolve each exercise against the athlete's constraint profile + persisted
   // swaps. When the athlete has neither, this is a no-op fast path that avoids
   // the library query and leaves performanceData byte-identical to before.
-  await applyConstraintResolution(userId, performanceData);
+  // The already-loaded permanent subs + grouped history are passed through so a
+  // substituted exercise's load history can be re-sourced without extra queries.
+  await applyConstraintResolution(
+    userId,
+    performanceData,
+    permanentSubs,
+    setsByExercise,
+    baselineMap
+  );
 
   return performanceData;
+}
+
+/**
+ * Build load-progression history (currentWeight + recentSets) for an exercise
+ * from its grouped logged sets. Returns `null` when the exercise has no recent
+ * history, so callers can apply their own fallback. Mirrors the planned-exercise
+ * history derivation in {@link gatherExercisePerformance} so a substituted
+ * exercise progresses on consistent numbers.
+ */
+function buildLoadHistory(
+  exerciseId: string,
+  setsByExercise: Map<string, LoggedSetRow[]>
+): LoadHistory | null {
+  const sets = setsByExercise.get(exerciseId);
+  if (!sets || sets.length === 0) return null;
+
+  const recentSets = sets.slice(0, 15).map((s) => ({
+    reps: s.set.reps,
+    rpe: s.set.rpe ?? undefined,
+    weight: s.set.weight,
+  }));
+
+  return {
+    // Most recent logged weight is the working weight (sets are ordered newest
+    // first by the history query).
+    currentWeight: sets[0]?.set.weight ?? 0,
+    recentSets,
+  };
+}
+
+/**
+ * Re-source a substituted exercise's load history so progression uses the right
+ * numbers. Precedence:
+ *   1. The substitute's OWN recent history (it's been trained → progress on it).
+ *   2. Else if the permanent sub carries weight → the original's history
+ *      (cold-start carry, so the swap continues from the original's load).
+ *   3. Else → conservative start: the substitute's own baseline (or 0) and no
+ *      recent sets (unchanged "no history" behavior).
+ *
+ * Only applies to permanent-sub substitutions (they carry `weightCarries`).
+ * Constraint-driven ranked substitutes keep the original's history as before.
+ */
+function applySubstituteHistory(
+  perf: ExercisePerformance,
+  substituteId: string,
+  permanentSubs: PermanentSubstitution[] | undefined,
+  setsByExercise: Map<string, LoggedSetRow[]>,
+  baselineMap: Map<string, number>
+): void {
+  const permanent = permanentSubs?.find(
+    (sub) =>
+      sub.originalExerciseId === perf.exerciseId &&
+      sub.substituteExerciseId === substituteId
+  );
+
+  // Ranked (non-permanent) substitute: leave history untouched (original's).
+  if (!permanent) return;
+
+  // 1. Substitute's own recent history wins.
+  const ownHistory = buildLoadHistory(substituteId, setsByExercise);
+  if (ownHistory) {
+    perf.currentWeight = ownHistory.currentWeight;
+    perf.recentSets = ownHistory.recentSets;
+    return;
+  }
+
+  // 2. weightCarries → carry the original's working weight + sets.
+  if (permanent.weightCarries) {
+    // perf already holds the original's history (assembled before resolution),
+    // so the carry is a no-op on currentWeight/recentSets — kept explicit for
+    // clarity and to be robust if assembly order changes.
+    return;
+  }
+
+  // 3. Conservative cold start: substitute's own baseline, no recent sets.
+  perf.currentWeight = baselineMap.get(substituteId) ?? 0;
+  perf.recentSets = [];
 }
 
 /**
@@ -581,15 +689,21 @@ async function gatherExercisePerformance(
  * Fast path: if the athlete has no constraints and no permanent subs, returns
  * immediately without touching the exercise library — preserving exact parity
  * (and performance) for unconstrained users.
+ *
+ * `permanentSubs`, `setsByExercise`, and `baselineMap` are passed in from
+ * {@link gatherExercisePerformance} (already loaded/batched there) so a
+ * substituted exercise's load history can be re-sourced without extra queries.
  */
 async function applyConstraintResolution(
   userId: string,
-  performanceData: ExercisePerformance[]
+  performanceData: ExercisePerformance[],
+  permanentSubs: PermanentSubstitution[] | undefined,
+  setsByExercise: Map<string, LoggedSetRow[]>,
+  baselineMap: Map<string, number>
 ): Promise<void> {
   if (performanceData.length === 0) return;
 
   const constraints = await loadAthleteConstraintsForUserId(userId);
-  const permanentSubs = await loadPermanentSubstitutionsForUserId(userId);
 
   // Fast path: nothing to enforce → leave output exactly as today.
   if (!constraints && !permanentSubs) return;
@@ -635,8 +749,9 @@ async function applyConstraintResolution(
       : { allowed: true as const };
 
     if (allowed.allowed) {
-      // Populate a constraint-filtered substitute pool so rotation can only
-      // rotate into exercises the athlete can safely perform.
+      // A permanent substitution is a deliberate, persisted user swap — honor it
+      // even when the original passes the constraint profile. The engine's
+      // short-circuit returns the swap target (with `isPermanent`) as subs[0].
       const subs = getTopSubstitutes(
         {
           exercise,
@@ -646,6 +761,39 @@ async function applyConstraintResolution(
         },
         AVAILABLE_SUBSTITUTES_LIMIT
       );
+
+      const permanentBest = subs[0];
+      if (permanentBest?.isPermanent) {
+        const reason = `Permanent substitution → ${permanentBest.exercise.id} (${permanentBest.matchReasons[0] ?? "user swap"})`;
+        perf.constraintDecision = {
+          action: "substitute",
+          substituteExerciseId: permanentBest.exercise.id,
+          isPermanent: true,
+          reason,
+        };
+        applySubstituteHistory(
+          perf,
+          permanentBest.exercise.id,
+          permanentSubs,
+          setsByExercise,
+          baselineMap
+        );
+        globalLogger.info(
+          {
+            userId,
+            originalExerciseId: perf.exerciseId,
+            action: "substitute",
+            substituteExerciseId: permanentBest.exercise.id,
+            isPermanent: true,
+            reason,
+          },
+          "Permanent substitution applied"
+        );
+        continue;
+      }
+
+      // No permanent swap: populate a constraint-filtered substitute pool so
+      // rotation can only rotate into exercises the athlete can safely perform.
       perf.availableSubstitutes = subs.map((s) => s.exercise.id);
       perf.constraintDecision = { action: "allow" };
       continue;
@@ -669,6 +817,16 @@ async function applyConstraintResolution(
         isPermanent: best.isPermanent ?? false,
         reason,
       };
+      // Re-source load history for permanent-sub swaps so progression uses the
+      // substitute's own numbers (or carries the original's weight per the flag)
+      // instead of the original's stale history forever.
+      applySubstituteHistory(
+        perf,
+        best.exercise.id,
+        permanentSubs,
+        setsByExercise,
+        baselineMap
+      );
       globalLogger.info(
         {
           userId,

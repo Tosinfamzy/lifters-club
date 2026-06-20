@@ -18,6 +18,7 @@ import {
   workouts,
   workoutLogs,
   loggedSets,
+  userBaselines,
   athleteConstraints,
   permanentSubstitutions,
   decisions,
@@ -55,6 +56,21 @@ const seedExercises = [
     isCompound: true,
     isUnilateral: false,
     difficulty: "beginner",
+    constraints: [],
+  },
+  {
+    // Permanent-sub target for the barbell squat. Shares the squat pattern +
+    // quads so it's a valid substitute and passes an unconstrained profile.
+    id: `${PREFIX}-front-squat`,
+    name: "Front Squat",
+    aliases: [],
+    equipment: ["barbell"],
+    movementPatterns: ["squat"],
+    primaryMuscles: ["quads"],
+    secondaryMuscles: ["glutes"],
+    isCompound: true,
+    isUnilateral: false,
+    difficulty: "intermediate",
     constraints: [],
   },
   {
@@ -176,9 +192,103 @@ async function seedSquatHistory(suffix: string): Promise<void> {
   ]);
 }
 
+/**
+ * Seed logged sets for an arbitrary exercise under a user, so a planned or
+ * substitute exercise has its own recent history. Each set uses the same
+ * weight/reps/rpe for a deterministic progression outcome.
+ */
+async function seedHistory(
+  suffix: string,
+  exerciseId: string,
+  opts: { weight: number; reps: number; rpe: number; tag: string }
+): Promise<void> {
+  const logId = `${PREFIX}-log-${suffix}-${opts.tag}`;
+  await db.insert(workoutLogs).values({
+    id: logId,
+    userId: userId(suffix),
+    startedAt: new Date(),
+    overallRpe: opts.rpe,
+  });
+  await db.insert(loggedSets).values([
+    {
+      id: `${PREFIX}-set-${suffix}-${opts.tag}-1`,
+      workoutLogId: logId,
+      exerciseId,
+      setNumber: 1,
+      weight: opts.weight,
+      reps: opts.reps,
+      rpe: opts.rpe,
+    },
+    {
+      id: `${PREFIX}-set-${suffix}-${opts.tag}-2`,
+      workoutLogId: logId,
+      exerciseId,
+      setNumber: 2,
+      weight: opts.weight,
+      reps: opts.reps,
+      rpe: opts.rpe,
+    },
+  ]);
+}
+
+async function seedPermanentSub(
+  suffix: string,
+  originalExerciseId: string,
+  substituteExerciseId: string,
+  weightCarries: boolean
+): Promise<void> {
+  await db.insert(permanentSubstitutions).values({
+    id: `${PREFIX}-ps-${suffix}`,
+    userId: userId(suffix),
+    originalExerciseId,
+    substituteExerciseId,
+    reason: "preference",
+    weightCarries,
+    confirmedAt: new Date(),
+  });
+}
+
+async function seedBaseline(
+  suffix: string,
+  exerciseId: string,
+  baselineWeight: number
+): Promise<void> {
+  await db.insert(userBaselines).values({
+    id: `${PREFIX}-bl-${suffix}-${exerciseId}`,
+    userId: userId(suffix),
+    exerciseId,
+    baselineWeight,
+    baselineReps: 5,
+    source: "user_input",
+    establishedAt: new Date(),
+  });
+}
+
 interface PlannedExerciseRow {
   exerciseId: string;
   sets: number;
+}
+
+interface LoadDecisionOutput {
+  newWeight: number;
+}
+
+/**
+ * Pull the persisted `load_progression` newWeight for a given original exercise
+ * id (decisions key load progression by the program-template id).
+ */
+function loadWeightFor(
+  result: Awaited<ReturnType<typeof generateNextWeek>>,
+  originalExerciseId: string
+): number | undefined {
+  const decision = result.decisions.find(
+    (d) =>
+      d.type === "load_progression" &&
+      (d.input as { exerciseId?: string }).exerciseId === originalExerciseId
+  );
+  return decision
+    ? (decision.output as unknown as LoadDecisionOutput).newWeight
+    : undefined;
 }
 
 async function cleanup(): Promise<void> {
@@ -187,6 +297,7 @@ async function cleanup(): Promise<void> {
   await db.delete(workoutLogs).where(like(workoutLogs.userId, `${PREFIX}-%`));
   await db.delete(workouts).where(like(workouts.trainingBlockId, `${PREFIX}-%`));
   await db.delete(trainingBlocks).where(like(trainingBlocks.id, `${PREFIX}-%`));
+  await db.delete(userBaselines).where(like(userBaselines.id, `${PREFIX}-%`));
   await db
     .delete(permanentSubstitutions)
     .where(like(permanentSubstitutions.userId, `${PREFIX}-%`));
@@ -216,6 +327,7 @@ describe("generateNextWeek — constraint enforcement (integration)", () => {
     await db.delete(workoutLogs).where(like(workoutLogs.userId, `${PREFIX}-%`));
     await db.delete(workouts).where(like(workouts.trainingBlockId, `${PREFIX}-%`));
     await db.delete(trainingBlocks).where(like(trainingBlocks.id, `${PREFIX}-%`));
+    await db.delete(userBaselines).where(like(userBaselines.id, `${PREFIX}-%`));
     await db
       .delete(permanentSubstitutions)
       .where(like(permanentSubstitutions.userId, `${PREFIX}-%`));
@@ -230,15 +342,16 @@ describe("generateNextWeek — constraint enforcement (integration)", () => {
     await seedUser(suffix);
     const block = await seedBlock(suffix);
     await seedSquatHistory(suffix);
-    // Ban only the squat (a per-exercise block). Goblet squat (same squat
-    // pattern, dumbbell) is a safe candidate. The overhead press is untouched.
+    // Ban the barbell squat and the barbell front squat (both per-exercise
+    // blocks) so the goblet squat (same squat pattern, dumbbell) is the only
+    // safe candidate. The overhead press is untouched.
     await db.insert(athleteConstraints).values({
       id: `${PREFIX}-ac-${suffix}`,
       userId: userId(suffix),
       equipment: [],
       mobility: [],
       injuries: [],
-      bannedExerciseIds: [`${PREFIX}-barbell-squat`],
+      bannedExerciseIds: [`${PREFIX}-barbell-squat`, `${PREFIX}-front-squat`],
       correctivePriorityExerciseIds: [],
     });
 
@@ -283,6 +396,109 @@ describe("generateNextWeek — constraint enforcement (integration)", () => {
     expect(ids).not.toContain(`${PREFIX}-overhead-press`);
     expect(ids).toContain(`${PREFIX}-barbell-squat`);
     expect(planned).toHaveLength(1);
+  });
+
+  it("permanent-sub: substitute uses its OWN recent history for progression", async () => {
+    const suffix = "ps-own";
+    await seedUser(suffix);
+    const block = await seedBlock(suffix);
+    // Original squat has light history; the substitute (front squat) has its own
+    // heavier history. No constraints → permanent sub still applies.
+    await seedHistory(suffix, `${PREFIX}-barbell-squat`, {
+      weight: 100,
+      reps: 10,
+      rpe: 7,
+      tag: "orig",
+    });
+    await seedHistory(suffix, `${PREFIX}-front-squat`, {
+      weight: 200,
+      reps: 10,
+      rpe: 7,
+      tag: "sub",
+    });
+    await seedPermanentSub(
+      suffix,
+      `${PREFIX}-barbell-squat`,
+      `${PREFIX}-front-squat`,
+      true // even with carry on, the substitute's own history takes precedence
+    );
+
+    const result = await generateNextWeek(block, userId(suffix));
+
+    const workout = result.workouts[0]!;
+    const ids = (
+      workout.plannedExercises as unknown as PlannedExerciseRow[]
+    ).map((p) => p.exerciseId);
+    // The swap is scheduled in place of the original.
+    expect(ids).toContain(`${PREFIX}-front-squat`);
+    expect(ids).not.toContain(`${PREFIX}-barbell-squat`);
+
+    // Progression is computed off the substitute's own 200kg history → 205,
+    // NOT the original's 100kg history (which would yield 105).
+    expect(loadWeightFor(result, `${PREFIX}-barbell-squat`)).toBe(205);
+  });
+
+  it("permanent-sub: weightCarries carries the original's history when the substitute has none", async () => {
+    const suffix = "ps-carry";
+    await seedUser(suffix);
+    const block = await seedBlock(suffix);
+    // Only the original has history; the substitute has never been trained.
+    await seedHistory(suffix, `${PREFIX}-barbell-squat`, {
+      weight: 100,
+      reps: 10,
+      rpe: 7,
+      tag: "orig",
+    });
+    await seedPermanentSub(
+      suffix,
+      `${PREFIX}-barbell-squat`,
+      `${PREFIX}-front-squat`,
+      true
+    );
+
+    const result = await generateNextWeek(block, userId(suffix));
+
+    const ids = (
+      result.workouts[0]!.plannedExercises as unknown as PlannedExerciseRow[]
+    ).map((p) => p.exerciseId);
+    expect(ids).toContain(`${PREFIX}-front-squat`);
+
+    // Carries the original's 100kg working weight → progresses to 105.
+    expect(loadWeightFor(result, `${PREFIX}-barbell-squat`)).toBe(105);
+  });
+
+  it("permanent-sub: weightCarries=false yields a conservative start, not the original's weight", async () => {
+    const suffix = "ps-cold";
+    await seedUser(suffix);
+    const block = await seedBlock(suffix);
+    // Original has heavy history; the substitute has no history and carry is off.
+    await seedHistory(suffix, `${PREFIX}-barbell-squat`, {
+      weight: 100,
+      reps: 10,
+      rpe: 7,
+      tag: "orig",
+    });
+    // Substitute baseline anchors the conservative cold start.
+    await seedBaseline(suffix, `${PREFIX}-front-squat`, 30);
+    await seedPermanentSub(
+      suffix,
+      `${PREFIX}-barbell-squat`,
+      `${PREFIX}-front-squat`,
+      false
+    );
+
+    const result = await generateNextWeek(block, userId(suffix));
+
+    const ids = (
+      result.workouts[0]!.plannedExercises as unknown as PlannedExerciseRow[]
+    ).map((p) => p.exerciseId);
+    expect(ids).toContain(`${PREFIX}-front-squat`);
+
+    // No own history + no carry → conservative start from the substitute's own
+    // baseline (30, maintained), NOT the original's 100/105.
+    const newWeight = loadWeightFor(result, `${PREFIX}-barbell-squat`);
+    expect(newWeight).toBe(30);
+    expect(newWeight).not.toBe(105);
   });
 
   it("produces identical scheduled exercises for an unconstrained user", async () => {
