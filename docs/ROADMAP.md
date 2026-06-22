@@ -65,32 +65,20 @@ load them). Mobile observability is in code but unverified until this runs.
 
 ---
 
-## 2. Decision engine completeness (core product differentiator)
+## 2. Decision engine completeness — **DONE** ✅ (core differentiator)
 
-The engine is the heart of the product; these close the "learns from feedback" loop.
+The "learns from feedback" loop is closed.
 
-### 2a. Feedback-driven self-tuning — **M**
-`getProgressionModifier()` exists in `packages/engine/src/feedback.ts` and is
-exported, but **no decision route calls it**. Wire it into the decision endpoints
-so the engine adjusts aggressiveness based on the user's historical decision
-accuracy (followed + successful → more confident; overridden → more cautious).
-→ **Detailed plan: [plans/decision-self-tuning.md](plans/decision-self-tuning.md)**
+### 2a. Feedback-driven self-tuning — **DONE** (#9)
+`getProgressionModifier()` is wired into the load-progression and volume decision routes; the engine
+adjusts aggressiveness from the user's historical decision accuracy (gentle + clamped + flag-gated via
+`SELF_TUNING_ENABLED` + audited). Plan: [plans/decision-self-tuning.md](plans/decision-self-tuning.md).
 
-### 2b. Auto-evaluate remaining decision types — **mostly done** ✅
-**Done:** `exercise_rotation`, `deload_recommendation`, `session_recovery` now auto-evaluate
-on completion (additive `EvaluationContext`). **Remaining:** `missed_session` (deferred —
-weak completion-time signal; manual-only for now, narrow MVP optional later).
-
-
-`evaluatePendingDecisions` (`apps/server/src/services/decision-eval.ts`) runs on
-workout completion and is generic, but the engine's `evaluateDecision` only
-meaningfully scores `load_progression` and `volume_adjustment`. The other four —
-`exercise_rotation`, `deload_recommendation`, `session_recovery`,
-`missed_session` — can only be evaluated manually via
-`PATCH /decisions/:id/outcome`. Extend `evaluateDecision` to score them so the
-accuracy/feedback loop covers all decision types.
-→ **Detailed plan: [plans/decision-auto-eval.md](plans/decision-auto-eval.md)**
-(Prerequisite for 2a to be fully effective — self-tuning needs the wider feedback signal.)
+### 2b. Auto-evaluate decision types — **mostly done** (#10) ✅
+`exercise_rotation`, `deload_recommendation`, and `session_recovery` now auto-evaluate on workout
+completion (alongside load/volume). **Remaining (deferred):** `missed_session` (weak completion-time
+signal; manual-only) and `within_session` (the live-coach loop — short signal). Plan:
+[plans/decision-auto-eval.md](plans/decision-auto-eval.md).
 
 ---
 
@@ -139,10 +127,15 @@ writer → idempotent replay is sufficient).
 
 ---
 
-## Suggested sequencing
+## Suggested sequencing (updated 2026-06-22)
 
-1. **2a + 2b** — highest product value; completes the decision feedback loop that
-   is the app's core differentiator.
-2. **1a + 1c** — quick observability wins (richer logs + Turbopack-ready).
-3. **3a** — offline sync; large but high user value for a gym app.
-4. **1d, 1e, 4** — ops maturity as traffic grows.
+The decision feedback loop (§2), offline sync (§3a), and the web Coaching Profile are **done**. What's
+left, in rough priority:
+
+1. **Equipment instances — mobile in-workout entry** — closes the last coaching gap (Issue 5
+   end-to-end; the backend + web are already shipped). Highest remaining product value.
+2. **Quick-wins batch** — 1c (Turbopack-ready) + 1a (richer logs) + mobile lint debt + pin base-image
+   digests + grip polish (`barbell-shrug`). All ~**S**; knock out together.
+3. **Observability depth** — 1b (client logs) + 1d (SQL spans); then 1f (EAS dev build), which unlocks
+   the mobile Sentry alert rule (1e).
+4. **Bigger bets** — cycle-phase "full" (analytics/symptoms), production deploy polish (§4).
