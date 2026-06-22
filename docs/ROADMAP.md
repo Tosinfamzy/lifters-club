@@ -110,11 +110,11 @@ heavier alternative — decide which path.)
   Preview scope. Validated by the next web PR's preview build. *Note:* for preview
   *login* to work, that Clerk dev instance must also allow `*.vercel.app` preview
   origins (Clerk dashboard) — separate, not yet done.
-- **Expired Sentry release token** — `SENTRY_AUTH_TOKEN` (Preview + Production,
-  ~41d old) returns `401 Token expired`, so the `@sentry/nextjs` release +
-  sourcemap-upload step fails on every web build (non-fatal — the build proceeds —
-  but no sourcemaps/releases). Rotate the token in Sentry and update both Vercel
-  scopes. **S**
+- **Sentry release token — RESOLVED 2026-06-22.** `SENTRY_AUTH_TOKEN` had expired
+  (`401`) on both Vercel scopes, so the `@sentry/nextjs` release + sourcemap-upload
+  step failed on every web build (non-fatal). Rotated to a fresh, minimally-scoped
+  Sentry personal token (`org:read` + `project:read` + `project:releases`) on both
+  Preview + Production scopes. Validates on the next web build.
 - **Pin base image digests** — `node:22-alpine` carries upstream CVEs; pin a
   patched digest in both Dockerfiles to silence image-scan warnings. **S**
 - **Production deploy polish** — domain/DNS hardening, blue-green or health-gated
