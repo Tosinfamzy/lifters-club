@@ -353,4 +353,60 @@ describe("Logs API - Retrospective Logging", () => {
       expect(log!.userId).toBe(OTHER_USER_ID);
     });
   });
+
+  describe("POST /api/logs/:logId/sets - idempotent replay", () => {
+    const LOG_ID = "log_test_idem";
+    const SET_ID = "set-test-idem-1";
+    const setBody = {
+      id: SET_ID,
+      exerciseId: "barbell-bench-press",
+      setNumber: 1,
+      weight: 100,
+      reps: 8,
+      rpe: 8,
+    };
+
+    async function seedLog() {
+      await db.insert(workoutLogs).values({
+        id: LOG_ID,
+        userId: TEST_USER_ID,
+        startedAt: new Date(),
+      });
+    }
+
+    it("creates a set with a client-supplied id (201)", async () => {
+      await seedLog();
+      const res = await app.request(`/api/logs/${LOG_ID}/sets`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(setBody),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as ApiResponse<{ id: string }>;
+      expect(body.data!.id).toBe(SET_ID);
+    });
+
+    it("re-sending the same set id is idempotent: 200 + a single row", async () => {
+      await seedLog();
+      const first = await app.request(`/api/logs/${LOG_ID}/sets`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(setBody),
+      });
+      expect(first.status).toBe(201);
+
+      // Offline replay — same id re-sent.
+      const replay = await app.request(`/api/logs/${LOG_ID}/sets`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(setBody),
+      });
+      expect(replay.status).toBe(200);
+      const body = (await replay.json()) as ApiResponse<{ id: string }>;
+      expect(body.data!.id).toBe(SET_ID);
+
+      const rows = await db.select().from(loggedSets).where(eq(loggedSets.id, SET_ID));
+      expect(rows.length).toBe(1);
+    });
+  });
 });

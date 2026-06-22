@@ -457,7 +457,10 @@ logRoutes.post(
       return c.json({ error: "Cannot add sets to a completed workout" }, 400);
     }
 
-    const result = await db
+    // Idempotent insert keyed on the client-supplied PK: an offline replay that
+    // re-sends the same set is a no-op, not a 500 PK violation. This is what lets
+    // the offline queue retry/flush safely.
+    const inserted = await db
       .insert(loggedSets)
       .values({
         id: data.id,
@@ -469,9 +472,21 @@ logRoutes.post(
         rpe: data.rpe ?? null,
         notes: data.notes ?? null,
       })
+      .onConflictDoNothing({ target: loggedSets.id })
       .returning();
 
-    return c.json({ data: result[0] }, 201);
+    if (inserted.length === 0) {
+      // Duplicate id (replay) — return the existing row with 200 so the client
+      // treats the retry as already-done.
+      const [existing] = await db
+        .select()
+        .from(loggedSets)
+        .where(eq(loggedSets.id, data.id))
+        .limit(1);
+      return c.json({ data: existing }, 200);
+    }
+
+    return c.json({ data: inserted[0] }, 201);
   }
 );
 
