@@ -31,24 +31,25 @@ service.
   attribute is `/health`, `/api/docs`, or `/api/openapi.json`. Then `info` gives
   useful request tracing without the noise.
 
-### 1b. Web + mobile logs into Sentry — **S–M**
-Server uses the first-party `pinoIntegration`. Web (`@sentry/nextjs`) and mobile
-(`@sentry/react-native`) have no structured logger, so they currently send only
-errors/traces. To get client logs: set `enableLogs: true` in their Sentry configs
-and either call `Sentry.logger.*` at meaningful points or add
-`Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] })` to capture
-console output. Decide whether client log volume is worth the quota.
+### 1b. Web + mobile logs into Sentry — **DONE 2026-06-22** (#36)
+Web (`@sentry/nextjs`) and mobile (`@sentry/react-native`) now set `enableLogs: true` +
+`Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] })`, so client warnings/errors flow
+into Sentry Logs alongside the server's pino→Sentry-Logs. Scoped to warn+error (not info) to keep the
+byte-billed volume minimal on the free plan.
 
 ### 1c. Migrate web Sentry client config — **S**
 `apps/web/sentry.client.config.ts` still uses the legacy file. Sentry warns it
 won't work under Turbopack. Move its contents to
 `apps/web/src/instrumentation-client.ts` before adopting Turbopack.
 
-### 1d. SQL span coverage for `@gymapp/db` — **M**
-Drizzle uses `postgres-js` (porsager), which Sentry's `postgresIntegration` (pg
-only) doesn't instrument, so DB time is invisible in traces. Either wrap DB calls
-in explicit `Sentry.startSpan(...)` in the db package, or swap to a driver Sentry
-instruments.
+### 1d. SQL span coverage for `@gymapp/db` — **DEFERRED 2026-06-22** · **M**
+Drizzle uses `postgres-js` (porsager), which Sentry's `postgresIntegration` (pg only) doesn't
+instrument, so DB time is invisible in traces. The **clean** fix is swapping the driver to `pg`
+(`drizzle-orm/node-postgres` — route code is unchanged and Sentry then auto-instruments every query),
+validated by the 188-test server suite. Deferred: DB latency isn't a concern at current (pre-launch)
+traffic, and a DB-layer driver swap carries prod-only pooling risk not worth taking yet. Revisit when
+there's an actual slow query to chase. (Alternative: manual `Sentry.startSpan` around hot paths —
+partial + invasive.)
 
 ### 1e. Alerting & dashboards — **partially done** (2026-06-22)
 **Done:** high-priority issue-alert rules email the owner on `lifters-club-server` (Sentry default)
