@@ -1296,6 +1296,7 @@ export const exerciseSeedData: ExerciseInsert[] = [
     isCompound: false,
     isUnilateral: false,
     difficulty: "beginner",
+    grip: "pronated",
     constraints: [],
   },
 

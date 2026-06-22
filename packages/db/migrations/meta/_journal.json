@@ -64,6 +64,13 @@
       "when": 1781963875273,
       "tag": "0008_talented_typhoid_mary",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782050275000,
+      "tag": "0009_grip_barbell_shrug",
+      "breakpoints": true
     }
   ]
 }
