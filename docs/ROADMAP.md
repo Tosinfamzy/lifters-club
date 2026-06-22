@@ -50,10 +50,13 @@ only) doesn't instrument, so DB time is invisible in traces. Either wrap DB call
 in explicit `Sentry.startSpan(...)` in the db package, or swap to a driver Sentry
 instruments.
 
-### 1e. Alerting & dashboards — **M**
-No alert rules yet. Add a Sentry issue-alert rule (notify on new/regressed 5xx),
-optionally a metric alert on error rate, and a logs/perf dashboard. Use the
-`sentry alert` / `sentry dashboard` CLI commands.
+### 1e. Alerting & dashboards — **partially done** (2026-06-22)
+**Done:** high-priority issue-alert rules email the owner on `lifters-club-server` (Sentry default)
+and `lifters-club-web` (added — rule 675079, mirrors the server config). **Remaining:** add the same
+rule to `lifters-club-mobile` *after* the EAS dev build (1f) makes it actually report; verify Spike
+Protection is on per project (UI: Settings → Projects → … → Spike Protection); optionally a logs/perf
+dashboard via the `sentry dashboard` CLI. Note: error volume is ~6/mo against the 5k free quota, so
+no quota pressure — alerts don't consume quota.
 
 ### 1f. First mobile EAS dev build — **S** (needs store credentials)
 `apps/mobile/eas.json` has a `development` profile, but Sentry's native iOS/Android
