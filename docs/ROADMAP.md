@@ -96,11 +96,22 @@ accuracy/feedback loop covers all decision types.
 
 ## 3. Offline & mobile
 
-### 3a. Full offline sync — **L**
-Mobile has basic MMKV set-queueing, but not full reconnect-flush sync (queue
-replay on reconnect, conflict handling, retry/backoff). ADR-0009 documents the
-"simple offline queue" intent; build it out. (ADR-0005 references PowerSync as the
-heavier alternative — decide which path.)
+### 3a. Full offline sync — **DONE 2026-06-22** (simple-queue path, ADR-0009)
+Built out as a 4-PR arc (#30–#33; plan: `docs/plans/offline-sync.md`). Confirmed the simple-queue
+approach over PowerSync (ADR-0005 stays superseded). What shipped:
+- **Set persistence fixed** — the client omitted the server-required set `id`, so logged sets were
+  400'ing on flush and being dropped (#30). Plus `completedAt` on complete.
+- **Idempotent replay** — server upserts sets on the PK (`onConflictDoNothing`), so re-sends are
+  no-ops, not 500s (#31).
+- **Robust flush** — exponential backoff + jitter, error classification (4xx permanent → dead-letter;
+  5xx/timeout transient → back off; dependency-not-ready → deferred, no retry penalty), and a
+  **dead-letter store** so nothing is silently dropped (#32).
+- **Triggers + recovery UX** — flush on reconnect/foreground/mount; the OfflineIndicator surfaces a
+  "Sync Failed — tap to retry" banner wired to `retryDeadLetter()`; 409-tolerant decision replay (#33).
+
+**Deferred (optional polish):** AsyncStorage→MMKV migration (ADR-0009 names MMKV; the code uses
+AsyncStorage — functionally fine). Conflict handling intentionally minimal (append-only, single
+writer → idempotent replay is sufficient).
 
 ---
 
