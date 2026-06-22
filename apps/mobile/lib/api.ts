@@ -194,6 +194,17 @@ export interface UserBaseline {
   updatedAt: string;
 }
 
+// Per-machine limits for an exercise (matches the server CRUD shape). All weight
+// fields are optional; the engine snaps the prescribed load to what the machine
+// can make and prefers a confirmed working weight as the cold-start baseline.
+export interface EquipmentInstanceData {
+  exerciseId: string;
+  incrementConstraint?: number;
+  minWeight?: number;
+  confirmedWorkingWeight?: number;
+  label?: string;
+}
+
 // Decision types (matches @gymapp/types DecisionType)
 export type DecisionType =
   | "load_progression"
@@ -659,6 +670,27 @@ class ApiClient {
     return this.request<ApiResponse<UserBaseline[]>>(
       `/api/users/${userId}/baselines`,
       { method: "POST", body: JSON.stringify({ baselines }) }
+    );
+  }
+
+  // ─── Equipment instances (per-machine limits, protected) ──────────────
+  async getEquipmentInstances(userId: string) {
+    return this.request<ApiResponse<EquipmentInstanceData[]>>(
+      `/api/users/${userId}/equipment-instances`
+    );
+  }
+
+  async updateEquipmentInstance(userId: string, data: EquipmentInstanceData) {
+    return this.request<ApiResponse<EquipmentInstanceData>>(
+      `/api/users/${userId}/equipment-instances`,
+      { method: "PUT", body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteEquipmentInstance(userId: string, exerciseId: string) {
+    return this.request<ApiResponse<{ message: string }>>(
+      `/api/users/${userId}/equipment-instances/${exerciseId}`,
+      { method: "DELETE" }
     );
   }
 

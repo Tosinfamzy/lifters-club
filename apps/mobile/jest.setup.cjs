@@ -58,6 +58,17 @@ jest.mock("lucide-react-native", () => ({
   X: "X",
   ChevronRight: "ChevronRight",
   TrendingUp: "TrendingUp",
+  TrendingDown: "TrendingDown",
+  Minus: "Minus",
+  Sparkles: "Sparkles",
+  Check: "Check",
+  Settings: "Settings",
+  WifiOff: "WifiOff",
+  Cloud: "Cloud",
+  CloudOff: "CloudOff",
+  AlertTriangle: "AlertTriangle",
+  Timer: "Timer",
+  Plus: "Plus",
 }));
 
 // Silence console warnings during tests

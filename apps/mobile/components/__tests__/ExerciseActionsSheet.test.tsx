@@ -107,7 +107,7 @@ describe("ExerciseActionsSheet", () => {
   });
 
   it("closes the sheet and calls onSelectAction for each action", () => {
-    const actions: ExerciseAction[] = ["info", "alternatives", "skip", "mark_done"];
+    const actions: ExerciseAction[] = ["info", "alternatives", "machine", "skip", "mark_done"];
 
     actions.forEach((action) => {
       mockOnClose.mockClear();
@@ -115,9 +115,10 @@ describe("ExerciseActionsSheet", () => {
 
       const { getByText } = render(<ExerciseActionsSheet {...defaultProps} />);
 
-      const actionLabels = {
+      const actionLabels: Record<ExerciseAction, string> = {
         info: "Exercise Info",
         alternatives: "Alternative Exercises",
+        machine: "Machine Setup",
         skip: "Skip Exercise for Today",
         mark_done: "Mark Exercise as Done",
       };

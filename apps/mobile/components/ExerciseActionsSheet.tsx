@@ -7,7 +7,7 @@ import {
   StyleSheet,
   Pressable,
 } from "react-native";
-import { Info, RefreshCw, SkipForward, CheckCircle } from "lucide-react-native";
+import { Info, RefreshCw, SkipForward, CheckCircle, Settings } from "lucide-react-native";
 import type { ExerciseAction } from "../types";
 
 interface ExerciseActionsSheetProps {
@@ -44,6 +44,12 @@ export function ExerciseActionsSheet({
       icon: RefreshCw,
       label: "Alternative Exercises",
       description: "Find similar exercises",
+    },
+    {
+      action: "machine",
+      icon: Settings,
+      label: "Machine Setup",
+      description: "Set this machine's weight step / working weight",
     },
     {
       action: "skip",

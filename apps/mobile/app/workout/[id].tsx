@@ -21,6 +21,7 @@ import { useExerciseDecisions } from "../../hooks/use-exercise-decisions";
 import { useWorkoutCompletion } from "../../hooks/use-workout-completion";
 import { OfflineIndicator } from "../../components/OfflineIndicator";
 import { ExerciseActionsSheet } from "../../components/ExerciseActionsSheet";
+import { MachineSetupSheet } from "../../components/workout/MachineSetupSheet";
 import { DecisionExplanationModal } from "../../components/workout/DecisionExplanationModal";
 import { ReadinessCheckView } from "../../components/workout/ReadinessCheckView";
 import { ExerciseSetLogger } from "../../components/workout/ExerciseSetLogger";
@@ -35,8 +36,7 @@ import type {
   LoadRecommendation,
   WithinSessionSuggestion,
 } from "../../components/workout/workout.types";
-
-type ExerciseAction = "info" | "alternatives" | "skip" | "mark_done";
+import type { ExerciseAction } from "../../types";
 
 export default function WorkoutScreen() {
   const { id, substitutedExerciseId, substitutedExerciseName, originalExerciseId } =
@@ -68,6 +68,7 @@ export default function WorkoutScreen() {
   const [exercises, setExercises] = useState<ExerciseProgress[]>([]);
   const [workoutLogId, setWorkoutLogId] = useState<string | null>(null);
   const [showExerciseActions, setShowExerciseActions] = useState(false);
+  const [showMachineSetup, setShowMachineSetup] = useState(false);
 
   // Load progression recommendations
   const [loadRecommendations, setLoadRecommendations] = useState<Map<string, LoadRecommendation>>(new Map());
@@ -350,6 +351,9 @@ export default function WorkoutScreen() {
             },
           });
           break;
+        case "machine":
+          setShowMachineSetup(true);
+          break;
         case "skip":
           skipExercise();
           break;
@@ -581,6 +585,16 @@ export default function WorkoutScreen() {
           exerciseName={currentExercise.exerciseName}
           onSelectAction={handleExerciseAction}
         />
+
+        {appUser && (
+          <MachineSetupSheet
+            visible={showMachineSetup}
+            onClose={() => setShowMachineSetup(false)}
+            userId={appUser.id}
+            exerciseId={currentExercise.exerciseId}
+            exerciseName={currentExercise.exerciseName}
+          />
+        )}
 
         {selectedDecision && (
           <DecisionExplanationModal

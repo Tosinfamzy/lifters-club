@@ -7,7 +7,7 @@
 /**
  * Actions available in Exercise Actions Sheet
  */
-export type ExerciseAction = "info" | "alternatives" | "skip" | "mark_done";
+export type ExerciseAction = "info" | "alternatives" | "machine" | "skip" | "mark_done";
 
 /**
  * User preference for exercise substitution

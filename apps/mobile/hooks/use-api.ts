@@ -75,6 +75,14 @@ export function useApi() {
         userId: string,
         baselines: Parameters<typeof baseApi.saveUserBaselines>[1]
       ) => authenticatedRequest((c) => c.saveUserBaselines(userId, baselines)),
+      getEquipmentInstances: (userId: string) =>
+        authenticatedRequest((c) => c.getEquipmentInstances(userId)),
+      updateEquipmentInstance: (
+        userId: string,
+        data: Parameters<typeof baseApi.updateEquipmentInstance>[1]
+      ) => authenticatedRequest((c) => c.updateEquipmentInstance(userId, data)),
+      deleteEquipmentInstance: (userId: string, exerciseId: string) =>
+        authenticatedRequest((c) => c.deleteEquipmentInstance(userId, exerciseId)),
       submitCalibrationResults: (
         userId: string,
         sets: Parameters<typeof baseApi.submitCalibrationResults>[1],
