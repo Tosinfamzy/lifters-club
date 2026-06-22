@@ -4,6 +4,35 @@ All notable changes to Lifters Club are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). The project is not yet versioned by
 release, so entries are grouped by date. PR numbers link the change to its review.
 
+## 2026-06-22
+
+### Added
+
+- **Full offline sync** (#30, #31, #32, #33) — the mobile reconnect-flush story, built out on the
+  simple-queue path (ADR-0009; PowerSync/ADR-0005 stays superseded). Set logging now persists
+  reliably and syncs when back online: **idempotent replay** (server upserts logged sets on the PK,
+  so re-sends are no-ops not 500s, #31); **robust flush** with exponential backoff + jitter, error
+  classification (4xx → permanent, 5xx/timeout → transient, dependency-not-ready → deferred without a
+  retry penalty), and a **dead-letter store** so a permanently-failing op is never silently dropped
+  (#32); **flush triggers** on reconnect / app-foreground / mount, a "Sync Failed — tap to retry"
+  banner wired to `retryDeadLetter()`, and 409-tolerant decision-outcome replay (#33). Plan:
+  `docs/plans/offline-sync.md`.
+- **Sentry web alerting** — a high-priority issue-alert rule on `lifters-club-web` (mirrors the
+  server default) emails the owner on a new/escalating high-priority issue. (Mobile rule deferred
+  until the EAS dev build makes it report.) Error volume is ~6/mo vs the 5k free quota, so no quota
+  pressure — alert rules don't consume quota.
+
+### Fixed
+
+- **Logged sets weren't reaching the server** (#30) — the mobile client omitted the server-required
+  set `id` (and `completedAt` on complete) on both write paths, so queued sets 400'd on flush, retried
+  3×, then were silently dropped. The client now sends the stable id (which also becomes the
+  idempotency key). Pre-launch, so no production data lost.
+- **Expired Sentry release token** — `SENTRY_AUTH_TOKEN` (both Vercel scopes) had expired (`401`), so
+  the `@sentry/nextjs` release + sourcemap-upload step failed on every web build (non-fatal, but no
+  readable prod stack traces). Rotated to a fresh, minimally-scoped token; validated by a preview
+  build uploading sourcemaps cleanly.
+
 ## 2026-06-20
 
 ### Added
