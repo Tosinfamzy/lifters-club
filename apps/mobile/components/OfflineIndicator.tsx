@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
-import { WifiOff, RefreshCw, Cloud, CloudOff } from "lucide-react-native";
+import { WifiOff, RefreshCw, Cloud, CloudOff, AlertTriangle } from "lucide-react-native";
 import { useOffline } from "../providers/offline-provider";
 
 interface OfflineIndicatorProps {
@@ -16,10 +16,13 @@ interface OfflineIndicatorProps {
  * - Hides when fully synced and online
  */
 export function OfflineIndicator({ variant = "banner" }: OfflineIndicatorProps) {
-  const { isOnline, isSyncing, pendingCount, syncNow } = useOffline();
+  const { isOnline, isSyncing, pendingCount, deadLetterCount, syncNow, retryDeadLetter } =
+    useOffline();
 
-  // Don't show anything when connected and no pending changes
-  if (isOnline && pendingCount === 0 && !isSyncing) {
+  // Failed (dead-letter) items keep the banner visible even when otherwise
+  // synced, so they're never silently stuck. The compact variants stay quiet.
+  const showForDeadLetter = variant === "banner" && deadLetterCount > 0;
+  if (isOnline && pendingCount === 0 && !isSyncing && !showForDeadLetter) {
     return null;
   }
 
@@ -70,6 +73,32 @@ export function OfflineIndicator({ variant = "banner" }: OfflineIndicatorProps) 
   }
 
   // Banner variant (default)
+
+  // Failed items take priority — the most actionable state. Tap to retry.
+  if (deadLetterCount > 0 && !isSyncing) {
+    return (
+      <TouchableOpacity
+        style={[styles.bannerContainer, styles.bannerFailed]}
+        onPress={retryDeadLetter}
+        activeOpacity={0.8}
+      >
+        <View style={styles.bannerContent}>
+          <AlertTriangle size={18} color="#FECACA" />
+          <View style={styles.bannerTextContainer}>
+            <Text style={[styles.bannerTitle, styles.bannerTitleFailed]}>Sync Failed</Text>
+            <Text style={[styles.bannerSubtitle, styles.bannerSubtitleFailed]}>
+              {deadLetterCount} item{deadLetterCount > 1 ? "s" : ""} couldn&apos;t sync — tap to retry
+            </Text>
+          </View>
+        </View>
+        <View style={styles.retryPill}>
+          <RefreshCw size={14} color="#7F1D1D" />
+          <Text style={styles.retryPillText}>Retry</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <TouchableOpacity
       style={[
@@ -202,6 +231,29 @@ const styles = StyleSheet.create({
   },
   bannerSyncing: {
     backgroundColor: "#1E3A8A",
+  },
+  bannerFailed: {
+    backgroundColor: "#7F1D1D",
+  },
+  bannerTitleFailed: {
+    color: "#FECACA",
+  },
+  bannerSubtitleFailed: {
+    color: "#FCA5A5",
+  },
+  retryPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FECACA",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  retryPillText: {
+    color: "#7F1D1D",
+    fontSize: 12,
+    fontWeight: "700",
   },
   bannerContent: {
     flexDirection: "row",

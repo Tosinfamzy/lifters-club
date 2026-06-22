@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/clerk-expo";
@@ -246,6 +247,12 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             console.log("Logged set already exists (409), treating as success");
             return "success";
           }
+          // 409 on a decision outcome means it was already recorded (replay) —
+          // benign, treat as success rather than dead-lettering it as a 4xx.
+          if (response.status === 409 && operation.type === "RECORD_DECISION_OUTCOME") {
+            console.log("Decision outcome already recorded (409), treating as success");
+            return "success";
+          }
           // Classify the failure: a 4xx is permanent (retrying won't fix a
           // validation/ownership error) → dead-letter; 5xx/other is transient → back off.
           console.error(`Sync op failed: HTTP ${response.status} for ${operation.type}`);
@@ -388,15 +395,34 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [syncNow]);
 
-  // Initialize state
+  // Flush when the app returns to the foreground (covers being backgrounded
+  // mid-gym with a pending queue — NetInfo alone won't fire if connectivity
+  // never actually dropped).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state === "active" && isOnline) {
+        offlineQueue.hasItems().then((hasItems) => {
+          if (hasItems) syncNow();
+        });
+      }
+    });
+    return () => sub.remove();
+  }, [isOnline, syncNow]);
+
+  // Initialize state, and flush once on mount if anything is already pending.
   useEffect(() => {
     const init = async () => {
       await updatePendingCount();
       const lastSync = await offlineStorage.getLastSync();
       setLastSyncTime(lastSync);
+      if (await offlineQueue.hasItems()) {
+        syncNow();
+      }
     };
     init();
-  }, [updatePendingCount]);
+    // Run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <OfflineContext.Provider
