@@ -135,6 +135,7 @@ export function useWorkoutOffline(workoutId: string) {
         try {
           const token = await getTokenRef.current();
           const response = await api.withToken(token).createWorkoutLog({
+            id: newLog.id,
             workoutId,
             userId,
             startedAt: newLog.startedAt,
@@ -214,7 +215,7 @@ export function useWorkoutOffline(workoutId: string) {
           const token = await getTokenRef.current();
           const response = await api.withToken(token).createLoggedSet(
             workoutLog.id,
-            { exerciseId, setNumber, weight, reps, rpe, notes }
+            { id: newSet.id, exerciseId, setNumber, weight, reps, rpe, notes }
           );
 
           const serverSet = response.data;
@@ -262,6 +263,7 @@ export function useWorkoutOffline(workoutId: string) {
         try {
           const token = await getTokenRef.current();
           await api.withToken(token).completeWorkoutLog(workoutLog.id, {
+            completedAt,
             overallRpe,
             notes,
           });

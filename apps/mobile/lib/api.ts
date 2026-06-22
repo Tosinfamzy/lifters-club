@@ -544,6 +544,9 @@ class ApiClient {
   }
 
   async createWorkoutLog(data: {
+    // Client-supplied stable id — the server requires it (createWorkoutLogSchema)
+    // and uses it as the PK, which is what makes offline replays idempotent.
+    id: string;
     workoutId: string;
     userId: string;
     startedAt: string;
@@ -556,7 +559,8 @@ class ApiClient {
 
   async completeWorkoutLog(
     logId: string,
-    data: { overallRpe?: number; notes?: string }
+    // `completedAt` is required by completeWorkoutLogSchema.
+    data: { completedAt: string; overallRpe?: number; notes?: string }
   ) {
     return this.request<ApiResponse<WorkoutLog>>(
       `/api/logs/${logId}/complete`,
@@ -569,6 +573,8 @@ class ApiClient {
   async createLoggedSet(
     logId: string,
     data: {
+      // Required by createSetSchema; used as the PK for idempotent replay.
+      id: string;
       exerciseId: string;
       setNumber: number;
       weight: number;

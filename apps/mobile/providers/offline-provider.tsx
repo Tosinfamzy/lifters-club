@@ -122,6 +122,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             endpoint = `/api/logs/${resolvedWorkoutLogId}/sets`;
             method = "POST";
             body = {
+              // The server requires the set id (createSetSchema) and uses it as
+              // the PK — sending the stable client id makes replays idempotent.
+              id: operation.data.id,
               exerciseId: operation.data.exerciseId,
               setNumber: operation.data.setNumber,
               weight: operation.data.weight,
