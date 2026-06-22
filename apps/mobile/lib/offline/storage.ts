@@ -7,6 +7,9 @@ export const STORAGE_KEYS = {
   CACHED_WORKOUT: "lifters_club_cached_workout",
   CACHED_EXERCISES: "lifters_club_cached_exercises",
   OFFLINE_QUEUE: "lifters_club_offline_queue",
+  // Ops that exhausted retries or hit a permanent (4xx) error land here instead
+  // of being silently dropped, so gym data is never lost without a trace.
+  DEAD_LETTER: "lifters_club_dead_letter",
   LAST_SYNC: "lifters_club_last_sync",
   EXERCISE_PREFERENCES: "lifters_club_exercise_preferences",
   CACHED_SUBSTITUTES: "lifters_club_cached_substitutes",

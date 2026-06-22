@@ -46,7 +46,25 @@ export interface QueueItem {
   operation: QueuedOperation;
   timestamp: string;
   retryCount: number;
+  /** ISO timestamp before which the item should be skipped (exponential backoff). */
+  nextRetryAt?: string;
 }
+
+/** After this many transient failures an item is moved to the dead-letter store. */
+export const MAX_RETRIES = 6;
+
+const BACKOFF_BASE_MS = 2_000;
+const BACKOFF_CAP_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Exponential backoff with jitter for a given (zero-based) retry count:
+ * `min(cap, base · 2^n) + random(0..1000)ms`. The jitter avoids a thundering
+ * herd of queued ops all retrying on the same tick after a reconnect.
+ */
+export const backoffDelayMs = (retryCount: number): number => {
+  const exp = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** retryCount);
+  return exp + Math.floor(Math.random() * 1000);
+};
 
 // Generate unique ID for queue items
 const generateId = (): string => {
@@ -115,6 +133,56 @@ export const offlineQueue = {
       item.id === id ? { ...item, retryCount: item.retryCount + 1 } : item
     );
     await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(updated));
+  },
+
+  // Bump retryCount and defer the next attempt by `delayMs` (exponential backoff).
+  scheduleRetry: async (id: string, delayMs: number): Promise<void> => {
+    const queue = await offlineQueue.getQueue();
+    const nextRetryAt = new Date(Date.now() + delayMs).toISOString();
+    const updated = queue.map((item) =>
+      item.id === id
+        ? { ...item, retryCount: item.retryCount + 1, nextRetryAt }
+        : item
+    );
+    await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(updated));
+  },
+
+  // ── Dead-letter store ──────────────────────────────────────────────────
+  // Permanently-failing or retry-exhausted ops are moved here (not dropped) so
+  // the data survives and can be surfaced/retried by the user.
+
+  getDeadLetter: async (): Promise<QueueItem[]> => {
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.DEAD_LETTER);
+    return data ? JSON.parse(data) : [];
+  },
+
+  deadLetterSize: async (): Promise<number> => {
+    return (await offlineQueue.getDeadLetter()).length;
+  },
+
+  // Move one queued op to the dead-letter store.
+  moveToDeadLetter: async (id: string): Promise<void> => {
+    const queue = await offlineQueue.getQueue();
+    const item = queue.find((q) => q.id === id);
+    if (!item) return;
+    const dead = await offlineQueue.getDeadLetter();
+    dead.push(item);
+    await AsyncStorage.setItem(STORAGE_KEYS.DEAD_LETTER, JSON.stringify(dead));
+    await offlineQueue.dequeue(id);
+  },
+
+  // Move every dead-letter op back to the live queue (reset attempts) for a
+  // user-initiated "retry failed".
+  retryDeadLetter: async (): Promise<void> => {
+    const dead = await offlineQueue.getDeadLetter();
+    if (dead.length === 0) return;
+    const queue = await offlineQueue.getQueue();
+    const revived = dead.map((item) => ({ ...item, retryCount: 0, nextRetryAt: undefined }));
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.OFFLINE_QUEUE,
+      JSON.stringify([...queue, ...revived])
+    );
+    await AsyncStorage.removeItem(STORAGE_KEYS.DEAD_LETTER);
   },
 
   // Get queue size
