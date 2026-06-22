@@ -22,6 +22,11 @@ if (sentryDsn) {
     sampleRate: 1.0,
     tracesSampleRate: __DEV__ ? 1.0 : 0.1,
 
+    // Forward client warnings/errors as structured Sentry logs (low volume,
+    // byte-billed). Scoped to warn+error to avoid noisy info-level chatter.
+    enableLogs: true,
+    integrations: [Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] })],
+
     // PII strip mirrors the server app: no Authorization tokens / cookies
     // make it into Sentry events even if some request library leaks them.
     beforeSend(event) {

@@ -13,8 +13,13 @@ if (dsn && env !== "test") {
     release: process.env.NEXT_PUBLIC_SENTRY_RELEASE,
     sampleRate: 1.0,
 
+    // Forward client warnings/errors as structured Sentry logs (low volume,
+    // byte-billed). Scoped to warn+error to avoid noisy info-level chatter.
+    enableLogs: true,
+
     integrations: [
       Sentry.browserTracingIntegration(),
+      Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
       // Session Replay is opt-in via env. Default off to keep client bundle
       // size and PII surface small. To enable: set NEXT_PUBLIC_SENTRY_REPLAY=1.
       ...(process.env.NEXT_PUBLIC_SENTRY_REPLAY === "1"
