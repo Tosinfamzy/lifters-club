@@ -25,6 +25,12 @@ release, so entries are grouped by date. PR numbers link the change to its revie
   `weightCarries`), else a conservative start.
 - **Grip handling** (#14) — a `grip` axis on exercises + a grip-restriction constraint axis;
   closes the `no_wrist_extension` / neutral-grip case (previously inert). 35 exercises tagged.
+- **Cycle-phase load modification — engine + API** (#17) — optional `CyclePhaseConfig` on
+  `calculateLoadProgression`: a per-phase load modifier (clamped 0.5–1.0) plus an
+  `allowNewWeightTests` veto (the firmer lever — no new maxes during a phase), layered request →
+  per-athlete preference override → engine default, applied before the equipment snap. Self-reported
+  at session start, opt-in via `tracksCycle`; absent → byte-identical to pre-cycle behavior. The web
+  UI for it landed in #26. (Also cleared the outstanding mobile lint debt.)
 - **Decision self-tuning** (#9) — load-progression and volume decisions now adjust their
   aggressiveness from the user's historical decision accuracy, gentle + clamped + flag-gated
   (`SELF_TUNING_ENABLED`) + audited. Engine version → `1.1.0`.
@@ -43,6 +49,21 @@ release, so entries are grouped by date. PR numbers link the change to its revie
   load), preferring a confirmed working weight as the cold-start baseline. Applied after cycle-phase
   scaling. Threaded through the load-progression route. Per-machine data entry is Phase B.
   Engine version → `1.2.0`.
+- **Within-session live coaching — mobile** (#20, #25, #27, #28) — the live-coach surface. After each
+  set, a non-blocking call to `/decisions/within-session` (which now returns the persisted
+  `decisionId`, #20) surfaces a coach card in the rest-timer overlay with the next-set load, delta vs
+  the set just done, and the engine's reasoning (#25). "Use it" records *followed* + pre-fills the
+  next set; "Dismiss" records *overridden* — both feeding the self-tuning loop (#27). A flagged
+  mid-session PR offers an explicit "Set as baseline" tap → `POST /users/:id/baselines` (#28).
+- **Equipment instances — persistence + read-through** (#19) — new `gym_equipment_instances` table
+  (one row per user+exercise, migration 0008) + `GET/PUT/DELETE /api/users/:id/equipment-instances`,
+  plus a read-through that auto-applies a saved machine in `/load-progression` (a request value
+  overrides the stored one). Makes the engine snap (#18) actually reachable.
+- **Web Coaching Profile** (#21, #22, #23, #26, #29) — a new Settings → Coaching Profile area exposing
+  every athlete input the engine consumes: constraints + grip + injuries + banned/corrective
+  exercises (#21, #29), permanent substitutions with a reusable searchable exercise picker (#22),
+  per-machine equipment limits (#23), and opt-in cycle-phase tracking + per-phase load overrides
+  (#26). All ride existing APIs (cycle phase via `updateUser` preferences); no backend changes.
 - **ROADMAP + banked plans** (#7, #8) — `docs/ROADMAP.md` and detailed implementation plans under
   `docs/plans/` (observability, decision-engine, athlete-coaching gaps from real athlete feedback).
 
@@ -58,6 +79,14 @@ release, so entries are grouped by date. PR numbers link the change to its revie
   when a public-table column was added). Now runs `db:migrate`.
 - **`/decisions/accuracy` & `/pending-evaluation` were 404-shadowed** by the `/:id` route (#9) —
   reordered so the static routes resolve.
+- **Flaky exercise seed-guard** (#24) — `exercises.test.ts` gated its seed-dependent cases on
+  `count(exercises) > 0`. Vitest runs test files in parallel against one shared CI DB, so any other
+  file inserting an exercise flipped that true and made these tests *run* (and 404) without real seed
+  data — intermittent CI red on unrelated PRs. Now gates on a specific canonical exercise.
+- **Vercel Preview builds were broken** (infra, no PR) — every *Preview* build failed at
+  `/_not-found` prerender (`Missing publishableKey`) because `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` lived
+  only in the **Production** env scope. Added the public Clerk dev key to the Preview scope. Masked
+  for weeks by the "Ignored Build Step" skipping web builds. Production was always unaffected.
 
 ## 2026-06-19
 
