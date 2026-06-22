@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, Rea
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@clerk/clerk-expo";
-import { offlineQueue, QueueItem, idMappingStore } from "../lib/offline/queue";
+import { offlineQueue, QueueItem, idMappingStore, MAX_RETRIES, backoffDelayMs } from "../lib/offline/queue";
 import { offlineStorage } from "../lib/offline/storage";
 import { fetchWithTimeout, FetchTimeoutError } from "../lib/fetch-with-timeout";
 import { API_URL } from "../lib/constants";
@@ -10,12 +10,26 @@ import { API_URL } from "../lib/constants";
 const SYNC_LOCK_KEY = "@lifters/sync_lock";
 const SYNC_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minute stale lock detection
 
+/**
+ * Outcome of attempting one queued op, so the sync loop can react correctly:
+ * - `success`   → done, remove from queue.
+ * - `deferred`  → a dependency (e.g. the workout log) isn't ready yet; leave it
+ *                 and retry next pass WITHOUT consuming retry budget.
+ * - `transient` → network/timeout/5xx; back off and retry (dead-letter after MAX_RETRIES).
+ * - `permanent` → 4xx or orphaned; dead-letter immediately (retrying won't help).
+ */
+type ProcessResult = "success" | "deferred" | "transient" | "permanent";
+
 interface OfflineContextType {
   isOnline: boolean;
   isSyncing: boolean;
   pendingCount: number;
+  /** Ops that exhausted retries or hit a permanent error (surfaced, never dropped). */
+  deadLetterCount: number;
   lastSyncTime: Date | null;
   syncNow: () => Promise<void>;
+  /** Move dead-letter ops back to the live queue and flush (user "retry failed"). */
+  retryDeadLetter: () => Promise<void>;
 }
 
 const OfflineContext = createContext<OfflineContextType | null>(null);
@@ -25,17 +39,18 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [deadLetterCount, setDeadLetterCount] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  // Update pending count
+  // Update pending + dead-letter counts
   const updatePendingCount = useCallback(async () => {
-    const count = await offlineQueue.size();
-    setPendingCount(count);
+    setPendingCount(await offlineQueue.size());
+    setDeadLetterCount(await offlineQueue.deadLetterSize());
   }, []);
 
   // Process a single queue item
   const processQueueItem = useCallback(
-    async (item: QueueItem, token: string): Promise<boolean> => {
+    async (item: QueueItem, token: string): Promise<ProcessResult> => {
       const { operation } = item;
 
       try {
@@ -74,14 +89,14 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
               );
 
               if (pendingLog) {
-                // The workout log hasn't been created yet - skip this item for now
+                // The workout log hasn't been created yet — defer (no retry penalty).
                 console.log("Workout log not yet created, deferring completion");
-                return false;
+                return "deferred";
               }
 
-              // Orphaned update - skip it
-              console.log("Orphaned workout log update, skipping");
-              return true;
+              // Orphaned update — preserve it in the dead-letter store, don't drop.
+              console.log("Orphaned workout log update, dead-lettering");
+              return "permanent";
             }
 
             endpoint = `/api/logs/${resolvedLogId}/complete`;
@@ -108,15 +123,15 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
               );
 
               if (pendingLog) {
-                // The workout log hasn't been created yet - skip this item for now
+                // The workout log hasn't been created yet — defer (no retry penalty).
                 console.log("Workout log not yet created, deferring set creation");
-                return false;
+                return "deferred";
               }
 
-              // Try to find the workout log by searching for logs created around the same time
-              // This is a recovery mechanism for corrupted queues
-              console.log("Workout log may exist on server, orphaned set will be skipped");
-              return true; // Mark as success to remove from queue (data is lost but queue is cleaned)
+              // Orphaned set (its workout log is gone, not just pending). Preserve
+              // it in the dead-letter store instead of silently dropping the data.
+              console.log("Orphaned logged set, dead-lettering");
+              return "permanent";
             }
 
             endpoint = `/api/logs/${resolvedWorkoutLogId}/sets`;
@@ -139,10 +154,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             // Resolve offline workoutLogId to server ID
             const resolvedWorkoutLogId = await idMappingStore.getServerId(operation.data.workoutLogId);
 
-            // If still an offline ID, skip the operation
+            // Dependency not resolved yet — defer (no retry penalty).
             if (resolvedWorkoutLogId.startsWith("offline-")) {
-              console.log(`Unresolved offline workoutLogId for UPDATE_SET: ${resolvedWorkoutLogId}, skipping`);
-              return true;
+              console.log(`Unresolved offline workoutLogId for UPDATE_SET: ${resolvedWorkoutLogId}, deferring`);
+              return "deferred";
             }
 
             endpoint = `/api/logs/${resolvedWorkoutLogId}/sets/${operation.data.id}`;
@@ -160,10 +175,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
             // Resolve offline workoutLogId to server ID
             const resolvedWorkoutLogId = await idMappingStore.getServerId(operation.data.workoutLogId);
 
-            // If still an offline ID, skip the operation
+            // Dependency not resolved yet — defer (no retry penalty).
             if (resolvedWorkoutLogId.startsWith("offline-")) {
-              console.log(`Unresolved offline workoutLogId for DELETE_SET: ${resolvedWorkoutLogId}, skipping`);
-              return true;
+              console.log(`Unresolved offline workoutLogId for DELETE_SET: ${resolvedWorkoutLogId}, deferring`);
+              return "deferred";
             }
 
             endpoint = `/api/logs/${resolvedWorkoutLogId}/sets/${operation.data.id}`;
@@ -183,7 +198,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
           default:
             console.warn("Unknown operation type");
-            return false;
+            return "permanent";
         }
 
         const response = await fetchWithTimeout(
@@ -224,14 +239,17 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
                 console.log(`Mapped existing offline ID ${offlineIdToMap} to server ID ${existingLog.id}`);
               }
             }
-            return true;
+            return "success";
           }
           // 409 Conflict on CREATE_LOGGED_SET - the set already exists
           if (response.status === 409 && operation.type === "CREATE_LOGGED_SET") {
             console.log("Logged set already exists (409), treating as success");
-            return true;
+            return "success";
           }
-          throw new Error(`HTTP ${response.status}`);
+          // Classify the failure: a 4xx is permanent (retrying won't fix a
+          // validation/ownership error) → dead-letter; 5xx/other is transient → back off.
+          console.error(`Sync op failed: HTTP ${response.status} for ${operation.type}`);
+          return response.status >= 400 && response.status < 500 ? "permanent" : "transient";
         }
 
         // If CREATE_WORKOUT_LOG succeeded, capture the server ID and remap pending operations
@@ -245,14 +263,15 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        return true;
+        return "success";
       } catch (error) {
+        // Network failure or timeout — transient, back off and retry.
         if (error instanceof FetchTimeoutError) {
           console.error("Sync request timed out:", error.message);
         } else {
           console.error("Failed to process queue item:", error);
         }
-        return false;
+        return "transient";
       }
     },
     []
@@ -302,21 +321,34 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Process queue items in order
+      // Process queue items in order (FIFO preserves log → set dependencies).
+      const now = Date.now();
       for (const item of queue) {
-        const success = await processQueueItem(item, token);
-        if (success) {
+        // Respect backoff: skip items not yet due for a retry.
+        if (item.nextRetryAt && new Date(item.nextRetryAt).getTime() > now) {
+          continue;
+        }
+
+        const result = await processQueueItem(item, token);
+
+        if (result === "success") {
           await offlineQueue.dequeue(item.id);
-          await updatePendingCount();
+        } else if (result === "deferred") {
+          // Dependency not ready — leave in place, no retry penalty, try next pass.
+          continue;
+        } else if (result === "permanent") {
+          console.error("Permanent failure, dead-lettering item:", item.id);
+          await offlineQueue.moveToDeadLetter(item.id);
         } else {
-          // Mark as retried, skip if too many retries
-          if (item.retryCount >= 3) {
-            console.error("Max retries reached, removing item:", item.id);
-            await offlineQueue.dequeue(item.id);
+          // transient: back off, or dead-letter once retries are exhausted.
+          if (item.retryCount + 1 >= MAX_RETRIES) {
+            console.error("Max retries reached, dead-lettering item:", item.id);
+            await offlineQueue.moveToDeadLetter(item.id);
           } else {
-            await offlineQueue.markRetried(item.id);
+            await offlineQueue.scheduleRetry(item.id, backoffDelayMs(item.retryCount));
           }
         }
+        await updatePendingCount();
       }
 
       await offlineStorage.setLastSync();
@@ -329,6 +361,13 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       updatePendingCount();
     }
   }, [isOnline, getToken, processQueueItem, updatePendingCount]);
+
+  // User-initiated "retry failed": revive dead-letter ops and flush.
+  const retryDeadLetter = useCallback(async () => {
+    await offlineQueue.retryDeadLetter();
+    await updatePendingCount();
+    await syncNow();
+  }, [updatePendingCount, syncNow]);
 
   // Monitor network state
   useEffect(() => {
@@ -365,8 +404,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         isOnline,
         isSyncing,
         pendingCount,
+        deadLetterCount,
         lastSyncTime,
         syncNow,
+        retryDeadLetter,
       }}
     >
       {children}
