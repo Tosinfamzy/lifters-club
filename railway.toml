@@ -4,6 +4,15 @@ dockerfilePath = "apps/server/Dockerfile"
 buildTarget = "prod"
 
 [deploy]
+# Migrations run here rather than from a laptop or a GitHub runner. Pre-deploy
+# executes inside Railway's private network with the service's own env vars, so
+# it resolves the private DATABASE_URL and needs no internet-reachable database
+# — which is what lets the public TCP proxy stay deleted after the Oct 2026
+# Railway env-var breach. The prod image already has what this needs: pnpm
+# install runs without --prod so drizzle-kit (a devDependency) is present, and
+# COPY . . brings packages/db/migrations and drizzle.config.ts with it.
+# A failed migration is not retried and blocks the deploy. That is intended.
+preDeployCommand = ["pnpm --filter @gymapp/db db:migrate"]
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"

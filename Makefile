@@ -1,4 +1,4 @@
-.PHONY: help up up-db down restart logs logs-db logs-server logs-web db-shell migrate migrate-prod seed seed-programs seed-training seed-all build clean dev \
+.PHONY: help up up-db down restart logs logs-db logs-server logs-web db-shell migrate seed seed-programs seed-training seed-all build clean dev \
 	dev-server dev-web dev-mobile test test-watch test-server test-engine \
 	lint typecheck api-docs status install mobile mobile-ios mobile-android studio reset
 
@@ -24,7 +24,6 @@ help:
 	@echo "  make db-shell     - Open PostgreSQL shell"
 	@echo "  make db-push      - Push schema (dev only)"
 	@echo "  make migrate      - Run migrations"
-	@echo "  make migrate-prod - Run migrations against production (Railway)"
 	@echo "  make seed         - Seed exercises (local)"
 	@echo "  make seed-programs - Seed training programs (local)"
 	@echo "  make seed-training - Seed training data for dev user (local)"
@@ -111,12 +110,11 @@ migrate:
 	@echo "Running migrations..."
 	pnpm db:migrate
 
-# Run migrations against production (fetches DATABASE_URL from Railway)
-migrate-prod:
-	@echo "Fetching production DATABASE_URL from Railway..."
-	@DATABASE_URL=$$(railway variables --json -s Postgres 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['DATABASE_PUBLIC_URL'])") && \
-		echo "Running migrations against production..." && \
-		cd packages/db && DATABASE_URL=$$DATABASE_URL pnpm db:migrate
+# Production migrations are not run from here. They run as the pre-deploy
+# command on the gymapp-api Railway service (see railway.toml), inside the
+# private network. Nothing outside Railway needs database credentials, which is
+# why the public TCP proxy is gone. To ship a migration, merge it to main; to
+# re-run without a code change, use `railway redeploy --service gymapp-api`.
 
 # Push schema directly (dev only)
 db-push:
