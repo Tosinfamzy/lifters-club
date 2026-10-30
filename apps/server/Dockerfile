@@ -22,6 +22,11 @@ CMD ["pnpm", "dev"]
 
 # Production stage - use tsx to run TypeScript directly
 # This avoids ESM module resolution issues with compiled JS
+#
+# KEEP THIS THE LAST STAGE IN THIS FILE. Railway builds the final stage, and it
+# has no working build-target setting — buildTarget is absent from both its
+# Config as Code and IaC references and an apply does not persist it. Appending
+# any stage below this one would silently ship that stage to production instead.
 FROM deps AS prod
 COPY . .
 # Build the dependency packages (types, validation, db, engine)

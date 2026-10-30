@@ -6,7 +6,15 @@ export const partial = "gymapp-api";
 export default defineRailway(() => {
   const gymappApi = service("gymapp-api", {
     source: github("Tosinfamzy/lifters-club", { branch: "main", checkSuites: false }),
-    build: { builder: "dockerfile", dockerfilePath: "apps/server/Dockerfile" },
+    // builder is upper-cased to match what the API returns. The importer emits
+    // "dockerfile", which never compares equal, leaving a phantom change in
+    // every plan and hiding real drift.
+    // No buildTarget here on purpose. The old railway.toml set
+    // buildTarget = "prod", but Railway does not support the field in Config
+    // as Code or IaC and an apply does not persist it, so it was always inert.
+    // The prod stage is selected because it is the last stage in
+    // apps/server/Dockerfile — see the warning comment there.
+    build: { builder: "DOCKERFILE", dockerfilePath: "apps/server/Dockerfile" },
     healthcheck: "/health",
     healthcheckTimeout: 300,
     preDeploy: "pnpm --filter @gymapp/db db:migrate",
