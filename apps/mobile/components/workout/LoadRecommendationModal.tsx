@@ -2,6 +2,8 @@ import { View, Text, TouchableOpacity } from "react-native";
 import { TrendingUp } from "lucide-react-native";
 import { styles } from "./workout.styles";
 import type { LoadRecommendation } from "./workout.types";
+import { useWeightUnit } from "../../hooks/use-preferences";
+import { formatWeight } from "../../lib/preferences";
 
 interface LoadRecommendationModalProps {
   recommendation: LoadRecommendation;
@@ -14,6 +16,7 @@ export function LoadRecommendationModal({
   exerciseName,
   onDismiss,
 }: LoadRecommendationModalProps) {
+  const weightUnit = useWeightUnit();
   return (
     <View style={styles.restOverlay}>
       <View style={styles.recommendationCard}>
@@ -50,7 +53,7 @@ export function LoadRecommendationModal({
         <View style={styles.recommendationWeight}>
           <Text style={styles.recommendationWeightLabel}>Next Session</Text>
           <Text style={styles.recommendationWeightValue}>
-            {recommendation.newWeight} lbs
+            {formatWeight(recommendation.newWeight, weightUnit)}
           </Text>
         </View>
 

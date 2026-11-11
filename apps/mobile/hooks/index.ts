@@ -6,3 +6,4 @@ export { useExerciseDecisions } from "./use-exercise-decisions";
 export { useWorkoutCompletion } from "./use-workout-completion";
 export type { ExerciseDecision } from "./use-exercise-decisions";
 export type { ReadinessResult, ReadinessInputs } from "./use-readiness-check";
+export { usePreferences } from "./use-preferences";

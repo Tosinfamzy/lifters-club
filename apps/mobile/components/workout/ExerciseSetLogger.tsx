@@ -1,6 +1,8 @@
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
 import { TrendingUp, MoreHorizontal, ChevronRight } from "lucide-react-native";
 import type { ExerciseDecision } from "../../hooks/use-exercise-decisions";
+import { useWeightUnit } from "../../hooks/use-preferences";
+import { formatWeight } from "../../lib/preferences";
 import { styles } from "./workout.styles";
 import { SetInputRow } from "./SetInputRow";
 import { DecisionBadge } from "./DecisionBadge";
@@ -30,6 +32,7 @@ export function ExerciseSetLogger({
   onShowActions,
   onOpenDecision,
 }: ExerciseSetLoggerProps) {
+  const weightUnit = useWeightUnit();
   return (
     <ScrollView
       style={styles.content}
@@ -63,7 +66,7 @@ export function ExerciseSetLogger({
         <View style={styles.lastPerformance}>
           <TrendingUp size={14} color="#10B981" />
           <Text style={styles.lastPerformanceText}>
-            Last: {exercise.lastPerformance.weight}lbs ×{" "}
+            Last: {formatWeight(exercise.lastPerformance.weight, weightUnit)} ×{" "}
             {exercise.lastPerformance.reps} reps
             {exercise.lastPerformance.rpe &&
               ` @ RPE ${exercise.lastPerformance.rpe}`}

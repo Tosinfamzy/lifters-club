@@ -47,9 +47,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
       const response = await api.withToken(token).getCurrentUser();
       const userData = response.data;
 
-      // Only update if data actually changed (compare by ID)
+      // Only update if data actually changed. updatedAt catches profile and
+      // preference edits, which keep the same id and active block.
       setAppUser((prev) => {
         if (prev?.id === userData?.id &&
+            prev?.updatedAt === userData?.updatedAt &&
             prev?.activeTrainingBlock?.id === userData?.activeTrainingBlock?.id) {
           return prev; // Return same reference if no change
         }
