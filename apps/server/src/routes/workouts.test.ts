@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { db } from "@gymapp/db";
-import { users, programs, trainingBlocks, workouts } from "@gymapp/db/schema";
+import { users, programs, trainingBlocks, workouts, workoutLogs, loggedSets, standaloneWorkouts } from "@gymapp/db/schema";
 import { eq, like } from "drizzle-orm";
 
 // Mock Clerk's verifyToken before importing the app
@@ -120,8 +120,21 @@ interface WorkoutData {
   plannedExercises: unknown[];
 }
 
+function blockFixture(id: string) {
+  return {
+    id,
+    userId: TEST_USER_ID,
+    programId: TEST_PROGRAM_ID,
+    startDate: "2026-01-01",
+    currentWeek: 1,
+  };
+}
+
 // Cleanup helper
 async function cleanupTestData() {
+  await db.delete(loggedSets).where(like(loggedSets.workoutLogId, "test-log-%"));
+  await db.delete(workoutLogs).where(like(workoutLogs.userId, "test-user-workouts-%"));
+  await db.delete(standaloneWorkouts).where(like(standaloneWorkouts.userId, "test-user-workouts-%"));
   await db.delete(workouts).where(like(workouts.id, "test-%"));
   await db.delete(trainingBlocks).where(like(trainingBlocks.id, "test-%"));
   await db.delete(users).where(like(users.id, "test-user-workouts-%"));
@@ -425,6 +438,70 @@ describe("Workouts API", () => {
           body: JSON.stringify({ status: "paused" }),
         });
         expect(res.status).toBe(403);
+      });
+
+      it("returns 409 when resuming while another block is active", async () => {
+        await db.insert(trainingBlocks).values([
+          { ...blockFixture(TEST_BLOCK_ID), status: "active" },
+          { ...blockFixture("test-block-paused"), status: "paused" },
+        ]);
+
+        const res = await app.request("/api/workouts/training-blocks/test-block-paused", {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({ status: "active" }),
+        });
+        expect(res.status).toBe(409);
+
+        const body = (await res.json()) as ApiResponse & { activeBlockId?: string };
+        expect(body.error).toBe("Another training block is already active");
+        expect(body.activeBlockId).toBe(TEST_BLOCK_ID);
+
+        const [unchanged] = await db.select().from(trainingBlocks).where(eq(trainingBlocks.id, "test-block-paused"));
+        expect(unchanged!.status).toBe("paused");
+      });
+
+      it("resumes a paused block when no other block is active", async () => {
+        await db.insert(trainingBlocks).values([
+          { ...blockFixture("test-block-paused"), status: "paused" },
+          { ...blockFixture("test-block-completed"), status: "completed" },
+        ]);
+
+        const res = await app.request("/api/workouts/training-blocks/test-block-paused", {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({ status: "active" }),
+        });
+        expect(res.status).toBe(200);
+
+        const body = (await res.json()) as ApiResponse<TrainingBlockData>;
+        expect(body.data!.status).toBe("active");
+      });
+
+      it("ignores other users' active blocks when resuming", async () => {
+        await db.insert(users).values(otherUser);
+        await db.insert(trainingBlocks).values([
+          { ...blockFixture(OTHER_BLOCK_ID), userId: OTHER_USER_ID, status: "active" },
+          { ...blockFixture("test-block-paused"), status: "paused" },
+        ]);
+
+        const res = await app.request("/api/workouts/training-blocks/test-block-paused", {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({ status: "active" }),
+        });
+        expect(res.status).toBe(200);
+      });
+
+      it("allows setting an already-active block to active", async () => {
+        await db.insert(trainingBlocks).values({ ...blockFixture(TEST_BLOCK_ID), status: "active" });
+
+        const res = await app.request(`/api/workouts/training-blocks/${TEST_BLOCK_ID}`, {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({ status: "active" }),
+        });
+        expect(res.status).toBe(200);
       });
     });
   });
@@ -998,6 +1075,211 @@ describe("Workouts API", () => {
         const body = (await res.json()) as ApiResponse<WorkoutData[]>;
         expect(body.data).toEqual([]);
       });
+    });
+  });
+
+  describe("GET /api/workouts/calendar", () => {
+    interface CalendarDayData {
+      date: string;
+      scheduled: Array<{
+        kind: "program" | "standalone";
+        id: string;
+        name: string;
+        status: string;
+        weekNumber?: number;
+        dayNumber?: number;
+      }>;
+      completedCount: number;
+      durationSeconds: number;
+      volume: number;
+    }
+
+    async function getCalendarDays(query: string) {
+      const res = await app.request(`/api/workouts/calendar?${query}`, { headers: authHeaders() });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as ApiResponse<{ days: CalendarDayData[] }>;
+      return body.data!.days;
+    }
+
+    function dayOf(days: CalendarDayData[], date: string): CalendarDayData {
+      const day = days.find((d) => d.date === date);
+      expect(day).toBeDefined();
+      return day!;
+    }
+
+    function programWorkout(id: string, blockId: string, scheduledDate: string, dayNumber: number) {
+      return {
+        id,
+        trainingBlockId: blockId,
+        scheduledDate,
+        weekNumber: 1,
+        dayNumber,
+        status: "pending",
+        plannedExercises: [],
+      };
+    }
+
+    function standaloneWorkout(id: string, userId: string, name: string, scheduledDate: string) {
+      return { id, userId, name, scheduledDate, plannedExercises: [], focusMuscles: [] };
+    }
+
+    function completedLog(id: string, userId: string, startedAt: string, completedAt: string | null) {
+      return {
+        id,
+        userId,
+        startedAt: new Date(startedAt),
+        completedAt: completedAt ? new Date(completedAt) : null,
+      };
+    }
+
+    function loggedSet(id: string, workoutLogId: string, setNumber: number, weight: number, reps: number) {
+      return { id, workoutLogId, exerciseId: "barbell-bench-press", setNumber, weight, reps };
+    }
+
+    it("returns one zero-filled entry per day in the range", async () => {
+      const days = await getCalendarDays("from=2026-01-30&to=2026-02-02&tz=UTC");
+
+      expect(days.map((d) => d.date)).toEqual(["2026-01-30", "2026-01-31", "2026-02-01", "2026-02-02"]);
+      for (const day of days) {
+        expect(day).toEqual({ date: day.date, scheduled: [], completedCount: 0, durationSeconds: 0, volume: 0 });
+      }
+    });
+
+    it("names program workouts from the template and includes paused blocks", async () => {
+      await db.insert(trainingBlocks).values([
+        { ...blockFixture(TEST_BLOCK_ID), status: "active" },
+        { ...blockFixture("test-block-paused"), status: "paused" },
+        { ...blockFixture("test-block-completed"), status: "completed" },
+      ]);
+      await db.insert(workouts).values([
+        programWorkout("test-workout-cal-d3", TEST_BLOCK_ID, "2026-01-05", 3),
+        programWorkout("test-workout-cal-d5", TEST_BLOCK_ID, "2026-01-07", 5),
+        programWorkout("test-workout-cal-paused", "test-block-paused", "2026-01-06", 1),
+        programWorkout("test-workout-cal-completed", "test-block-completed", "2026-01-06", 1),
+        programWorkout("test-workout-cal-outside", TEST_BLOCK_ID, "2026-01-08", 1),
+      ]);
+
+      const days = await getCalendarDays("from=2026-01-05&to=2026-01-07&tz=UTC");
+
+      expect(dayOf(days, "2026-01-05").scheduled).toEqual([
+        { kind: "program", id: "test-workout-cal-d3", name: "Day 2", status: "pending", weekNumber: 1, dayNumber: 3 },
+      ]);
+      expect(dayOf(days, "2026-01-06").scheduled.map((w) => w.id)).toEqual(["test-workout-cal-paused"]);
+      expect(dayOf(days, "2026-01-06").scheduled[0]!.name).toBe("Day 1");
+      // dayNumber 5 has no template session, so the name falls back
+      expect(dayOf(days, "2026-01-07").scheduled[0]!.name).toBe("Day 5");
+    });
+
+    it("includes standalone workouts by scheduled date", async () => {
+      await db.insert(standaloneWorkouts).values([
+        standaloneWorkout("test-sw-cal-1", TEST_USER_ID, "Arms Pump", "2026-01-05"),
+        standaloneWorkout("test-sw-cal-2", TEST_USER_ID, "Out of range", "2026-01-09"),
+      ]);
+
+      const days = await getCalendarDays("from=2026-01-05&to=2026-01-07&tz=UTC");
+
+      expect(dayOf(days, "2026-01-05").scheduled).toEqual([
+        { kind: "standalone", id: "test-sw-cal-1", name: "Arms Pump", status: "pending" },
+      ]);
+      expect(days.flatMap((d) => d.scheduled)).toHaveLength(1);
+    });
+
+    it("aggregates duration and volume across multiple logs and sets without double counting", async () => {
+      await db.insert(workoutLogs).values([
+        completedLog("test-log-cal-1", TEST_USER_ID, "2026-01-05T10:00:00Z", "2026-01-05T11:00:00Z"),
+        completedLog("test-log-cal-2", TEST_USER_ID, "2026-01-05T18:00:00Z", "2026-01-05T18:30:00Z"),
+        completedLog("test-log-cal-open", TEST_USER_ID, "2026-01-05T20:00:00Z", null),
+        completedLog("test-log-cal-3", TEST_USER_ID, "2026-01-06T09:00:00Z", "2026-01-06T09:45:00Z"),
+      ]);
+      await db.insert(loggedSets).values([
+        loggedSet("test-set-cal-1", "test-log-cal-1", 1, 100, 5),
+        loggedSet("test-set-cal-2", "test-log-cal-1", 2, 100, 5),
+        loggedSet("test-set-cal-3", "test-log-cal-1", 3, 80, 8),
+        loggedSet("test-set-cal-4", "test-log-cal-2", 1, 50, 10),
+        loggedSet("test-set-cal-5", "test-log-cal-2", 2, 50, 10),
+        loggedSet("test-set-cal-6", "test-log-cal-open", 1, 200, 10),
+      ]);
+
+      const days = await getCalendarDays("from=2026-01-05&to=2026-01-07&tz=UTC");
+
+      // 3600s + 1800s; volume 500 + 500 + 640 + 500 + 500. The open log is excluded.
+      expect(dayOf(days, "2026-01-05")).toMatchObject({ completedCount: 2, durationSeconds: 5400, volume: 2640 });
+      // A completed log with no sets still counts towards duration
+      expect(dayOf(days, "2026-01-06")).toMatchObject({ completedCount: 1, durationSeconds: 2700, volume: 0 });
+      expect(dayOf(days, "2026-01-07")).toMatchObject({ completedCount: 0, durationSeconds: 0, volume: 0 });
+    });
+
+    it("counts a log whose completedAt precedes startedAt as zero duration", async () => {
+      await db.insert(workoutLogs).values([
+        completedLog("test-log-cal-skewed", TEST_USER_ID, "2026-01-05T11:00:00Z", "2026-01-05T10:00:00Z"),
+        completedLog("test-log-cal-normal", TEST_USER_ID, "2026-01-05T12:00:00Z", "2026-01-05T12:30:00Z"),
+      ]);
+
+      const days = await getCalendarDays("from=2026-01-05&to=2026-01-05&tz=UTC");
+
+      expect(dayOf(days, "2026-01-05")).toMatchObject({ completedCount: 2, durationSeconds: 1800 });
+    });
+
+    it("buckets completed logs by the local date in the requested time zone", async () => {
+      await db.insert(workoutLogs).values(
+        completedLog("test-log-cal-late", TEST_USER_ID, "2026-01-05T23:00:00Z", "2026-01-05T23:30:00Z")
+      );
+      await db.insert(loggedSets).values(loggedSet("test-set-cal-late", "test-log-cal-late", 1, 100, 10));
+
+      const utcDays = await getCalendarDays("from=2026-01-05&to=2026-01-06&tz=UTC");
+      expect(dayOf(utcDays, "2026-01-05")).toMatchObject({ completedCount: 1, durationSeconds: 1800, volume: 1000 });
+      expect(dayOf(utcDays, "2026-01-06").completedCount).toBe(0);
+
+      const berlinDays = await getCalendarDays("from=2026-01-05&to=2026-01-06&tz=Europe/Berlin");
+      expect(dayOf(berlinDays, "2026-01-05").completedCount).toBe(0);
+      expect(dayOf(berlinDays, "2026-01-06")).toMatchObject({ completedCount: 1, durationSeconds: 1800, volume: 1000 });
+
+      // The log falls outside a Berlin range that ends on 2026-01-05
+      const berlinEdge = await getCalendarDays("from=2026-01-05&to=2026-01-05&tz=Europe/Berlin");
+      expect(dayOf(berlinEdge, "2026-01-05").completedCount).toBe(0);
+    });
+
+    it("never returns another user's workouts or logs", async () => {
+      await db.insert(users).values(otherUser);
+      await db.insert(trainingBlocks).values({ ...blockFixture(OTHER_BLOCK_ID), userId: OTHER_USER_ID, status: "active" });
+      await db.insert(workouts).values(programWorkout("test-workout-cal-other", OTHER_BLOCK_ID, "2026-01-05", 1));
+      await db.insert(standaloneWorkouts).values(
+        standaloneWorkout("test-sw-cal-other", OTHER_USER_ID, "Not mine", "2026-01-05")
+      );
+      await db.insert(workoutLogs).values(
+        completedLog("test-log-cal-other", OTHER_USER_ID, "2026-01-05T10:00:00Z", "2026-01-05T11:00:00Z")
+      );
+      await db.insert(loggedSets).values(loggedSet("test-set-cal-other", "test-log-cal-other", 1, 100, 5));
+
+      const days = await getCalendarDays("from=2026-01-05&to=2026-01-05&tz=UTC");
+
+      expect(days).toEqual([{ date: "2026-01-05", scheduled: [], completedCount: 0, durationSeconds: 0, volume: 0 }]);
+    });
+
+    it("accepts device-reported zone aliases and the maximum 62-day range", async () => {
+      const kolkata = await getCalendarDays("from=2026-01-01&to=2026-01-01&tz=Asia/Kolkata");
+      expect(kolkata).toHaveLength(1);
+
+      const maxRange = await getCalendarDays("from=2026-01-01&to=2026-03-03&tz=UTC");
+      expect(maxRange).toHaveLength(62);
+    });
+
+    it.each([
+      ["an unknown time zone", "from=2026-01-01&to=2026-01-07&tz=Mars/Olympus"],
+      ["a UTC offset instead of a zone name", "from=2026-01-01&to=2026-01-07&tz=%2B05:00"],
+      ["a missing time zone", "from=2026-01-01&to=2026-01-07"],
+      ["from after to", "from=2026-01-08&to=2026-01-07&tz=UTC"],
+      ["a range over 62 days", "from=2026-01-01&to=2026-03-04&tz=UTC"],
+      ["a malformed date", "from=2026-1-01&to=2026-01-07&tz=UTC"],
+      ["an impossible date", "from=2026-02-30&to=2026-03-02&tz=UTC"],
+    ])("returns 400 for %s", async (_label, query) => {
+      const res = await app.request(`/api/workouts/calendar?${query}`, { headers: authHeaders() });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 401 without authentication", async () => {
+      const res = await app.request("/api/workouts/calendar?from=2026-01-01&to=2026-01-07&tz=UTC");
+      expect(res.status).toBe(401);
     });
   });
 });
