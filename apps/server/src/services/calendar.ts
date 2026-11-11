@@ -172,7 +172,9 @@ function completedLogsInRange({ userId, from, to, tz }: CalendarQuery & { userId
     .select({
       id: workoutLogs.id,
       day: sql<string>`${localDay}::text`.as("day"),
-      durationSeconds: sql<number>`extract(epoch from (${workoutLogs.completedAt} - ${workoutLogs.startedAt}))`
+      // Clamped at 0: a skewed device clock (e.g. an offline replay) can put
+      // completedAt before startedAt, which would subtract from the day's total.
+      durationSeconds: sql<number>`greatest(extract(epoch from (${workoutLogs.completedAt} - ${workoutLogs.startedAt})), 0)`
         .as("duration_seconds"),
     })
     .from(workoutLogs)

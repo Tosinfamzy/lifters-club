@@ -1141,6 +1141,17 @@ describe("Workouts API", () => {
       expect(dayOf(days, "2026-01-07")).toMatchObject({ completedCount: 0, durationSeconds: 0, volume: 0 });
     });
 
+    it("counts a log whose completedAt precedes startedAt as zero duration", async () => {
+      await db.insert(workoutLogs).values([
+        completedLog("test-log-cal-skewed", TEST_USER_ID, "2026-01-05T11:00:00Z", "2026-01-05T10:00:00Z"),
+        completedLog("test-log-cal-normal", TEST_USER_ID, "2026-01-05T12:00:00Z", "2026-01-05T12:30:00Z"),
+      ]);
+
+      const days = await getCalendarDays("from=2026-01-05&to=2026-01-05&tz=UTC");
+
+      expect(dayOf(days, "2026-01-05")).toMatchObject({ completedCount: 2, durationSeconds: 1800 });
+    });
+
     it("buckets completed logs by the local date in the requested time zone", async () => {
       await db.insert(workoutLogs).values(
         completedLog("test-log-cal-late", TEST_USER_ID, "2026-01-05T23:00:00Z", "2026-01-05T23:30:00Z")
