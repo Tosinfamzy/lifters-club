@@ -584,29 +584,29 @@ workoutRoutes.get(
       return c.json({ error: "Forbidden: You can only access your own workouts" }, 403);
     }
 
-    let dbQuery = db.select().from(workouts);
-
-    // Filter to only user's training blocks (or specific block if provided)
-    if (query.trainingBlockId) {
-      dbQuery = dbQuery.where(eq(workouts.trainingBlockId, query.trainingBlockId)) as typeof dbQuery;
-    } else {
-      // Filter to any of user's training blocks
-      dbQuery = dbQuery.where(inArray(workouts.trainingBlockId, userBlockIds)) as typeof dbQuery;
-    }
+    // All filters must be combined in a single where(): each drizzle .where() call
+    // replaces the previous one, which would drop the ownership filter.
+    const conditions = [
+      query.trainingBlockId
+        ? eq(workouts.trainingBlockId, query.trainingBlockId)
+        : inArray(workouts.trainingBlockId, userBlockIds),
+    ];
 
     if (query.status) {
-      dbQuery = dbQuery.where(eq(workouts.status, query.status)) as typeof dbQuery;
+      conditions.push(eq(workouts.status, query.status));
     }
-
     if (query.fromDate) {
-      dbQuery = dbQuery.where(gte(workouts.scheduledDate, query.fromDate)) as typeof dbQuery;
+      conditions.push(gte(workouts.scheduledDate, query.fromDate));
     }
-
     if (query.toDate) {
-      dbQuery = dbQuery.where(lte(workouts.scheduledDate, query.toDate)) as typeof dbQuery;
+      conditions.push(lte(workouts.scheduledDate, query.toDate));
     }
 
-    const results = await dbQuery.orderBy(workouts.scheduledDate);
+    const results = await db
+      .select()
+      .from(workouts)
+      .where(and(...conditions))
+      .orderBy(workouts.scheduledDate);
 
     return c.json({ data: results });
   }

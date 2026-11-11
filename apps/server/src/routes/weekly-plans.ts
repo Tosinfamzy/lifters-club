@@ -8,7 +8,8 @@ import { nanoid } from "nanoid";
 import { logger } from "../lib/logger";
 import { generateWeeklyPlan as generateWeeklyPlanService } from "../services/weekly-plan-generation";
 import { WorkoutGenerationError } from "../services/workout-generation";
-import type { Env } from "../types";
+import type { AppUserEnv } from "../types";
+import { requireAppUser } from "../middleware/authorize";
 import {
   createWeeklyPlanSchema,
   updateWeeklyPlanSchema,
@@ -16,7 +17,10 @@ import {
   weeklyPlanStatusSchema,
 } from "@gymapp/validation";
 
-const weeklyPlanRoutes = new Hono<Env>();
+const weeklyPlanRoutes = new Hono<AppUserEnv>();
+
+// Require an authenticated, onboarded user; exposes the internal users.id as appUserId
+weeklyPlanRoutes.use("*", requireAppUser);
 
 // Query schema for list endpoint
 const listQuerySchema = z.object({
@@ -49,10 +53,7 @@ weeklyPlanRoutes.get(
   "/",
   zValidator("query", listQuerySchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const query = c.req.valid("query");
     const conditions = [eq(weeklyPlans.userId, userId)];
@@ -75,10 +76,7 @@ weeklyPlanRoutes.get(
 
 // GET /weekly-plans/:id - Get single weekly plan with its workouts
 weeklyPlanRoutes.get("/:id", async (c) => {
-  const userId = c.get("userId");
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -112,10 +110,7 @@ weeklyPlanRoutes.post(
   "/",
   zValidator("json", createWeeklyPlanSchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const data = c.req.valid("json");
     const planId = `wp_${nanoid(12)}`;
@@ -181,10 +176,7 @@ weeklyPlanRoutes.post(
   "/generate",
   zValidator("json", generateWeeklyPlanSchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const data = c.req.valid("json");
 
@@ -223,10 +215,7 @@ weeklyPlanRoutes.patch(
   "/:id",
   zValidator("json", updateWeeklyPlanSchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const id = c.req.param("id");
     const data = c.req.valid("json");
@@ -262,10 +251,7 @@ weeklyPlanRoutes.patch(
 
 // DELETE /weekly-plans/:id - Delete a weekly plan and its workouts
 weeklyPlanRoutes.delete("/:id", async (c) => {
-  const userId = c.get("userId");
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -292,10 +278,7 @@ weeklyPlanRoutes.delete("/:id", async (c) => {
 
 // POST /weekly-plans/:id/complete - Mark a weekly plan as completed
 weeklyPlanRoutes.post("/:id/complete", async (c) => {
-  const userId = c.get("userId");
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 

@@ -1,8 +1,8 @@
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { db } from "@gymapp/db";
 import { users, trainingBlocks, workouts, workoutLogs } from "@gymapp/db/schema";
 import { eq } from "drizzle-orm";
-import type { Env } from "../types";
+import type { AppUserEnv, Env } from "../types";
 import { logger as globalLogger } from "../lib/logger";
 
 /**
@@ -24,6 +24,27 @@ export async function getAuthenticatedUser(c: Context<Env>) {
 
   return result[0] ?? null;
 }
+
+/**
+ * Router-level guard: resolves the Clerk `sub` to the internal `users.id` and
+ * sets it as `appUserId`. Tables reference `users.id`, which differs from the
+ * Clerk id (clients create users as `user-<clerk prefix>`), so routes must never
+ * filter user-owned rows by `c.get("userId")` directly.
+ */
+export const requireAppUser: MiddlewareHandler<AppUserEnv> = async (c, next) => {
+  const clerkId = c.get("clerkId");
+  if (!clerkId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const user = await getUserByClerkId(clerkId);
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  c.set("appUserId", user.id);
+  await next();
+};
 
 /**
  * Verify the authenticated user owns the resource

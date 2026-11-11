@@ -521,6 +521,74 @@ describe("Workouts API", () => {
         expect(body.data!.every((w) => w.id !== OTHER_WORKOUT_ID)).toBe(true);
       });
 
+      // Regression: each drizzle .where() call replaced the previous one, so any
+      // status/date filter silently dropped the ownership filter.
+      it.each([
+        ["status", "?status=pending"],
+        ["fromDate", "?fromDate=2000-01-01"],
+        ["toDate", "?toDate=2100-01-01"],
+      ])("should not return other users' workouts when filtering by %s", async (_name, qs) => {
+        await db.insert(users).values(otherUser);
+        await db.insert(trainingBlocks).values({
+          id: OTHER_BLOCK_ID,
+          userId: OTHER_USER_ID,
+          programId: TEST_PROGRAM_ID,
+          startDate: "2024-01-01",
+          currentWeek: 1,
+          status: "active",
+        });
+        await db.insert(workouts).values({
+          id: OTHER_WORKOUT_ID,
+          trainingBlockId: OTHER_BLOCK_ID,
+          scheduledDate: "2024-01-01",
+          weekNumber: 1,
+          dayNumber: 1,
+          status: "pending",
+          plannedExercises: [],
+        });
+
+        const res = await app.request(`/api/workouts${qs}`, {
+          headers: authHeaders(),
+        });
+        expect(res.status).toBe(200);
+
+        const body = (await res.json()) as ApiResponse<WorkoutData[]>;
+        expect(body.data!.length).toBeGreaterThan(0);
+        expect(body.data!.every((w) => w.trainingBlockId === TEST_BLOCK_ID)).toBe(true);
+      });
+
+      it("should apply fromDate and toDate together", async () => {
+        await db.insert(workouts).values([
+          {
+            id: "test-workout-range-before",
+            trainingBlockId: TEST_BLOCK_ID,
+            scheduledDate: "2024-01-01",
+            weekNumber: 1,
+            dayNumber: 2,
+            status: "pending",
+            plannedExercises: [],
+          },
+          {
+            id: "test-workout-range-inside",
+            trainingBlockId: TEST_BLOCK_ID,
+            scheduledDate: "2024-01-10",
+            weekNumber: 2,
+            dayNumber: 1,
+            status: "pending",
+            plannedExercises: [],
+          },
+        ]);
+
+        const res = await app.request(
+          "/api/workouts?fromDate=2024-01-05&toDate=2024-01-15",
+          { headers: authHeaders() }
+        );
+        expect(res.status).toBe(200);
+
+        const body = (await res.json()) as ApiResponse<WorkoutData[]>;
+        expect(body.data!.map((w) => w.id)).toEqual(["test-workout-range-inside"]);
+      });
+
       it("should return 403 for accessing other user's training block", async () => {
         await db.insert(users).values(otherUser);
         await db.insert(trainingBlocks).values({

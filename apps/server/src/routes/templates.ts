@@ -6,13 +6,17 @@ import { workoutTemplates, standaloneWorkouts } from "@gymapp/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../lib/logger";
-import type { Env } from "../types";
+import type { AppUserEnv } from "../types";
+import { requireAppUser } from "../middleware/authorize";
 import {
   createWorkoutTemplateSchema,
   updateWorkoutTemplateSchema,
 } from "@gymapp/validation";
 
-const templateRoutes = new Hono<Env>();
+const templateRoutes = new Hono<AppUserEnv>();
+
+// Require an authenticated, onboarded user; exposes the internal users.id as appUserId
+templateRoutes.use("*", requireAppUser);
 
 // Query schema for list endpoint
 const listQuerySchema = z.object({
@@ -25,10 +29,7 @@ templateRoutes.get(
   "/",
   zValidator("query", listQuerySchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const query = c.req.valid("query");
 
@@ -46,10 +47,7 @@ templateRoutes.get(
 
 // GET /templates/:id - Get single template
 templateRoutes.get("/:id", async (c) => {
-  const userId = c.get("userId");
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -71,10 +69,7 @@ templateRoutes.post(
   "/",
   zValidator("json", createWorkoutTemplateSchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const data = c.req.valid("json");
     const id = `tmpl_${nanoid(12)}`;
@@ -103,10 +98,7 @@ templateRoutes.patch(
   "/:id",
   zValidator("json", updateWorkoutTemplateSchema),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const id = c.req.param("id");
     const data = c.req.valid("json");
@@ -145,10 +137,7 @@ templateRoutes.patch(
 
 // DELETE /templates/:id - Delete a template
 templateRoutes.delete("/:id", async (c) => {
-  const userId = c.get("userId");
-  if (!userId) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -180,10 +169,7 @@ templateRoutes.post(
     })
   ),
   async (c) => {
-    const userId = c.get("userId");
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
+    const userId = c.get("appUserId");
 
     const templateId = c.req.param("id");
     const data = c.req.valid("json");

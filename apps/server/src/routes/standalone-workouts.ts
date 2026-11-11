@@ -7,7 +7,8 @@ import { eq, and, desc, gte, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { logger } from "../lib/logger";
 import { buildPatchData } from "../lib/patch-utils";
-import type { Env } from "../types";
+import type { AppUserEnv } from "../types";
+import { requireAppUser } from "../middleware/authorize";
 import {
   createStandaloneWorkoutSchema,
   updateStandaloneWorkoutSchema,
@@ -16,15 +17,10 @@ import {
 } from "@gymapp/validation";
 import { generateWorkout, WorkoutGenerationError } from "../services/workout-generation";
 
-const standaloneWorkoutRoutes = new Hono<Env>();
+const standaloneWorkoutRoutes = new Hono<AppUserEnv>();
 
-// Require authenticated user for all standalone workout routes
-standaloneWorkoutRoutes.use("*", async (c, next) => {
-  if (!c.get("userId")) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-});
+// Require an authenticated, onboarded user; exposes the internal users.id as appUserId
+standaloneWorkoutRoutes.use("*", requireAppUser);
 
 // Query schema for list endpoint
 const listQuerySchema = z.object({
@@ -41,7 +37,7 @@ standaloneWorkoutRoutes.get(
   "/",
   zValidator("query", listQuerySchema),
   async (c) => {
-    const userId = c.get("userId")!;
+    const userId = c.get("appUserId");
 
     const query = c.req.valid("query");
     const conditions = [eq(standaloneWorkouts.userId, userId)];
@@ -73,7 +69,7 @@ standaloneWorkoutRoutes.get(
 
 // GET /standalone-workouts/:id - Get single standalone workout
 standaloneWorkoutRoutes.get("/:id", async (c) => {
-  const userId = c.get("userId")!;
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -95,7 +91,7 @@ standaloneWorkoutRoutes.post(
   "/",
   zValidator("json", createStandaloneWorkoutSchema),
   async (c) => {
-    const userId = c.get("userId")!;
+    const userId = c.get("appUserId");
 
     const data = c.req.valid("json");
     const id = `sw_${nanoid(12)}`;
@@ -130,7 +126,7 @@ standaloneWorkoutRoutes.post(
   "/generate",
   zValidator("json", generateStandaloneWorkoutSchema),
   async (c) => {
-    const userId = c.get("userId")!;
+    const userId = c.get("appUserId");
 
     const data = c.req.valid("json");
 
@@ -160,7 +156,7 @@ standaloneWorkoutRoutes.patch(
   "/:id",
   zValidator("json", updateStandaloneWorkoutSchema),
   async (c) => {
-    const userId = c.get("userId")!;
+    const userId = c.get("appUserId");
 
     const id = c.req.param("id");
     const data = c.req.valid("json");
@@ -202,7 +198,7 @@ standaloneWorkoutRoutes.patch(
 
 // DELETE /standalone-workouts/:id - Delete a standalone workout
 standaloneWorkoutRoutes.delete("/:id", async (c) => {
-  const userId = c.get("userId")!;
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -225,7 +221,7 @@ standaloneWorkoutRoutes.delete("/:id", async (c) => {
 
 // POST /standalone-workouts/:id/start - Start a standalone workout
 standaloneWorkoutRoutes.post("/:id/start", async (c) => {
-  const userId = c.get("userId")!;
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -257,7 +253,7 @@ standaloneWorkoutRoutes.post("/:id/start", async (c) => {
 
 // POST /standalone-workouts/:id/complete - Complete a standalone workout
 standaloneWorkoutRoutes.post("/:id/complete", async (c) => {
-  const userId = c.get("userId")!;
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 
@@ -293,7 +289,7 @@ standaloneWorkoutRoutes.post("/:id/complete", async (c) => {
 
 // POST /standalone-workouts/:id/skip - Skip a standalone workout
 standaloneWorkoutRoutes.post("/:id/skip", async (c) => {
-  const userId = c.get("userId")!;
+  const userId = c.get("appUserId");
 
   const id = c.req.param("id");
 

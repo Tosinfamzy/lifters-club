@@ -18,6 +18,16 @@ export type Env = {
 };
 
 /**
+ * Env for routers guarded by `requireAppUser`: `appUserId` is the internal
+ * `users.id` (not the Clerk `sub`), guaranteed to be set.
+ */
+export type AppUserEnv = {
+  Variables: Env["Variables"] & {
+    appUserId: string;
+  };
+};
+
+/**
  * Typed context with auth variables
  */
 export type AppContext = Context<Env>;
