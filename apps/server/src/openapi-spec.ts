@@ -277,10 +277,23 @@ export const openAPISpec = {
     },
     "/api/workouts/training-blocks/{id}": {
       get: { tags: ["Training Blocks"], summary: "Get training block with program", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { 200: { description: "Found" }, 404: { description: "Not found" } } },
-      patch: { tags: ["Training Blocks"], summary: "Update training block", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { 200: { description: "Updated" }, 404: { description: "Not found" } } },
+      patch: { tags: ["Training Blocks"], summary: "Update training block", description: "Setting status to active returns 409 with activeBlockId if another of the user's blocks is already active", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { 200: { description: "Updated" }, 404: { description: "Not found" }, 409: { description: "Another training block is already active" } } },
     },
     // Workouts
     "/api/workouts/today": { get: { tags: ["Workouts"], summary: "Get today's workout", description: "Get the workout scheduled for today for a user", parameters: [{ name: "userId", in: "query", required: true, schema: { type: "string" } }], responses: { 200: { description: "Today's workout or null" } } } },
+    "/api/workouts/calendar": {
+      get: {
+        tags: ["Workouts"],
+        summary: "Get calendar days",
+        description: "One entry per local date in [from, to] (max 62 days): scheduled program workouts (active and paused blocks) and standalone workouts, plus the count, duration and volume of logs completed that day in the given time zone",
+        parameters: [
+          { name: "from", in: "query", required: true, schema: { type: "string", format: "date" } },
+          { name: "to", in: "query", required: true, schema: { type: "string", format: "date" } },
+          { name: "tz", in: "query", required: true, schema: { type: "string", example: "Europe/Berlin" }, description: "IANA time zone used to bucket completed logs by local date" },
+        ],
+        responses: { 200: { description: "Calendar days" }, 400: { description: "Invalid range or time zone" } },
+      },
+    },
     "/api/workouts/recent": { get: { tags: ["Workouts"], summary: "Get recent workouts", description: "Get recently completed workouts for a user", parameters: [{ name: "userId", in: "query", required: true, schema: { type: "string" } }, { name: "limit", in: "query", schema: { type: "integer", default: 10 } }], responses: { 200: { description: "Recent workouts" } } } },
     "/api/workouts": {
       get: {

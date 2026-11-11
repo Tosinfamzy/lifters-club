@@ -3,13 +3,14 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@gymapp/db";
 import { trainingBlocks, workouts, programs, decisions, standaloneWorkouts } from "@gymapp/db/schema";
-import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
+import { eq, and, ne, gte, lte, desc, inArray } from "drizzle-orm";
 import { getDecisionConfidence } from "@gymapp/engine";
 import type { Env } from "../types";
 import type { DecisionType } from "@gymapp/types";
 import { verifyTrainingBlockAccess, verifyWorkoutAccess, getUserByClerkId } from "../middleware/authorize";
 import { logger as globalLogger } from "../lib/logger";
 import { generateNextWeek, isWeekComplete } from "../services/week-generation";
+import { calendarQuerySchema, getCalendar } from "../services/calendar";
 
 const workoutRoutes = new Hono<Env>();
 
@@ -186,6 +187,23 @@ workoutRoutes.patch(
     const authResult = await verifyTrainingBlockAccess(c, id);
     if (!authResult.authorized) {
       return authResult.response;
+    }
+
+    // Only one block may be active at a time; resuming must not create a second.
+    if (data.status === "active") {
+      const [otherActive] = await db
+        .select({ id: trainingBlocks.id })
+        .from(trainingBlocks)
+        .where(and(
+          eq(trainingBlocks.userId, authResult.user.id),
+          eq(trainingBlocks.status, "active"),
+          ne(trainingBlocks.id, id)
+        ))
+        .limit(1);
+
+      if (otherActive) {
+        return c.json({ error: "Another training block is already active", activeBlockId: otherActive.id }, 409);
+      }
     }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -480,6 +498,27 @@ function generateDecisionSummary(type: string, output: Record<string, unknown>):
       return "Adjustment recommended";
   }
 }
+
+// GET /calendar - Per-day schedule and completion stats over a date range.
+// Days are the user's local dates in `tz`. Registered before /:id so it isn't shadowed.
+workoutRoutes.get(
+  "/calendar",
+  zValidator("query", calendarQuerySchema),
+  async (c) => {
+    const clerkId = c.get("clerkId");
+    if (!clerkId) {
+      return c.json({ error: "Not authenticated" }, 401);
+    }
+
+    const user = await getUserByClerkId(clerkId);
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const days = await getCalendar(user.id, c.req.valid("query"));
+    return c.json({ data: { days } });
+  }
+);
 
 // GET /recent - Get recent workouts for authenticated user
 workoutRoutes.get(
