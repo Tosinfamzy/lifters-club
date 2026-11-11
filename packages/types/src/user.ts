@@ -1,4 +1,4 @@
-import type { TrainingLevel, PrimaryGoal, UserPreferences, WeightUnit } from "./training";
+import type { TrainingLevel, PrimaryGoal, UserPreferences, WeightUnit, WeekStartDay } from "./training";
 
 /**
  * User entity
@@ -45,5 +45,6 @@ export interface UpdateUserInput {
     daysPerWeek: number;
     sessionDurationMinutes: number;
     weightUnit: WeightUnit;
+    weekStartDay: WeekStartDay;
   }>;
 }

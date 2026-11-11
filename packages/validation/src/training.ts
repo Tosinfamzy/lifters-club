@@ -4,6 +4,7 @@ import { muscleGroupSchema } from "./exercise";
 export const trainingLevelSchema = z.enum(["beginner", "intermediate", "advanced"]);
 export const primaryGoalSchema = z.enum(["strength", "hypertrophy", "conditioning"]);
 export const weightUnitSchema = z.enum(["lbs", "kg"]);
+export const weekStartDaySchema = z.enum(["sunday", "monday"]);
 
 export const userPreferencesSchema = z.object({
   focusAreas: z.array(muscleGroupSchema).optional(),
@@ -12,6 +13,7 @@ export const userPreferencesSchema = z.object({
   daysPerWeek: z.number().int().min(1).max(7),
   sessionDurationMinutes: z.number().int().min(15).max(180),
   weightUnit: weightUnitSchema.optional(),
+  weekStartDay: weekStartDaySchema.optional(),
 });
 
 /**

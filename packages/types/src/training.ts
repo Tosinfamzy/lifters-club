@@ -5,6 +5,9 @@ import type { MuscleGroup } from "./exercise";
  */
 export type WeightUnit = "lbs" | "kg";
 
+/** First day of the week in calendar views. */
+export type WeekStartDay = "sunday" | "monday";
+
 /**
  * User training experience level
  */
@@ -71,6 +74,8 @@ export interface UserPreferences {
   daysPerWeek: number;
   sessionDurationMinutes: number;
   weightUnit?: WeightUnit;
+  /** First day of the week in calendar views; absent means Sunday. */
+  weekStartDay?: WeekStartDay;
   /** Whether the athlete opts in to cycle-phase load modification (gates UI). */
   tracksCycle?: boolean;
   /** Per-athlete overrides for the default per-phase load modifiers. */
