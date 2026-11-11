@@ -31,6 +31,11 @@ export function resolveDisplayPreferences(
   };
 }
 
+/** "100 lbs" / "45 kg". */
+export function formatWeight(weight: number, unit: WeightUnit): string {
+  return `${weight} ${unit}`;
+}
+
 /**
  * PATCH /users/:id replaces the whole preferences object, so updates must be
  * merged over the existing preferences or other settings would be wiped.

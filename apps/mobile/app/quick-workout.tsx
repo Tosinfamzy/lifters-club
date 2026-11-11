@@ -17,6 +17,8 @@ import {
   AlertCircle,
 } from "lucide-react-native";
 import { useApi } from "../hooks/use-api";
+import { useWeightUnit } from "../hooks/use-preferences";
+import { formatWeight } from "../lib/preferences";
 import type { GenerateStandaloneWorkoutResponse } from "../lib/api";
 
 const MUSCLE_GROUPS = [
@@ -38,6 +40,7 @@ const DURATION_OPTIONS = [
 type Step = "muscles" | "duration" | "generating" | "preview";
 
 export default function QuickWorkoutScreen() {
+  const weightUnit = useWeightUnit();
   const router = useRouter();
   const api = useApi();
 
@@ -283,7 +286,7 @@ export default function QuickWorkoutScreen() {
                       {exercise.sets} sets x {exercise.repRange[0]}-
                       {exercise.repRange[1]} reps
                       {exercise.targetWeight
-                        ? ` @ ${exercise.targetWeight}lbs`
+                        ? ` @ ${formatWeight(exercise.targetWeight, weightUnit)}`
                         : ""}
                     </Text>
                     <Text style={styles.exerciseRest}>

@@ -3,6 +3,9 @@ import { useApi } from "./use-api";
 import { offlineQueue, createDecisionOutcomeOperation } from "../lib/offline/queue";
 import type { DecisionType, OverrideReason } from "@gymapp/types";
 import type { Workout } from "../lib/api";
+import type { WeightUnit } from "@gymapp/types";
+import { useWeightUnit } from "./use-preferences";
+import { formatWeight } from "../lib/preferences";
 
 export interface ExerciseDecision {
   id: string;
@@ -16,15 +19,17 @@ export interface ExerciseDecision {
 
 function generateDecisionSummary(
   type: string,
-  output: Record<string, unknown>
+  output: Record<string, unknown>,
+  weightUnit: WeightUnit
 ): string {
   switch (type) {
     case "load_progression": {
       const action = output.action as string;
       const newWeight = output.newWeight as number;
-      if (action === "increase") return `↑ ${newWeight}lbs`;
-      if (action === "decrease") return `↓ ${newWeight}lbs`;
-      return `${newWeight}lbs`;
+      const weight = formatWeight(newWeight, weightUnit);
+      if (action === "increase") return `↑ ${weight}`;
+      if (action === "decrease") return `↓ ${weight}`;
+      return weight;
     }
     case "volume_adjustment": {
       const action = output.action as string;
@@ -47,6 +52,7 @@ export function useExerciseDecisions(
   isOnline: boolean
 ) {
   const api = useApi();
+  const weightUnit = useWeightUnit();
   const [exerciseDecisions, setExerciseDecisions] = useState<
     Map<string, ExerciseDecision>
   >(new Map());
@@ -82,7 +88,7 @@ export function useExerciseDecisions(
               exerciseId: input.exerciseId,
               id: decision.id,
               type: decision.type as DecisionType,
-              summary: generateDecisionSummary(decision.type, output),
+              summary: generateDecisionSummary(decision.type, output, weightUnit),
               reasoning: decision.reasoning,
               confidence:
                 (output.confidence as "low" | "medium" | "high") ?? "medium",
@@ -96,7 +102,7 @@ export function useExerciseDecisions(
     } catch (error) {
       console.error("Failed to fetch exercise decisions:", error);
     }
-  }, [workout, isOnline, api]);
+  }, [workout, isOnline, api, weightUnit]);
 
   const recordDecisionOutcome = useCallback(
     async (

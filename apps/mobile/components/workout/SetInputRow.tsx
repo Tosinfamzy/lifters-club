@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, TextInput } from "react-native";
 import { Check, Plus, Minus } from "lucide-react-native";
 import { styles } from "./workout.styles";
 import type { LoggedSet } from "./workout.types";
+import { useWeightUnit } from "../../hooks/use-preferences";
 
 interface SetInputRowProps {
   set: LoggedSet;
@@ -11,6 +12,7 @@ interface SetInputRowProps {
 }
 
 export function SetInputRow({ set, onUpdateField, onComplete }: SetInputRowProps) {
+  const weightUnit = useWeightUnit();
   return (
     <View style={[styles.setCard, set.completed && styles.setCardCompleted]}>
       <View style={styles.setHeader}>
@@ -24,7 +26,7 @@ export function SetInputRow({ set, onUpdateField, onComplete }: SetInputRowProps
 
       <View style={styles.inputsRow}>
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Weight (lbs)</Text>
+          <Text style={styles.inputLabel}>Weight ({weightUnit})</Text>
           <View style={styles.inputWithButtons}>
             <TouchableOpacity
               style={styles.inputButton}

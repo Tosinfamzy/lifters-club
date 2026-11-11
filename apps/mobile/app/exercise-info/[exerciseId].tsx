@@ -20,6 +20,8 @@ import {
 } from "lucide-react-native";
 import { useAppUser } from "../../providers/user-provider";
 import { useApi } from "../../hooks/use-api";
+import { useWeightUnit } from "../../hooks/use-preferences";
+import { formatWeight } from "../../lib/preferences";
 import { ExerciseProgressChart } from "../../components/ExerciseProgressChart";
 import type { Exercise, ExerciseProgressSession } from "../../lib/api";
 
@@ -36,6 +38,7 @@ const difficultyLabels: Record<string, string> = {
 };
 
 export default function ExerciseInfoScreen() {
+  const weightUnit = useWeightUnit();
   const { exerciseId } = useLocalSearchParams<{ exerciseId: string }>();
   const router = useRouter();
   const api = useApi();
@@ -198,7 +201,7 @@ export default function ExerciseInfoScreen() {
               <View style={styles.statIcon}>
                 <TrendingUp size={16} color="#10B981" />
               </View>
-              <Text style={styles.statValue}>{bestWeight}lbs</Text>
+              <Text style={styles.statValue}>{formatWeight(bestWeight, weightUnit)}</Text>
               <Text style={styles.statLabel}>Best</Text>
             </View>
           )}
@@ -280,7 +283,7 @@ export default function ExerciseInfoScreen() {
                 </View>
                 <View style={styles.historySets}>
                   <Text style={styles.historySet}>
-                    Best: {session.bestWeight}lbs
+                    Best: {formatWeight(session.bestWeight, weightUnit)}
                   </Text>
                   <Text style={styles.historySet}>
                     {session.totalSets} sets

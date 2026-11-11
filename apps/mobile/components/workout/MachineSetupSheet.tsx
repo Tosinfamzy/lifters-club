@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Settings } from "lucide-react-native";
 import { useApi } from "../../hooks/use-api";
+import { useWeightUnit } from "../../hooks/use-preferences";
 
 interface MachineSetupSheetProps {
   visible: boolean;
@@ -43,6 +44,7 @@ export function MachineSetupSheet({
   exerciseName,
 }: MachineSetupSheetProps) {
   const api = useApi();
+  const weightUnit = useWeightUnit();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -120,7 +122,7 @@ export function MachineSetupSheet({
           ) : (
             <>
               <View style={styles.field}>
-                <Text style={styles.label}>Weight step (kg)</Text>
+                <Text style={styles.label}>Weight step ({weightUnit})</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -134,7 +136,7 @@ export function MachineSetupSheet({
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.label}>Working weight (kg)</Text>
+                <Text style={styles.label}>Working weight ({weightUnit})</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -147,7 +149,7 @@ export function MachineSetupSheet({
               </View>
 
               <View style={styles.field}>
-                <Text style={styles.label}>Min weight (kg)</Text>
+                <Text style={styles.label}>Min weight ({weightUnit})</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"

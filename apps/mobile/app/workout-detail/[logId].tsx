@@ -23,6 +23,8 @@ import {
   X,
 } from "lucide-react-native";
 import { useApi } from "../../hooks/use-api";
+import { useWeightUnit } from "../../hooks/use-preferences";
+import { formatWeight } from "../../lib/preferences";
 import type { LoggedSet, WorkoutLogWithSets } from "../../lib/api";
 
 interface GroupedExercise {
@@ -31,6 +33,7 @@ interface GroupedExercise {
 }
 
 export default function WorkoutDetailScreen() {
+  const weightUnit = useWeightUnit();
   const { logId } = useLocalSearchParams<{ logId: string }>();
   const router = useRouter();
   const api = useApi();
@@ -412,7 +415,7 @@ export default function WorkoutDetailScreen() {
                       ) : (
                         <>
                           <Text style={[styles.tableCell, styles.tableCellWeight, styles.tableCellValue]}>
-                            {set.weight} lbs
+                            {formatWeight(set.weight, weightUnit)}
                           </Text>
                           <Text style={[styles.tableCell, styles.tableCellReps, styles.tableCellValue]}>
                             {set.reps}

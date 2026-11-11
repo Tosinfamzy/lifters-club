@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   View,
   Text,
@@ -27,19 +27,31 @@ export default function SettingsScreen() {
   const { weightUnit, weekStartDay, updatePreferences } = usePreferences();
   // Optimistic values shown while a save is in flight
   const [pending, setPending] = useState<Partial<DisplayPreferences>>({});
+  // Per-setting save counter, so an older save finishing doesn't clear a newer pending value
+  const saveVersions = useRef<Partial<Record<keyof DisplayPreferences, number>>>({});
   const useLbs = (pending.weightUnit ?? weightUnit) === "lbs";
   const shownWeekStart = pending.weekStartDay ?? weekStartDay;
 
   const savePreference = async (changes: Partial<DisplayPreferences>) => {
+    const keys = Object.keys(changes) as (keyof DisplayPreferences)[];
+    const versions = keys.map((key) => {
+      const version = (saveVersions.current[key] ?? 0) + 1;
+      saveVersions.current[key] = version;
+      return [key, version] as const;
+    });
+
     setPending((prev) => ({ ...prev, ...changes }));
     try {
       await updatePreferences(changes);
-    } catch {
+    } catch (err) {
+      console.error("Failed to save preference:", err);
       Alert.alert("Error", "Couldn't save your setting. Please try again.");
     } finally {
       setPending((prev) => {
         const next = { ...prev };
-        for (const key of Object.keys(changes) as (keyof DisplayPreferences)[]) delete next[key];
+        for (const [key, version] of versions) {
+          if (saveVersions.current[key] === version) delete next[key];
+        }
         return next;
       });
     }

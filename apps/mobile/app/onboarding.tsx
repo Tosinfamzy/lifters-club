@@ -24,6 +24,7 @@ import {
 } from "lucide-react-native";
 import { useAppUser } from "../providers/user-provider";
 import { useApi } from "../hooks/use-api";
+import { useWeightUnit } from "../hooks/use-preferences";
 import { ApiRequestError } from "../lib/api";
 import type {
   CalibrationExercise,
@@ -71,6 +72,7 @@ interface BaselineInput {
 const TOTAL_STEPS = 4;
 
 export default function OnboardingScreen() {
+  const weightUnit = useWeightUnit();
   const { user } = useUser();
   const router = useRouter();
   const { refetch } = useAppUser();
@@ -427,7 +429,7 @@ export default function OnboardingScreen() {
                   <View style={styles.baselineInputs}>
                     <TextInput
                       style={styles.weightInput}
-                      placeholder="Weight (lbs)"
+                      placeholder={`Weight (${weightUnit})`}
                       placeholderTextColor="#64748B"
                       keyboardType="numeric"
                       value={baseline.weight}
